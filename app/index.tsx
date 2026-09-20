@@ -3,14 +3,21 @@ import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useAuth } from "@/lib/auth-context";
 
 export default function Index() {
-  const { user, loading } = useAuth();
-  if (loading)
+  const { user, role, hasRoom, loading } = useAuth();
+
+  if (loading) {
     return (
       <View style={styles.loading}>
         <ActivityIndicator color="#2563eb" />
       </View>
     );
-  return <Redirect href={user ? "/dashboard" : "/login"} />;
+  }
+
+  if (!user) return <Redirect href="/login" />;
+  if (role === "admin") return <Redirect href="/landlord/dashboard" />;
+  return (
+    <Redirect href={hasRoom ? "/tenant/tenant-home" : "/tenant/room-browser"} />
+  );
 }
 
 const styles = StyleSheet.create({

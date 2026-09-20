@@ -1,6 +1,12 @@
 import { Ionicons } from "@expo/vector-icons";
-import { addDoc, collection, serverTimestamp } from "firebase/firestore";
+import {
+  addDoc,
+  collection,
+  onSnapshot,
+  serverTimestamp,
+} from "firebase/firestore";
 import { router } from "expo-router";
+import { LandlordNavigation } from "@/components/landlord-navigation";
 import React, { useState } from "react";
 import {
   Alert,
@@ -14,6 +20,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { db } from "@/lib/firebase";
+import { useAuth } from "@/lib/auth-context";
 
 type Room = {
   id: string;
@@ -24,59 +31,9 @@ type Room = {
   tenant?: string;
   attention?: boolean;
 };
-const initialRooms: Room[] = [
-  {
-    id: "101",
-    number: "101",
-    type: "Single Room",
-    status: "Occupied",
-    rent: "4,500",
-    tenant: "Darren Lim",
-  },
-  {
-    id: "102",
-    number: "102",
-    type: "2-Bed Shared",
-    status: "Occupied",
-    rent: "3,500",
-    tenant: "Bea Santos",
-    attention: true,
-  },
-  {
-    id: "104",
-    number: "104",
-    type: "Single Room",
-    status: "Occupied",
-    rent: "4,800",
-    tenant: "Plumbing & Leak Fix",
-    attention: true,
-  },
-  {
-    id: "201",
-    number: "201",
-    type: "2-Bed Shared",
-    status: "Occupied",
-    rent: "7,000",
-    tenant: "Maria Santos & Ana Reyes",
-  },
-  {
-    id: "202",
-    number: "202",
-    type: "2-Bed Shared",
-    status: "Available",
-    rent: "3,500",
-  },
-  {
-    id: "304",
-    number: "304",
-    type: "Single Room",
-    status: "Available",
-    rent: "5,200",
-  },
-];
-
 export default function Rooms() {
-  const [rooms, setRooms] = useState(initialRooms);
+  const { user } = useAuth();
+  const [rooms, setRooms] = useState<Room[]>([]);
   const [addOpen, setAddOpen] = useState(false);
   const [number, setNumber] = useState("");
   const [type, setType] = useState("");
@@ -84,6 +41,30 @@ export default function Rooms() {
   const [filter, setFilter] = useState<
     "all" | "available" | "occupied" | "attention"
   >("all");
+  React.useEffect(() => {
+    if (!db) return;
+    return onSnapshot(
+      collection(db, "rooms"),
+      (snapshot) => {
+        setRooms(
+          snapshot.docs.map((item) => ({
+            id: item.id,
+            number: String(item.data().number ?? ""),
+            type: String(item.data().type ?? "Room"),
+            status:
+              String(item.data().status ?? "available").toLowerCase() ===
+              "occupied"
+                ? "Occupied"
+                : "Available",
+            rent: String(item.data().rent ?? item.data().price ?? "0"),
+            tenant: item.data().tenant,
+            attention: item.data().attention === true,
+          })),
+        );
+      },
+      () => setRooms([]),
+    );
+  }, []);
   const filteredRooms = rooms.filter(
     (room) =>
       filter === "all" ||
@@ -99,15 +80,42 @@ export default function Rooms() {
       );
       return;
     }
-    const room = { number, type, status: "Available" as const, rent };
+    const normalizedNumber = number.trim();
+    const normalizedType = type.trim();
+    const normalizedRent = rent.trim();
+    if (rooms.some((room) => room.number === normalizedNumber)) {
+      Alert.alert(
+        "Room already exists",
+        `Room ${normalizedNumber} is already listed.`,
+      );
+      return;
+    }
+    const room = {
+      number: normalizedNumber,
+      type: normalizedType,
+      status: "Available" as const,
+      rent: normalizedRent,
+      price: normalizedRent,
+      amenities: ["WiFi"],
+      createdBy: user?.uid ?? null,
+    };
     try {
       if (db) {
         const saved = await addDoc(collection(db, "rooms"), {
           ...room,
           createdAt: serverTimestamp(),
         });
-        setRooms((current) => [...current, { ...room, id: saved.id }]);
-      } else setRooms((current) => [...current, { ...room, id: number }]);
+        setRooms((current) => [
+          ...current,
+          { ...room, id: saved.id, status: "Available" },
+        ]);
+      } else {
+        Alert.alert(
+          "Firebase unavailable",
+          "Connect Firebase before adding rooms.",
+        );
+        return;
+      }
       setNumber("");
       setType("");
       setRent("");
@@ -212,27 +220,17 @@ export default function Rooms() {
                 </Text>
               </View>
             </View>
-            <Pressable
+            <View
               style={[
                 styles.roomAction,
                 room.status === "Available" && styles.assignAction,
               ]}
-              onPress={() =>
-                Alert.alert(
-                  room.status === "Available"
-                    ? "Assign tenant"
-                    : "View details",
-                  room.status === "Available"
-                    ? `Room ${room.number} is ready for a tenant.`
-                    : `Room ${room.number} details will be connected to Firebase.`,
-                )
-              }
             >
               <Ionicons
                 name={
                   room.status === "Available"
-                    ? "person-add-outline"
-                    : "eye-outline"
+                    ? "checkmark-circle-outline"
+                    : "lock-closed-outline"
                 }
                 size={14}
                 color={room.status === "Available" ? "#fff" : "#536783"}
@@ -243,13 +241,15 @@ export default function Rooms() {
                   room.status === "Available" && styles.assignText,
                 ]}
               >
-                {room.status === "Available" ? "Assign Tenant" : "View Details"}
+                {room.status === "Available"
+                  ? "Available · Approval assigns automatically"
+                  : "Occupied · Assigned through approval"}
               </Text>
-            </Pressable>
+            </View>
           </View>
         ))}
       </ScrollView>
-      <BottomNav />
+      <LandlordNavigation active="Rooms" />
       <Modal
         visible={addOpen}
         transparent
@@ -328,6 +328,7 @@ function Summary({
     </Pressable>
   );
 }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function BottomNav() {
   return (
     <View style={styles.nav}>
@@ -342,10 +343,12 @@ function BottomNav() {
           style={styles.navItem}
           onPress={() =>
             index === 0
-              ? router.replace("/dashboard")
+              ? router.replace("/landlord/dashboard" as any)
               : index === 2
-                ? router.push("/tenants")
-                : undefined
+                ? router.push("/landlord/tenants" as any)
+                : index === 3
+                  ? router.push("/landlord/finance" as any)
+                  : undefined
           }
         >
           <Ionicons
@@ -374,7 +377,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   headerTitle: { flex: 1 },
-  kicker: { fontSize: 8, color: "#b65c43" },
+  kicker: { fontSize: 12, color: "#b65c43" },
   title: { fontSize: 17, fontWeight: "700", color: "#172033" },
   addButton: {
     flexDirection: "row",
@@ -385,10 +388,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
-  addText: { color: "#fff", fontSize: 10, fontWeight: "600" },
+  addText: { color: "#fff", fontSize: 12, fontWeight: "600" },
   content: { padding: 12, paddingBottom: 20 },
   overview: { fontSize: 15, fontWeight: "700", color: "#253149", marginTop: 4 },
-  caption: { fontSize: 9, color: "#78879b", marginTop: 4 },
+  caption: { fontSize: 11, color: "#78879b", marginTop: 4 },
   summary: { flexDirection: "row", gap: 8, marginVertical: 12 },
   summaryItem: {
     flex: 1,
@@ -404,7 +407,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     backgroundColor: "#f2f6ff",
   },
-  summaryLabel: { fontSize: 8, color: "#8390a2", marginTop: 5 },
+  summaryLabel: { fontSize: 12, color: "#8390a2", marginTop: 5 },
   summaryValue: {
     fontSize: 16,
     fontWeight: "700",
@@ -423,7 +426,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 11,
     marginBottom: 10,
   },
-  searchText: { fontSize: 10, color: "#9aa8ba" },
+  searchText: { fontSize: 12, color: "#9aa8ba" },
   roomCard: {
     backgroundColor: "#fff",
     borderRadius: 10,
@@ -438,9 +441,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   roomName: { fontSize: 12, fontWeight: "700", color: "#253149" },
-  roomType: { fontSize: 9, fontWeight: "400", color: "#8390a2" },
+  roomType: { fontSize: 11, fontWeight: "400", color: "#8390a2" },
   status: {
-    fontSize: 9,
+    fontSize: 11,
     paddingHorizontal: 7,
     paddingVertical: 4,
     borderRadius: 10,
@@ -453,11 +456,11 @@ const styles = StyleSheet.create({
     marginTop: 14,
     marginBottom: 11,
   },
-  label: { fontSize: 8, color: "#8d9aaa", marginBottom: 3 },
-  tenant: { fontSize: 10, fontWeight: "600", color: "#253149" },
+  label: { fontSize: 12, color: "#8d9aaa", marginBottom: 3 },
+  tenant: { fontSize: 12, fontWeight: "600", color: "#253149" },
   rentBox: { alignItems: "flex-end" },
   rent: { fontSize: 13, fontWeight: "700", color: "#14795f" },
-  month: { fontSize: 9, fontWeight: "400", color: "#71809a" },
+  month: { fontSize: 11, fontWeight: "400", color: "#71809a" },
   roomAction: {
     height: 32,
     borderRadius: 7,
@@ -467,7 +470,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 5,
   },
-  roomActionText: { fontSize: 10, color: "#394b61" },
+  roomActionText: { fontSize: 12, color: "#394b61" },
   assignAction: { backgroundColor: "#173b36" },
   assignText: { color: "#fff" },
   nav: {
@@ -480,7 +483,7 @@ const styles = StyleSheet.create({
     paddingTop: 9,
   },
   navItem: { alignItems: "center", gap: 3 },
-  navText: { fontSize: 9, color: "#9aa8ba" },
+  navText: { fontSize: 11, color: "#9aa8ba" },
   navActive: { color: "#2864e8" },
   modalBackdrop: {
     flex: 1,

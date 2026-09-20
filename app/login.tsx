@@ -25,7 +25,7 @@ export default function Login() {
     try {
       setBusy(true);
       await signIn(email, password);
-      router.replace("/dashboard");
+      router.replace("/");
     } catch (error) {
       Alert.alert(
         "Unable to log in",

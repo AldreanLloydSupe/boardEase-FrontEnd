@@ -1,8 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import React, { useState } from "react";
+import { LandlordNavigation } from "@/components/landlord-navigation";
+import React, { useEffect, useState } from "react";
 import {
   Alert,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -10,52 +12,51 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-
-const tenants = [
-  [
-    "Carlos Núñez",
-    "Room 204 · Solo Studio",
-    "₱3,500",
-    "OVERDUE ₱3,500",
-    "#ffe0e0",
-  ],
-  [
-    "Maria Santos",
-    "Room 201-A · Twin Sharing",
-    "₱3,500",
-    "GOOD STANDING",
-    "#d9f7e8",
-  ],
-  [
-    "Bea Santos",
-    "Room 102-B · Twin Sharing",
-    "₱4,200",
-    "OVERDUE ₱4,200",
-    "#ffe0e0",
-  ],
-  ["Darren Lim", "Room 305 · Bedspace", "₱3,500", "1 DAY OVERDUE", "#fff0c2"],
-  ["Ana Reyes", "Room 201-B · Twin Sharing", "₱3,500", "PAID", "#d9f7e8"],
-  [
-    "Juan Dela Cruz",
-    "Applied for Room 301",
-    "₱3,000",
-    "PENDING REVIEW",
-    "#fff0c2",
-  ],
-];
-const endingTenant = [
-  "Sofia Mendoza",
-  "Room 201-C - Bedspace",
-  "₱3,500",
-  "LEASE ENDING SOON",
-  "#e6e0ff",
-];
-const allTenants = [...tenants, endingTenant];
+import { collection, getDocs } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 export default function Tenants() {
+  const [allTenants, setAllTenants] = useState<any[][]>([]);
+  const [loading, setLoading] = useState(Boolean(db));
   const [filter, setFilter] = useState<
     "all" | "overdue" | "ending" | "pending"
   >("all");
+  useEffect(() => {
+    if (!db) return;
+    Promise.all([
+      getDocs(collection(db, "users")),
+      getDocs(collection(db, "applications")),
+    ])
+      .then(([usersSnapshot, applicationsSnapshot]) => {
+        const assignedTenants = usersSnapshot.docs
+          .map((item) => ({ id: item.id, ...item.data() }))
+          .filter((item: any) => item.role !== "admin" && item.hasRoom === true)
+          .map((item: any) => [
+            item.name || item.email || "Tenant",
+            `Room ${item.roomNumber || item.roomId || "Assigned"} · ${item.roomType || "Room"}`,
+            `₱${item.roomRent || "—"}`,
+            item.paymentStatus === "overdue" || item.isOverdue === true
+              ? "OVERDUE"
+              : "ACTIVE LEASE",
+            "#d9f7e8",
+            item.photoURL,
+          ]);
+        const pendingTenants = applicationsSnapshot.docs
+          .map((item) => ({ id: item.id, ...item.data() }))
+          .filter((item: any) => !item.status || item.status === "pending")
+          .map((item: any) => [
+            item.tenantName || item.tenantEmail || "Tenant",
+            `Applied for Room ${item.roomNumber || "requested room"}`,
+            `₱${item.price || "—"}`,
+            "PENDING REVIEW",
+            "#fff0c2",
+            item.tenantPhotoURL,
+          ]);
+        setAllTenants([...assignedTenants, ...pendingTenants]);
+      })
+      .catch(() => setAllTenants([]))
+      .finally(() => setLoading(false));
+  }, []);
   const filteredTenants = allTenants.filter(
     (tenant) =>
       filter === "all" ||
@@ -65,6 +66,9 @@ export default function Tenants() {
           ? tenant[3].includes("ENDING")
           : tenant[3].includes("PENDING")),
   );
+  const overdueCount = allTenants.filter((tenant) =>
+    tenant[3].includes("OVERDUE"),
+  ).length;
   return (
     <SafeAreaView style={styles.page}>
       <View style={styles.header}>
@@ -72,21 +76,15 @@ export default function Tenants() {
           <Text style={styles.kicker}>BOARDEASE</Text>
           <Text style={styles.title}>Tenants</Text>
           <Text style={styles.subtitle}>
-            22 Active Tenants · 3 Overdue · 5 Pending Applications
+            {allTenants.filter((tenant) => tenant[3] === "ACTIVE LEASE").length}{" "}
+            Active Tenants · 0 Overdue ·{" "}
+            {
+              allTenants.filter((tenant) => tenant[3].includes("PENDING"))
+                .length
+            }{" "}
+            Pending Applications
           </Text>
         </View>
-        <Pressable
-          style={styles.register}
-          onPress={() =>
-            Alert.alert(
-              "Register tenant",
-              "Tenant registration will be connected to Firebase later.",
-            )
-          }
-        >
-          <Ionicons name="person-add-outline" size={15} color="#fff" />
-          <Text style={styles.registerText}>Register</Text>
-        </Pressable>
       </View>
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.search}>
@@ -100,7 +98,7 @@ export default function Tenants() {
             <Text
               style={[styles.filter, filter === "all" && styles.filterActive]}
             >
-              All Tenants (22)
+              All Tenants ({allTenants.length})
             </Text>
           </Pressable>
           <Pressable onPress={() => setFilter("overdue")}>
@@ -110,7 +108,7 @@ export default function Tenants() {
                 filter === "overdue" && styles.filterActive,
               ]}
             >
-              Overdue (3)
+              Overdue ({overdueCount})
             </Text>
           </Pressable>
           <Pressable onPress={() => setFilter("ending")}>
@@ -120,7 +118,7 @@ export default function Tenants() {
                 filter === "ending" && styles.filterActive,
               ]}
             >
-              Lease Ending Soon (4)
+              Lease Ending Soon (0)
             </Text>
           </Pressable>
           <Pressable onPress={() => setFilter("pending")}>
@@ -130,39 +128,68 @@ export default function Tenants() {
                 filter === "pending" && styles.filterActive,
               ]}
             >
-              Pending (5)
-            </Text>
-          </Pressable>
-        </View>
-        <View style={styles.alert}>
-          <Ionicons name="alert-circle" size={23} color="#a84b2f" />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.alertTitle}>ATTENTION REQUIRED</Text>
-            <Text style={styles.alertValue}>
-              3 Overdue Collections{" "}
-              <Text style={styles.alertAmount}>₱11,200</Text>
-            </Text>
-            <Text style={styles.alertText}>
-              Unsettled amounts past the monthly grace period. You can trigger
-              automated in-app notifications.
-            </Text>
-          </View>
-          <Pressable
-            style={styles.notifyAll}
-            onPress={() =>
-              Alert.alert(
-                "Notifications sent",
-                "Payment reminders were sent to all overdue tenants.",
+              Pending (
+              {
+                allTenants.filter((tenant) => tenant[3].includes("PENDING"))
+                  .length
+              }
               )
-            }
-          >
-            <Text style={styles.notifyText}>Notify All Overdue Tenants</Text>
+            </Text>
           </Pressable>
         </View>
-        {filteredTenants.map(([name, room, rent, status, color]) => (
-          <View key={name} style={styles.card}>
+        {overdueCount > 0 && (
+          <View style={styles.alert}>
+            <Ionicons name="alert-circle" size={23} color="#a84b2f" />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.alertTitle}>ATTENTION REQUIRED</Text>
+              <Text style={styles.alertValue}>
+                {overdueCount} Overdue Collection{overdueCount === 1 ? "" : "s"}{" "}
+                <Text style={styles.alertAmount}>₱11,200</Text>
+              </Text>
+              <Text style={styles.alertText}>
+                Unsettled amounts past the monthly grace period. You can trigger
+                automated in-app notifications.
+              </Text>
+            </View>
+            <Pressable
+              style={styles.notifyAll}
+              onPress={() =>
+                Alert.alert(
+                  "Notifications sent",
+                  "Payment reminders were sent to all overdue tenants.",
+                )
+              }
+            >
+              <Text style={styles.notifyText}>Notify All Overdue Tenants</Text>
+            </Pressable>
+          </View>
+        )}
+        {loading ? (
+          <View style={styles.empty}>
+            <Text style={styles.emptyTitle}>Loading tenants...</Text>
+          </View>
+        ) : (
+          filteredTenants.length === 0 && (
+            <View style={styles.empty}>
+              <Text style={styles.emptyTitle}>No tenants yet</Text>
+              <Text style={styles.emptyText}>
+                Tenants will appear here after an application is approved and a
+                room is assigned.
+              </Text>
+            </View>
+          )
+        )}
+        {filteredTenants.map(([name, room, rent, status, color, photoURL], index) => (
+          <View key={`${name}-${room}-${index}`} style={styles.card}>
             <View style={styles.cardTop}>
-              <Text style={styles.avatar}>👤</Text>
+              {photoURL ? (
+                <Image source={{ uri: photoURL }} style={styles.avatarImage} />
+              ) : (
+                <View style={styles.avatarInitials}>
+                  <Text style={styles.avatarInitialsText}>{String(name).slice(0, 2).toUpperCase()}</Text>
+                </View>
+              )}
+              <Text style={styles.avatar}>ðŸ‘¤</Text>
               <View style={styles.person}>
                 <Text style={styles.name}>{name}</Text>
                 <Text style={styles.room}>{room}</Text>
@@ -208,10 +235,11 @@ export default function Tenants() {
           </View>
         ))}
       </ScrollView>
-      <BottomNav />
+      <LandlordNavigation active="Tenants" />
     </SafeAreaView>
   );
 }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function BottomNav() {
   return (
     <View style={styles.nav}>
@@ -226,10 +254,12 @@ function BottomNav() {
           style={styles.navItem}
           onPress={() =>
             index === 0
-              ? router.replace("/dashboard")
+              ? router.replace("/landlord/dashboard" as any)
               : index === 1
-                ? router.push("/rooms")
-                : undefined
+                ? router.push("/landlord/rooms" as any)
+                : index === 3
+                  ? router.push("/landlord/finance" as any)
+                  : undefined
           }
         >
           <Ionicons
@@ -257,9 +287,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
-  kicker: { fontSize: 8, color: "#b65c43" },
+  kicker: { fontSize: 12, color: "#b65c43" },
   title: { fontSize: 17, fontWeight: "700", color: "#172033" },
-  subtitle: { fontSize: 9, color: "#76869a", marginTop: 3, maxWidth: 210 },
+  subtitle: { fontSize: 11, color: "#76869a", marginTop: 3, maxWidth: 210 },
   register: {
     backgroundColor: "#173b36",
     borderRadius: 7,
@@ -269,7 +299,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 4,
   },
-  registerText: { color: "#fff", fontSize: 10, fontWeight: "600" },
+  registerText: { color: "#fff", fontSize: 12, fontWeight: "600" },
   content: { padding: 12, paddingBottom: 24 },
   search: {
     height: 38,
@@ -282,10 +312,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 7,
   },
-  searchText: { fontSize: 10, color: "#8997a6" },
+  searchText: { fontSize: 12, color: "#8997a6" },
   filters: { flexDirection: "row", gap: 7, marginVertical: 11 },
   filterActive: {
-    fontSize: 9,
+    fontSize: 11,
     color: "#fff",
     backgroundColor: "#173b36",
     borderRadius: 12,
@@ -293,7 +323,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   filter: {
-    fontSize: 9,
+    fontSize: 11,
     color: "#66768a",
     backgroundColor: "#fff",
     borderRadius: 12,
@@ -311,7 +341,7 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     marginBottom: 11,
   },
-  alertTitle: { fontSize: 8, color: "#a84b2f", fontWeight: "700" },
+  alertTitle: { fontSize: 12, color: "#a84b2f", fontWeight: "700" },
   alertValue: {
     fontSize: 13,
     fontWeight: "700",
@@ -319,7 +349,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   alertAmount: { marginLeft: 38 },
-  alertText: { fontSize: 9, color: "#875445", marginTop: 3 },
+  alertText: { fontSize: 11, color: "#875445", marginTop: 3 },
   notifyAll: {
     flexBasis: "100%",
     backgroundColor: "#a84b2f",
@@ -327,7 +357,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 7,
   },
-  notifyText: { color: "#fff", fontSize: 9, fontWeight: "600" },
+  notifyText: { color: "#fff", fontSize: 11, fontWeight: "600" },
   card: {
     backgroundColor: "#fff",
     borderRadius: 10,
@@ -337,13 +367,16 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   cardTop: { flexDirection: "row", alignItems: "center", gap: 8 },
-  avatar: { fontSize: 27 },
+  avatar: { display: "none" },
+  avatarImage: { width: 38, height: 38, borderRadius: 19 },
+  avatarInitials: { width: 38, height: 38, borderRadius: 19, backgroundColor: "#d9eee6", alignItems: "center", justifyContent: "center" },
+  avatarInitialsText: { color: "#16805d", fontSize: 13, fontWeight: "700" },
   person: { flex: 1 },
   name: { fontSize: 11, fontWeight: "700", color: "#253149" },
-  room: { fontSize: 9, color: "#728197", marginTop: 2 },
-  phone: { fontSize: 8, color: "#8997a6", marginTop: 2 },
+  room: { fontSize: 11, color: "#728197", marginTop: 2 },
+  phone: { fontSize: 12, color: "#8997a6", marginTop: 2 },
   badge: {
-    fontSize: 8,
+    fontSize: 12,
     color: "#53602f",
     borderRadius: 10,
     paddingHorizontal: 7,
@@ -362,7 +395,7 @@ const styles = StyleSheet.create({
     color: "#173b36",
     marginRight: "auto",
   },
-  month: { fontSize: 8, fontWeight: "400" },
+  month: { fontSize: 12, fontWeight: "400" },
   smallButton: {
     borderRadius: 6,
     backgroundColor: "#f4f1ed",
@@ -372,9 +405,26 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 3,
   },
-  smallButtonText: { fontSize: 9 },
+  smallButtonText: { fontSize: 11 },
   notifyButton: { backgroundColor: "#a84b2f" },
   notifyButtonText: { color: "#fff" },
+  empty: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 28,
+    alignItems: "center",
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: "#e5eaf1",
+  },
+  emptyTitle: { fontSize: 17, fontWeight: "700", color: "#253149" },
+  emptyText: {
+    fontSize: 12,
+    color: "#71809a",
+    textAlign: "center",
+    lineHeight: 18,
+    marginTop: 7,
+  },
   nav: {
     height: 66,
     backgroundColor: "#fff",
@@ -385,6 +435,6 @@ const styles = StyleSheet.create({
     paddingTop: 9,
   },
   navItem: { alignItems: "center", gap: 3 },
-  navText: { fontSize: 9, color: "#9aa8ba" },
+  navText: { fontSize: 11, color: "#9aa8ba" },
   navActive: { color: "#2864e8" },
 });

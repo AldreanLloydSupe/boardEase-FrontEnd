@@ -25,6 +25,7 @@ export default function Signup() {
   });
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [busy, setBusy] = useState(false);
   const update = (key: keyof typeof form) => (value: string) =>
     setForm((current) => ({ ...current, [key]: value }));
@@ -42,10 +43,17 @@ export default function Signup() {
       );
       return;
     }
+    if (!agreedToTerms) {
+      Alert.alert(
+        "Agreement required",
+        "Please agree to the Terms of Service and Privacy Policy before creating your account.",
+      );
+      return;
+    }
     try {
       setBusy(true);
       await signUp(form.name, form.email, form.password, form.phone);
-      router.replace("/dashboard");
+      router.replace("/");
     } catch (error) {
       Alert.alert(
         "Unable to create account",
@@ -128,8 +136,15 @@ export default function Signup() {
             placeholder="0918 222 3344"
             keyboardType="phone-pad"
           />
-          <Pressable style={styles.check}>
-            <View style={styles.box} />
+          <Pressable
+            style={styles.check}
+            onPress={() => setAgreedToTerms((checked) => !checked)}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: agreedToTerms }}
+          >
+            <View style={[styles.box, agreedToTerms && styles.checkedBox]}>
+              {agreedToTerms && <Text style={styles.checkMark}>✓</Text>}
+            </View>
             <Text style={styles.checkText}>
               I agree to the <Text style={styles.link}>Terms of Service</Text>{" "}
               and <Text style={styles.link}>Privacy Policy</Text>
@@ -281,6 +296,13 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     marginRight: 8,
   },
+  checkedBox: {
+    backgroundColor: "#2864e8",
+    borderColor: "#2864e8",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  checkMark: { color: "#fff", fontSize: 12, fontWeight: "700", lineHeight: 15 },
   checkText: { fontSize: 11, color: "#64748b" },
   link: { color: "#2864e8" },
   button: {

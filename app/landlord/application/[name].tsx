@@ -10,10 +10,132 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  doc,
+  getDoc,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+} from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 export default function ApplicationReview() {
-  const { name } = useLocalSearchParams<{ name: string }>();
+  const { name, applicationId } = useLocalSearchParams<{
+    name: string;
+    applicationId?: string;
+  }>();
   const applicant = decodeURIComponent(name || "Juan Dela Cruz");
+  const [application, setApplication] = React.useState<Record<string, string>>(
+    {},
+  );
+  React.useEffect(() => {
+    if (!db || !applicationId) return;
+    getDoc(doc(db, "applications", applicationId))
+      .then((snapshot) => {
+        if (snapshot.exists())
+          setApplication(snapshot.data() as Record<string, string>);
+      })
+      .catch(() => undefined);
+  }, [applicationId]);
+  const roomLabel = application.roomNumber
+    ? `Room ${application.roomNumber} ï¿½ ${application.roomType || "Room"}`
+    : "Room details pending";
+  const cleanRoomLabel = application.roomNumber
+    ? `Room ${application.roomNumber} - ${application.roomType || "Room"}`
+    : roomLabel;
+  const displayPrice = application.price
+    ? `₱${application.price} / month`
+    : "Not specified";
+  async function approveApplication() {
+    if (
+      !db ||
+      !applicationId ||
+      !application.roomNumber ||
+      !application.tenantId
+    ) {
+      Alert.alert(
+        "Unable to approve",
+        "This application is missing its Firebase details.",
+      );
+      return;
+    }
+    try {
+      await updateDoc(doc(db, "applications", applicationId), {
+        status: "approved",
+        approvedAt: serverTimestamp(),
+        roomId: application.roomNumber,
+      });
+      await setDoc(
+        doc(db, "rooms", application.roomNumber),
+        {
+          number: application.roomNumber,
+          type: application.roomType || "Room",
+          rent: application.price || "0",
+          status: "Occupied",
+          tenant: applicant,
+          tenantId: application.tenantId,
+          applicationId,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true },
+      );
+      await setDoc(
+        doc(db, "users", application.tenantId),
+        {
+          hasRoom: true,
+          roomId: application.roomNumber,
+          roomNumber: application.roomNumber,
+          roomType: application.roomType || "Room",
+          roomRent: application.price || "0",
+          applicationId,
+        },
+        { merge: true },
+      );
+      Alert.alert(
+        "Application approved",
+        `${applicant} was assigned to ${cleanRoomLabel}. The room is now occupied.`,
+      );
+      router.back();
+    } catch (error) {
+      Alert.alert(
+        "Unable to approve",
+        error instanceof Error ? error.message : "Please try again.",
+      );
+    }
+  }
+  async function rejectApplication() {
+    if (!db || !applicationId) return;
+    const firestore = db;
+    Alert.alert(
+      "Reject application?",
+      `This will reject ${applicant}'s application for ${cleanRoomLabel}.`,
+      [
+        { text: "Keep Application", style: "cancel" },
+        {
+          text: "Reject",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await updateDoc(doc(firestore, "applications", applicationId), {
+                status: "rejected",
+                rejectedAt: serverTimestamp(),
+              });
+              Alert.alert(
+                "Application rejected",
+                "The application was removed from pending review.",
+              );
+              router.back();
+            } catch (error) {
+              Alert.alert(
+                "Unable to reject",
+                error instanceof Error ? error.message : "Please try again.",
+              );
+            }
+          },
+        },
+      ],
+    );
+  }
   return (
     <SafeAreaView style={styles.page}>
       <View style={styles.header}>
@@ -39,9 +161,7 @@ export default function ApplicationReview() {
           <View style={styles.profileInfo}>
             <Text style={styles.name}>{applicant}</Text>
             <Text style={styles.role}>Student</Text>
-            <Text style={styles.applied}>
-              Applied for Room 301 · Oct 24, 2026
-            </Text>
+            <Text style={styles.applied}>Applied for {cleanRoomLabel}</Text>
             <Text style={styles.muted}>
               DLSU Dasmariñas · 3rd Year Eng&apos;g
             </Text>
@@ -58,8 +178,8 @@ export default function ApplicationReview() {
           tag="Active Lease"
         >
           <View style={styles.summaryRow}>
-            <InfoBox label="Assigned Room" value="Room 301 – Bedspacer" />
-            <InfoBox label="Monthly Rent" value="₱3,000 / month" />
+            <InfoBox label="Requested Room" value={cleanRoomLabel} />
+            <InfoBox label="Monthly Rent" value={displayPrice} />
           </View>
           <View style={styles.dueBox}>
             <Text style={styles.boxLabel}>Rent Due Date</Text>
@@ -80,6 +200,9 @@ export default function ApplicationReview() {
         </Card>
       </ScrollView>
       <View style={styles.footer}>
+        <Pressable style={styles.reject} onPress={rejectApplication}>
+          <Text style={styles.rejectText}>Reject</Text>
+        </Pressable>
         <Pressable
           style={styles.request}
           onPress={() =>
@@ -91,15 +214,7 @@ export default function ApplicationReview() {
         >
           <Text style={styles.requestText}>Request Info</Text>
         </Pressable>
-        <Pressable
-          style={styles.approve}
-          onPress={() =>
-            Alert.alert(
-              "Approve & Assign",
-              `Approve ${applicant} and assign Room 301?`,
-            )
-          }
-        >
+        <Pressable style={styles.approve} onPress={approveApplication}>
           <Ionicons name="checkmark" size={17} color="#fff" />
           <Text style={styles.approveText}>Approve & Assign</Text>
         </Pressable>
@@ -178,14 +293,14 @@ const styles = StyleSheet.create({
   },
   headerText: { flex: 1 },
   title: { fontSize: 17, fontWeight: "700", color: "#172033" },
-  subtitle: { fontSize: 9, color: "#8390a2", marginTop: 3 },
+  subtitle: { fontSize: 11, color: "#8390a2", marginTop: 3 },
   pending: {
     color: "#a87500",
     backgroundColor: "#fff1c7",
     borderRadius: 12,
     paddingHorizontal: 9,
     paddingVertical: 6,
-    fontSize: 9,
+    fontSize: 11,
   },
   content: { padding: 14, paddingBottom: 100 },
   profile: {
@@ -222,7 +337,7 @@ const styles = StyleSheet.create({
   name: { fontSize: 16, fontWeight: "700", color: "#253149" },
   role: {
     alignSelf: "flex-start",
-    fontSize: 9,
+    fontSize: 11,
     color: "#207454",
     borderWidth: 1,
     borderColor: "#a8ddc6",
@@ -230,8 +345,8 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     marginTop: 3,
   },
-  applied: { fontSize: 10, color: "#617083", marginTop: 5 },
-  muted: { color: "#8390a2", fontSize: 9 },
+  applied: { fontSize: 12, color: "#617083", marginTop: 5 },
+  muted: { color: "#8390a2", fontSize: 11 },
   contactRow: { flexDirection: "row", gap: 8, marginVertical: 12 },
   action: {
     flex: 1,
@@ -264,7 +379,7 @@ const styles = StyleSheet.create({
   },
   cardHeading: { flex: 1, fontSize: 14, fontWeight: "700", color: "#253149" },
   tag: {
-    fontSize: 9,
+    fontSize: 11,
     color: "#237759",
     backgroundColor: "#d8f1e6",
     borderRadius: 11,
@@ -279,7 +394,7 @@ const styles = StyleSheet.create({
     padding: 10,
     minHeight: 68,
   },
-  boxLabel: { fontSize: 10, color: "#68778a" },
+  boxLabel: { fontSize: 12, color: "#68778a" },
   boxValue: { fontSize: 12, fontWeight: "600", color: "#253149", marginTop: 6 },
   dueBox: {
     backgroundColor: "#f5f1eb",
@@ -294,9 +409,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderColor: "#f0ece7",
   },
-  lineLabel: { fontSize: 10, color: "#68778a" },
+  lineLabel: { fontSize: 12, color: "#68778a" },
   lineValue: {
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: "600",
     color: "#253149",
     textAlign: "right",
@@ -322,6 +437,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  reject: {
+    flex: 0.85,
+    height: 42,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: "#e7a8ad",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  rejectText: { fontSize: 11, color: "#c04350", fontWeight: "600" },
   requestText: { fontSize: 11, color: "#53635e" },
   approve: {
     flex: 1.5,
