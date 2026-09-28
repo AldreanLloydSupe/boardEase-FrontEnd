@@ -1,20 +1,21 @@
-import { Ionicons } from "@expo/vector-icons";
-import React from "react";
-import {
-  Alert,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { TenantHeaderMark } from "@/components/tenant-header-mark";
 import { AssignedTenantNav } from "@/components/tenant-navigation";
 import { useAuth } from "@/lib/auth-context";
-import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { Ionicons } from "@expo/vector-icons";
+import { addDoc, collection, serverTimestamp } from "firebase/firestore";
+import React from "react";
+import {
+    Alert,
+    Modal,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function TenantPayments() {
   const { user } = useAuth();
@@ -62,11 +63,12 @@ export default function TenantPayments() {
     <SafeAreaView style={styles.page}>
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.header}>
-          <View>
+          <TenantHeaderMark />
+          <View style={styles.headerCopy}>
             <Text style={styles.brand}>BOARDEASE</Text>
             <Text style={styles.title}>Payments</Text>
           </View>
-          <Ionicons name="notifications-outline" size={21} color="#253149" />
+          <Ionicons name="notifications-outline" size={21} color="#fff" />
         </View>
         <View style={styles.propertyRow}>
           <View style={styles.dot} />
@@ -304,16 +306,30 @@ function Line({
 }
 
 const styles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: "#f7f9fc" },
-  content: { padding: 12, paddingBottom: 90 },
+  page: { flex: 1, backgroundColor: "#f3f7fd" },
+  content: { padding: 14, paddingBottom: 90 },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 12,
+    marginTop: -14,
+    marginHorizontal: -14,
+    marginBottom: 16,
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 20,
+    backgroundColor: "#2864e8",
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    shadowColor: "#173b80",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.16,
+    shadowRadius: 12,
+    elevation: 7,
   },
-  brand: { fontSize: 10, color: "#a44c35", fontWeight: "700" },
-  title: { fontSize: 20, fontWeight: "700", color: "#172033" },
+  headerCopy: { flex: 1, marginLeft: 11 },
+  brand: { fontSize: 10, color: "#d9e5ff", fontWeight: "700", letterSpacing: 1.3 },
+  title: { fontSize: 24, fontWeight: "800", color: "#fff" },
   propertyRow: {
     backgroundColor: "#fff",
     borderRadius: 9,
@@ -323,17 +339,22 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 10,
   },
-  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#a44c35" },
-  property: { fontSize: 10, color: "#a44c35", fontWeight: "700" },
+  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#2864e8" },
+  property: { fontSize: 10, color: "#2458c7", fontWeight: "700" },
   tenant: { fontSize: 12, color: "#253149", marginTop: 2 },
   cycle: { fontSize: 10, color: "#526174" },
   card: {
     backgroundColor: "#fff",
-    borderRadius: 11,
-    padding: 12,
-    marginBottom: 10,
+    borderRadius: 8,
+    padding: 14,
+    marginBottom: 12,
     borderWidth: 1,
-    borderColor: "#e5eaf1",
+    borderColor: "#e1eafa",
+    shadowColor: "#173b80",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 7,
+    elevation: 2,
   },
   rowBetween: {
     flexDirection: "row",
@@ -341,22 +362,22 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
   },
   badge: {
-    backgroundColor: "#ffe6d9",
-    color: "#a44c35",
+    backgroundColor: "#eaf1ff",
+    color: "#2458c7",
     borderRadius: 8,
     paddingHorizontal: 7,
     paddingVertical: 4,
     fontSize: 10,
     fontWeight: "700",
   },
-  deadline: { textAlign: "right", color: "#a44c35", fontSize: 10 },
+  deadline: { textAlign: "right", color: "#2458c7", fontSize: 10 },
   sectionTitle: {
     fontSize: 13,
     fontWeight: "700",
-    color: "#0d382c",
+    color: "#253149",
     marginTop: 8,
   },
-  total: { fontSize: 29, color: "#0d382c", fontWeight: "700", marginTop: 10 },
+  total: { fontSize: 30, color: "#1d4ed8", fontWeight: "800", marginTop: 10 },
   muted: { fontSize: 10, color: "#78879b", marginTop: 3 },
   line: {
     flexDirection: "row",
@@ -370,7 +391,7 @@ const styles = StyleSheet.create({
   lineLabel: { fontSize: 11, color: "#42526a" },
   lineValue: { fontSize: 11, fontWeight: "700", color: "#253149" },
   payButton: {
-    backgroundColor: "#a44c35",
+    backgroundColor: "#2864e8",
     borderRadius: 8,
     padding: 11,
     flexDirection: "row",
@@ -379,16 +400,16 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   payText: { color: "#fff", fontSize: 12, fontWeight: "700" },
-  cardTitle: { fontSize: 13, color: "#0d382c", fontWeight: "700" },
+  cardTitle: { fontSize: 13, color: "#253149", fontWeight: "700" },
   smallBadge: {
-    backgroundColor: "#f1eee7",
+    backgroundColor: "#f3f7fd",
     borderRadius: 8,
     padding: 4,
     fontSize: 9,
     color: "#526174",
   },
   bundle: {
-    backgroundColor: "#f1eee7",
+    backgroundColor: "#f3f7fd",
     borderRadius: 7,
     padding: 9,
     flexDirection: "row",
@@ -397,7 +418,7 @@ const styles = StyleSheet.create({
   },
   bundleText: { fontSize: 10, color: "#42526a" },
   receipt: {
-    backgroundColor: "#f7f5f0",
+    backgroundColor: "#f3f7fd",
     borderRadius: 7,
     padding: 9,
     marginTop: 8,
@@ -412,20 +433,25 @@ const styles = StyleSheet.create({
     padding: 3,
   },
   receiptId: { fontSize: 9, color: "#526174", textAlign: "right" },
-  download: { fontSize: 9, color: "#a44c35", marginTop: 8 },
+  download: { fontSize: 9, color: "#2864e8", marginTop: 8 },
   gcashCard: {
     backgroundColor: "#fff",
-    borderRadius: 11,
-    padding: 12,
-    marginBottom: 10,
+    borderRadius: 8,
+    padding: 14,
+    marginBottom: 12,
     borderWidth: 1,
-    borderColor: "#e5eaf1",
+    borderColor: "#e1eafa",
+    shadowColor: "#173b80",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 7,
+    elevation: 2,
   },
   gcashHeading: { flexDirection: "row", alignItems: "center", gap: 7 },
-  gcashTitle: { color: "#0d382c", fontSize: 14, fontWeight: "700" },
+  gcashTitle: { color: "#253149", fontSize: 14, fontWeight: "700" },
   gcashLabel: { color: "#8997a6", fontSize: 9, fontWeight: "700", marginTop: 13 },
   gcashReceiver: {
-    backgroundColor: "#f7f9fc",
+    backgroundColor: "#f3f7fd",
     borderRadius: 8,
     padding: 10,
     marginTop: 5,
@@ -434,11 +460,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   gcashName: { color: "#253149", fontSize: 12, fontWeight: "700" },
-  gcashNumber: { color: "#a44c35", fontSize: 14, fontWeight: "700", marginTop: 5 },
+  gcashNumber: { color: "#2458c7", fontSize: 14, fontWeight: "700", marginTop: 5 },
   copyText: { color: "#2864e8", fontSize: 11, fontWeight: "700" },
   instruction: { color: "#526174", fontSize: 10, lineHeight: 16, marginTop: 4 },
   proofButton: {
-    backgroundColor: "#a44c35",
+    backgroundColor: "#2864e8",
     borderRadius: 8,
     padding: 11,
     flexDirection: "row",
@@ -459,7 +485,7 @@ const styles = StyleSheet.create({
   },
   navItem: { alignItems: "center", gap: 3 },
   navText: { fontSize: 10, color: "#9aa8ba" },
-  navActive: { color: "#e07a38" },
+  navActive: { color: "#2563eb" },
   modalBackdrop: {
     flex: 1,
     backgroundColor: "rgba(15,23,42,.45)",
@@ -472,7 +498,7 @@ const styles = StyleSheet.create({
     padding: 18,
     paddingBottom: 28,
   },
-  modalTitle: { flex: 1, fontSize: 18, fontWeight: "700", color: "#0d382c" },
+  modalTitle: { flex: 1, fontSize: 18, fontWeight: "700", color: "#253149" },
   close: { fontSize: 28, color: "#526174" },
   modalHint: { color: "#78879b", fontSize: 10, marginTop: 4 },
   inputLabel: {
@@ -484,7 +510,7 @@ const styles = StyleSheet.create({
   input: {
     height: 42,
     borderWidth: 1,
-    borderColor: "#d8e0e8",
+    borderColor: "#d4e0f0",
     borderRadius: 8,
     paddingHorizontal: 10,
     color: "#253149",
@@ -494,13 +520,13 @@ const styles = StyleSheet.create({
   uploadBox: {
     borderWidth: 1,
     borderStyle: "dashed",
-    borderColor: "#c9d4df",
+    borderColor: "#b9ccef",
     borderRadius: 9,
     padding: 12,
     alignItems: "center",
     marginTop: 12,
   },
-  uploadIcon: { color: "#a44c35", fontSize: 22 },
+  uploadIcon: { color: "#2864e8", fontSize: 22 },
   uploadTitle: {
     color: "#42526a",
     fontSize: 11,
@@ -508,7 +534,7 @@ const styles = StyleSheet.create({
     marginTop: 3,
   },
   submitButton: {
-    backgroundColor: "#a44c35",
+    backgroundColor: "#2864e8",
     borderRadius: 8,
     padding: 12,
     alignItems: "center",

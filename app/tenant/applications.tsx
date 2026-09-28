@@ -1,5 +1,22 @@
+import { TenantHeaderMark } from "@/components/tenant-header-mark";
+import {
+  ApplicantTenantNav,
+  AssignedTenantNav,
+} from "@/components/tenant-navigation";
+import { useAuth } from "@/lib/auth-context";
+import { db } from "@/lib/firebase";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
+import {
+  addDoc,
+  collection,
+  doc,
+  onSnapshot,
+  query,
+  serverTimestamp,
+  updateDoc,
+  where,
+} from "firebase/firestore";
 import React from "react";
 import {
   Alert,
@@ -13,22 +30,6 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import {
-  addDoc,
-  collection,
-  doc,
-  onSnapshot,
-  query,
-  updateDoc,
-  where,
-  serverTimestamp,
-} from "firebase/firestore";
-import { useAuth } from "@/lib/auth-context";
-import { db } from "@/lib/firebase";
-import {
-  ApplicantTenantNav,
-  AssignedTenantNav,
-} from "@/components/tenant-navigation";
 
 type ApplicationRecord = {
   id: string;
@@ -132,16 +133,35 @@ export default function Applications() {
   return (
     <SafeAreaView style={styles.page}>
       <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.topBar}>
-          <Text style={styles.brand}>BOARDEASE</Text>
-          <Ionicons name="notifications-outline" size={20} color="#253149" />
+        <View style={styles.heroHeader}>
+          <View style={styles.topBar}>
+            <View style={styles.headerIdentity}>
+              <TenantHeaderMark />
+              <View>
+                <Text style={styles.brand}>BOARDEASE</Text>
+                <Text style={styles.headerPageTitle}>{pageTitle}</Text>
+              </View>
+            </View>
+
+            <Pressable
+              style={styles.notificationButton}
+              onPress={() => Alert.alert("Notifications", "No new notifications.")}
+            >
+              <Ionicons
+                name="notifications-outline"
+                size={20}
+                color="#ffffff"
+              />
+              <View style={styles.notificationDot} />
+            </Pressable>
+          </View>
+
+          <Text style={styles.subtitle}>
+            {hasRoom
+              ? "Report issues, request help, and track maintenance."
+              : "Track your room applications and review status."}
+          </Text>
         </View>
-        <Text style={styles.title}>{pageTitle}</Text>
-        <Text style={styles.subtitle}>
-          {hasRoom
-            ? "Report issues, request help, and track maintenance."
-            : "Track your room applications and review status."}
-        </Text>
         {hasApplication ? (
           <>
             <View style={styles.filters}>
@@ -292,14 +312,28 @@ function CareRequests({
     <SafeAreaView style={styles.page}>
       <ScrollView contentContainerStyle={styles.requestContent}>
         <View style={styles.requestHeader}>
-          <View>
-            <Text style={styles.brand}>BOARDEASE</Text>
-            <Text style={styles.requestTitle}>Requests & Care</Text>
-            <Text style={styles.requestSubtitle}>
-              Room {roomNumber} · {roomType}
-            </Text>
+          <View style={styles.headerIdentity}>
+            <TenantHeaderMark />
+            <View>
+              <Text style={styles.brand}>BOARDEASE</Text>
+              <Text style={styles.headerPageTitle}>Requests & Care</Text>
+              <Text style={styles.requestSubtitle}>
+                Room {roomNumber} · {roomType}
+              </Text>
+            </View>
           </View>
-          <Ionicons name="notifications-outline" size={21} color="#253149" />
+
+          <Pressable
+            style={styles.notificationButton}
+            onPress={() => Alert.alert("Notifications", "No new notifications.")}
+          >
+            <Ionicons
+              name="notifications-outline"
+              size={20}
+              color="#ffffff"
+            />
+            <View style={styles.notificationDot} />
+          </Pressable>
         </View>
         <View style={styles.requestTitleRow}>
           <Text style={styles.sectionHeading}>Requests</Text>
@@ -590,20 +624,77 @@ function ApplicationCard({
 }
 
 const styles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: "#f7f9fc" },
+  page: { flex: 1, backgroundColor: "#f3f7fd" },
   content: { padding: 14, paddingBottom: 95 },
+  heroHeader: {
+    marginTop: -14,
+    marginHorizontal: -14,
+    marginBottom: 14,
+    paddingHorizontal: 18,
+    paddingTop: 14,
+    paddingBottom: 16,
+    backgroundColor: "#2864e8",
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    shadowColor: "#173b80",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 5,
+  },
   topBar: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 18,
   },
-  brand: { fontSize: 12, fontWeight: "700", color: "#16805d" },
-  title: { fontSize: 21, fontWeight: "700", color: "#172033" },
-  subtitle: { fontSize: 12, color: "#7a8799", marginTop: 3 },
+  headerIdentity: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  brand: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#d9e5ff",
+    letterSpacing: 1.5,
+  },
+  headerPageTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#ffffff",
+    marginTop: 1,
+  },
+  subtitle: {
+    fontSize: 11,
+    lineHeight: 16,
+    color: "#e1eaff",
+    marginTop: 8,
+    marginLeft: 2,
+  },
+  notificationButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.14)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 10,
+  },
+  notificationDot: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#a7f3d0",
+    borderWidth: 1,
+    borderColor: "#2864e8",
+  },
   filters: { flexDirection: "row", gap: 6, marginVertical: 12 },
   activeFilter: {
-    backgroundColor: "#0d382c",
+    backgroundColor: "#2864e8",
     color: "#fff",
     borderRadius: 12,
     paddingHorizontal: 9,
@@ -618,15 +709,20 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     fontSize: 11,
     borderWidth: 1,
-    borderColor: "#e2e8ee",
+    borderColor: "#dce7f5",
   },
   card: {
     backgroundColor: "#fff",
-    borderRadius: 12,
+    borderRadius: 8,
     marginBottom: 12,
     overflow: "hidden",
     borderWidth: 1,
-    borderColor: "#e5eaf1",
+    borderColor: "#e1eafa",
+    shadowColor: "#173b80",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 7,
+    elevation: 2,
   },
   image: { width: "100%", height: 130 },
   cardMain: { padding: 11 },
@@ -649,7 +745,7 @@ const styles = StyleSheet.create({
   room: { fontSize: 14, fontWeight: "700", color: "#253149", marginTop: 8 },
   house: { color: "#78879b", fontSize: 11, marginTop: 3 },
   meta: {
-    backgroundColor: "#f7f9fc",
+    backgroundColor: "#f3f7fd",
     borderRadius: 7,
     padding: 8,
     marginTop: 10,
@@ -675,11 +771,11 @@ const styles = StyleSheet.create({
     marginTop: 10,
     paddingVertical: 9,
     borderRadius: 7,
-    backgroundColor: "#f1f4f6",
+    backgroundColor: "#eaf1ff",
   },
   helpCard: {
-    backgroundColor: "#f0f4f1",
-    borderRadius: 12,
+    backgroundColor: "#eaf1ff",
+    borderRadius: 8,
     padding: 13,
     flexDirection: "row",
     gap: 10,
@@ -759,11 +855,27 @@ const styles = StyleSheet.create({
   requestHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-start",
+    alignItems: "center",
+    marginTop: -14,
+    marginHorizontal: -14,
     marginBottom: 14,
+    paddingHorizontal: 18,
+    paddingTop: 14,
+    paddingBottom: 16,
+    backgroundColor: "#2864e8",
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    shadowColor: "#173b80",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 5,
   },
-  requestTitle: { fontSize: 21, fontWeight: "700", color: "#172033", marginTop: 3 },
-  requestSubtitle: { fontSize: 12, color: "#7a8799", marginTop: 3 },
+  requestSubtitle: {
+    fontSize: 11,
+    color: "#e1eaff",
+    marginTop: 3,
+  },
   requestTitleRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -775,7 +887,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    backgroundColor: "#0d382c",
+    backgroundColor: "#2864e8",
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 8,
@@ -783,7 +895,7 @@ const styles = StyleSheet.create({
   newRequestText: { color: "#fff", fontSize: 11, fontWeight: "700" },
   requestFilters: { flexDirection: "row", gap: 6, marginBottom: 12 },
   requestFilterActive: {
-    backgroundColor: "#0d382c",
+    backgroundColor: "#2864e8",
     color: "#fff",
     borderRadius: 12,
     paddingHorizontal: 9,
@@ -799,7 +911,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     fontSize: 10,
     borderWidth: 1,
-    borderColor: "#e2e8ee",
+    borderColor: "#dce7f5",
   },
   urgentCard: {
     flexDirection: "row",
@@ -835,11 +947,16 @@ const styles = StyleSheet.create({
   callCaretakerText: { color: "#fff", fontSize: 10, fontWeight: "700" },
   activeRequestCard: {
     backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 12,
+    borderRadius: 8,
+    padding: 14,
     borderWidth: 1,
-    borderColor: "#e5eaf1",
+    borderColor: "#e1eafa",
     marginBottom: 16,
+    shadowColor: "#173b80",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 7,
+    elevation: 2,
   },
   requestCardTop: {
     flexDirection: "row",
@@ -861,7 +978,7 @@ const styles = StyleSheet.create({
     marginTop: 13,
     overflow: "hidden",
   },
-  progressFill: { width: "58%", height: "100%", backgroundColor: "#b55339" },
+  progressFill: { width: "58%", height: "100%", backgroundColor: "#2864e8" },
   progressLabels: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -915,7 +1032,7 @@ const styles = StyleSheet.create({
     padding: 10,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: "#e5eaf1",
+    borderColor: "#e1eafa",
   },
   historyIcon: {
     width: 30,
@@ -934,7 +1051,7 @@ const styles = StyleSheet.create({
     padding: 12,
     marginTop: 8,
     borderWidth: 1,
-    borderColor: "#e5eaf1",
+    borderColor: "#e1eafa",
   },
   emptyRequestCard: {
     backgroundColor: "#fff",
@@ -943,7 +1060,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 10,
     borderWidth: 1,
-    borderColor: "#e5eaf1",
+    borderColor: "#e1eafa",
   },
   cardTitle: { fontSize: 13, fontWeight: "700", color: "#253149", marginBottom: 7 },
   rule: { fontSize: 10, lineHeight: 15, color: "#71809a", marginTop: 5 },

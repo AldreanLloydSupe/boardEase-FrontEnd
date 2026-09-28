@@ -2,12 +2,54 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    function isLandlord() {
+      return request.auth != null && (
+        request.auth.token.admin == true ||
+        request.auth.token.role == 'landlord' ||
+        request.auth.token.email == 'admin@boardease.com'
+      );
+    }
+
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read: if (request.auth != null && request.auth.uid == userId) || isLandlord();
+      allow write: if request.auth != null && request.auth.uid == userId;
     }
 
     match /rooms/{roomId} {
       allow read, write: if request.auth != null && request.auth.token.admin == true;
+    }
+
+    match /messages/{messageId} {
+      allow create: if isLandlord() &&
+        request.resource.data.keys().hasOnly([
+          'body',
+          'audience',
+          'recipientIds',
+          'senderId',
+          'senderName',
+          'createdAt'
+        ]) &&
+        request.resource.data.keys().hasAll([
+          'body',
+          'audience',
+          'recipientIds',
+          'senderId',
+          'senderName',
+          'createdAt'
+        ]) &&
+        request.resource.data.body is string &&
+        request.resource.data.body.size() > 0 &&
+        request.resource.data.body.size() <= 2000 &&
+        request.resource.data.audience in ['all', 'selected'] &&
+        request.resource.data.recipientIds is list &&
+        request.resource.data.recipientIds.size() > 0 &&
+        request.resource.data.recipientIds.size() <= 500 &&
+        request.resource.data.senderId == request.auth.uid &&
+        request.resource.data.senderName is string &&
+        request.resource.data.createdAt == request.time;
+
+      allow read: if isLandlord() ||
+        (request.auth != null && request.auth.uid in resource.data.recipientIds);
     }
 
     match /{document=**} {

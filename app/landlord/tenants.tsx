@@ -1,20 +1,20 @@
+import { LandlordNavigation } from "@/components/landlord-navigation";
+import { db } from "@/lib/firebase";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { LandlordNavigation } from "@/components/landlord-navigation";
-import React, { useEffect, useState } from "react";
+import { collection, getDocs } from "firebase/firestore";
+import { useEffect, useState } from "react";
 import {
-  Alert,
-  Image,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
+    Alert,
+    Image,
+    Modal,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { collection, getDocs } from "firebase/firestore";
-import { db } from "@/lib/firebase";
 
 export default function Tenants() {
   const [allTenants, setAllTenants] = useState<any[]>([]);
@@ -78,18 +78,23 @@ export default function Tenants() {
   return (
     <SafeAreaView style={styles.page}>
       <View style={styles.header}>
-        <View>
-          <Text style={styles.kicker}>BOARDEASE</Text>
-          <Text style={styles.title}>Tenants</Text>
-          <Text style={styles.subtitle}>
-            {allTenants.filter((tenant) => tenant.status === "ACTIVE LEASE").length}{" "}
-            Active Tenants · 0 Overdue ·{" "}
-            {
-              allTenants.filter((tenant) => tenant.status.includes("PENDING"))
-                .length
-            }{" "}
-            Pending Applications
-          </Text>
+        <View style={styles.headerBrand}>
+          <View style={styles.headerLogo}>
+            <Ionicons name="business" size={24} color="#fff" />
+          </View>
+          <View style={styles.headerCopy}>
+            <Text style={styles.kicker}>BOARDEASE</Text>
+            <Text style={styles.title}>Tenants</Text>
+            <Text style={styles.subtitle}>
+              {allTenants.filter((tenant) => tenant.status === "ACTIVE LEASE").length}{" "}
+              Active Tenants · 0 Overdue ·{" "}
+              {
+                allTenants.filter((tenant) => tenant.status.includes("PENDING"))
+                  .length
+              }{" "}
+              Pending Applications
+            </Text>
+          </View>
         </View>
       </View>
       <ScrollView contentContainerStyle={styles.content}>
@@ -386,20 +391,39 @@ function BottomNav() {
   );
 }
 const styles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: "#f7f5f1" },
+  page: { flex: 1, backgroundColor: "#f3f7fd" },
   header: {
-    minHeight: 70,
-    backgroundColor: "#fff",
-    borderBottomWidth: 1,
-    borderColor: "#e8e3dc",
-    paddingHorizontal: 14,
+    minHeight: 118,
+    backgroundColor: "#2864e8",
+    paddingHorizontal: 20,
+    paddingTop: 15,
+    paddingBottom: 18,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    shadowColor: "#173b80",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    elevation: 8,
+    zIndex: 1,
   },
-  kicker: { fontSize: 12, color: "#b65c43" },
-  title: { fontSize: 17, fontWeight: "700", color: "#172033" },
-  subtitle: { fontSize: 11, color: "#76869a", marginTop: 3, maxWidth: 210 },
+  headerBrand: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 12 },
+  headerLogo: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.16)",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  headerCopy: { flex: 1, minWidth: 0 },
+  kicker: { fontSize: 11, color: "#d9e5ff", fontWeight: "700", letterSpacing: 1.4 },
+  title: { fontSize: 24, fontWeight: "800", color: "#fff", marginTop: 2 },
+  subtitle: { fontSize: 11, color: "#e1eaff", marginTop: 5, maxWidth: 310, lineHeight: 16 },
   register: {
     backgroundColor: "#173b36",
     borderRadius: 7,
@@ -410,12 +434,12 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   registerText: { color: "#fff", fontSize: 12, fontWeight: "600" },
-  content: { padding: 12, paddingBottom: 24 },
+  content: { padding: 16, paddingBottom: 24 },
   search: {
-    height: 38,
+    height: 44,
     backgroundColor: "#fff",
     borderWidth: 1,
-    borderColor: "#e4dfd7",
+    borderColor: "#dce7f5",
     borderRadius: 8,
     paddingHorizontal: 10,
     flexDirection: "row",
@@ -423,29 +447,31 @@ const styles = StyleSheet.create({
     gap: 7,
   },
   searchText: { fontSize: 12, color: "#8997a6" },
-  filters: { flexDirection: "row", gap: 7, marginVertical: 11 },
+  filters: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginVertical: 12 },
   filterActive: {
     fontSize: 11,
     color: "#fff",
-    backgroundColor: "#173b36",
-    borderRadius: 12,
+    backgroundColor: "#2864e8",
+    borderRadius: 8,
     paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingVertical: 8,
   },
   filter: {
     fontSize: 11,
     color: "#66768a",
     backgroundColor: "#fff",
-    borderRadius: 12,
+    borderRadius: 8,
     paddingHorizontal: 9,
-    paddingVertical: 6,
+    paddingVertical: 8,
     borderWidth: 1,
-    borderColor: "#e5e0d8",
+    borderColor: "#dce7f5",
   },
   alert: {
-    backgroundColor: "#ffe0d4",
-    borderRadius: 10,
-    padding: 11,
+    backgroundColor: "#fff2f0",
+    borderWidth: 1,
+    borderColor: "#ffd8d3",
+    borderRadius: 8,
+    padding: 13,
     flexDirection: "row",
     gap: 9,
     flexWrap: "wrap",
@@ -462,70 +488,84 @@ const styles = StyleSheet.create({
   alertText: { fontSize: 11, color: "#875445", marginTop: 3 },
   notifyAll: {
     flexBasis: "100%",
-    backgroundColor: "#a84b2f",
-    borderRadius: 6,
+    backgroundColor: "#b9382b",
+    borderRadius: 8,
     alignItems: "center",
     paddingVertical: 7,
   },
   notifyText: { color: "#fff", fontSize: 11, fontWeight: "600" },
   card: {
     backgroundColor: "#fff",
-    borderRadius: 10,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#e8e3dc",
-    padding: 10,
-    marginBottom: 8,
+    borderColor: "#e1eafa",
+    padding: 14,
+    marginBottom: 10,
+    shadowColor: "#173b80",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 7,
+    elevation: 2,
   },
-  cardTop: { flexDirection: "row", alignItems: "center", gap: 8 },
+  cardTop: { flexDirection: "row", alignItems: "center", gap: 11 },
   avatar: { display: "none" },
   avatarImage: { width: 38, height: 38, borderRadius: 19 },
-  avatarInitials: { width: 38, height: 38, borderRadius: 19, backgroundColor: "#d9eee6", alignItems: "center", justifyContent: "center" },
-  avatarInitialsText: { color: "#16805d", fontSize: 13, fontWeight: "700" },
+  avatarInitials: { width: 42, height: 42, borderRadius: 21, backgroundColor: "#eaf1ff", alignItems: "center", justifyContent: "center" },
+  avatarInitialsText: { color: "#2458c7", fontSize: 13, fontWeight: "700" },
   person: { flex: 1 },
-  name: { fontSize: 11, fontWeight: "700", color: "#253149" },
+  name: { fontSize: 13, fontWeight: "700", color: "#253149" },
   room: { fontSize: 11, color: "#728197", marginTop: 2 },
   phone: { fontSize: 12, color: "#8997a6", marginTop: 2 },
   badge: {
-    fontSize: 12,
-    color: "#53602f",
-    borderRadius: 10,
-    paddingHorizontal: 7,
-    paddingVertical: 5,
+    fontSize: 9,
+    fontWeight: "700",
+    color: "#42634f",
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
   },
   tenantActions: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-end",
-    gap: 6,
-    marginTop: 9,
+    gap: 8,
+    marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderColor: "#edf1f7",
   },
   rent: {
     fontSize: 12,
     fontWeight: "700",
-    color: "#173b36",
+    color: "#2458c7",
     marginRight: "auto",
   },
   month: { fontSize: 12, fontWeight: "400" },
   smallButton: {
     borderRadius: 6,
-    backgroundColor: "#f4f1ed",
-    paddingHorizontal: 9,
-    paddingVertical: 6,
+    backgroundColor: "#f3f7fd",
+    paddingHorizontal: 10,
+    paddingVertical: 7,
     flexDirection: "row",
     alignItems: "center",
     gap: 3,
   },
   smallButtonText: { fontSize: 11 },
-  notifyButton: { backgroundColor: "#a84b2f" },
+  notifyButton: { backgroundColor: "#b9382b" },
   notifyButtonText: { color: "#fff" },
   empty: {
     backgroundColor: "#fff",
-    borderRadius: 12,
+    borderRadius: 8,
     padding: 28,
     alignItems: "center",
     marginTop: 12,
     borderWidth: 1,
-    borderColor: "#e5eaf1",
+    borderColor: "#e1eafa",
+    shadowColor: "#173b80",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 7,
+    elevation: 2,
   },
   emptyTitle: { fontSize: 17, fontWeight: "700", color: "#253149" },
   emptyText: {
@@ -579,7 +619,7 @@ const styles = StyleSheet.create({
     width: 72,
     height: 72,
     borderRadius: 36,
-    backgroundColor: "#d9eee6",
+    backgroundColor: "#eaf1ff",
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 12,
@@ -587,7 +627,7 @@ const styles = StyleSheet.create({
   modalAvatarInitials: {
     fontSize: 24,
     fontWeight: "700",
-    color: "#16805d",
+    color: "#2458c7",
   },
   modalName: {
     fontSize: 20,
@@ -633,7 +673,7 @@ const styles = StyleSheet.create({
   historyItemAmount: {
     fontSize: 13,
     fontWeight: "700",
-    color: "#12916a",
+    color: "#2458c7",
   },
   historyDivider: {
     height: 1,

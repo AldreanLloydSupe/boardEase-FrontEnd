@@ -1,4 +1,10 @@
+import { TenantHeaderMark } from "@/components/tenant-header-mark";
+import { AssignedTenantNav } from "@/components/tenant-navigation";
+import { useAuth } from "@/lib/auth-context";
+import { db } from "@/lib/firebase";
 import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
+import { doc, onSnapshot } from "firebase/firestore";
 import React from "react";
 import {
   Alert,
@@ -9,11 +15,6 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useAuth } from "@/lib/auth-context";
-import { AssignedTenantNav } from "@/components/tenant-navigation";
-import { doc, onSnapshot } from "firebase/firestore";
-import { db } from "@/lib/firebase";
-import { router } from "expo-router";
 
 export default function TenantHome() {
   const { user } = useAuth();
@@ -41,12 +42,17 @@ export default function TenantHome() {
   return (
     <SafeAreaView style={styles.page}>
       <View style={styles.header}>
-        <Text style={styles.kicker}>• BOARDEASE</Text>
-        <View style={styles.headerRow}>
-          <Pressable onPress={() => router.push("/tenant/account" as any)}>
-            <Text style={styles.welcome}>Welcome back,</Text>
-            <Text style={styles.name}>{user?.displayName || "Tenant"}</Text>
-          </Pressable>
+        <View style={styles.headerBrand}>
+          <TenantHeaderMark />
+          <View style={styles.headerCopy}>
+            <Text style={styles.kicker}>BOARDEASE</Text>
+            <View style={styles.headerRow}>
+              <Pressable onPress={() => router.push("/tenant/account" as any)}>
+                <Text style={styles.welcome}>Welcome back,</Text>
+                <Text style={styles.name}>{user?.displayName || "Tenant"}</Text>
+              </Pressable>
+            </View>
+          </View>
         </View>
       </View>
       <ScrollView contentContainerStyle={styles.content}>
@@ -101,7 +107,7 @@ export default function TenantHome() {
               <Ionicons
                 name={icon as keyof typeof Ionicons.glyphMap}
                 size={22}
-                color={label === "Notifications" ? "#e09a00" : "#536783"}
+                color="#2563eb"
               />
               <Text style={styles.actionText}>{label}</Text>
               <Text style={styles.actionSub}>{sub}</Text>
@@ -158,23 +164,33 @@ function Reading({ label, value }: { label: string; value: string }) {
   );
 }
 const styles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: "#f7f9fc" },
+  page: { flex: 1, backgroundColor: "#f3f7fd" },
   header: {
-    backgroundColor: "#fff",
-    padding: 14,
-    borderBottomWidth: 1,
-    borderColor: "#e6ebf1",
+    backgroundColor: "#2864e8",
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 18,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    shadowColor: "#173b80",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.16,
+    shadowRadius: 12,
+    elevation: 7,
+    zIndex: 1,
   },
-  kicker: { fontSize: 11, color: "#237759", fontWeight: "700" },
+  kicker: { fontSize: 11, color: "#d9e5ff", fontWeight: "700", letterSpacing: 1.4 },
+  headerBrand: { flexDirection: "row", alignItems: "center", gap: 11 },
+  headerCopy: { flex: 1 },
   headerRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginTop: 7,
+    marginTop: 9,
   },
   headerProfileActions: { flexDirection: "row", alignItems: "center", gap: 12 },
-  welcome: { fontSize: 12, color: "#8390a2" },
-  name: { fontSize: 19, fontWeight: "700", color: "#172033" },
+  welcome: { fontSize: 12, color: "#d9e5ff" },
+  name: { fontSize: 23, fontWeight: "800", color: "#fff", marginTop: 2 },
   avatar: {
     width: 34,
     height: 34,
@@ -185,21 +201,23 @@ const styles = StyleSheet.create({
   },
   content: { padding: 12, paddingBottom: 100 },
   due: {
-    backgroundColor: "#fff4ce",
-    borderRadius: 12,
-    padding: 14,
+    backgroundColor: "#eaf2ff",
+    borderRadius: 8,
+    padding: 16,
     flexDirection: "row",
     justifyContent: "space-between",
     marginBottom: 11,
+    borderWidth: 1,
+    borderColor: "#d5e5ff",
   },
-  dueLabel: { color: "#9a6500", fontSize: 12 },
-  amount: { fontSize: 21, fontWeight: "700", color: "#172033", marginTop: 8 },
+  dueLabel: { color: "#1d4ed8", fontSize: 12 },
+  amount: { fontSize: 24, fontWeight: "800", color: "#172033", marginTop: 8 },
   muted: { fontSize: 11, color: "#78879b", marginTop: 3 },
   bold: { fontWeight: "700" },
   dueBadge: {
-    color: "#a87500",
+    color: "#1d4ed8",
     fontSize: 11,
-    backgroundColor: "#ffe39a",
+    backgroundColor: "#d5e5ff",
     borderRadius: 9,
     paddingHorizontal: 8,
     paddingVertical: 4,
@@ -207,10 +225,15 @@ const styles = StyleSheet.create({
   },
   roomCard: {
     backgroundColor: "#fff",
-    borderRadius: 11,
-    padding: 13,
+    borderRadius: 8,
+    padding: 15,
     borderWidth: 1,
-    borderColor: "#e5eaf1",
+    borderColor: "#dce7f5",
+    shadowColor: "#173b80",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 7,
+    elevation: 2,
   },
   roomTop: { flexDirection: "row", justifyContent: "space-between" },
   cardLabel: { fontSize: 12, color: "#8997a6", letterSpacing: 0.5 },
@@ -236,11 +259,16 @@ const styles = StyleSheet.create({
   action: {
     flex: 1,
     backgroundColor: "#fff",
-    borderRadius: 9,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#e5eaf1",
-    paddingVertical: 12,
+    borderColor: "#e1eafa",
+    paddingVertical: 13,
     alignItems: "center",
+    shadowColor: "#173b80",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 1,
   },
   actionText: {
     fontSize: 11,
@@ -251,24 +279,24 @@ const styles = StyleSheet.create({
   actionSub: { fontSize: 12, color: "#8390a2", marginTop: 3 },
   reading: {
     backgroundColor: "#fff",
-    borderRadius: 10,
-    padding: 12,
+    borderRadius: 8,
+    padding: 14,
     borderWidth: 1,
-    borderColor: "#e5eaf1",
+    borderColor: "#e1eafa",
   },
   sectionRow: { flexDirection: "row", justifyContent: "space-between" },
   sectionTitle: { fontSize: 11, fontWeight: "700", color: "#253149" },
-  history: { fontSize: 11, color: "#d9634b" },
+  history: { fontSize: 11, color: "#2563eb" },
   readingRow: { flexDirection: "row", gap: 8, marginTop: 10 },
   readingBox: {
     flex: 1,
-    backgroundColor: "#f7f9fc",
+    backgroundColor: "#f3f7fd",
     borderRadius: 7,
     padding: 9,
   },
   readingValue: {
     fontSize: 12,
-    color: "#e07a38",
+    color: "#2563eb",
     fontWeight: "700",
     marginTop: 5,
   },
@@ -281,16 +309,16 @@ const styles = StyleSheet.create({
   },
   bulletin: {
     backgroundColor: "#fff",
-    borderRadius: 10,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#e5eaf1",
-    padding: 12,
+    borderColor: "#e1eafa",
+    padding: 14,
     marginTop: 12,
   },
   bulletinText: {
     fontSize: 12,
     fontWeight: "600",
-    color: "#a87500",
+    color: "#1d4ed8",
     marginTop: 8,
   },
   bottomBar: {
@@ -298,8 +326,8 @@ const styles = StyleSheet.create({
     bottom: 85,
     left: 14,
     right: 14,
-    backgroundColor: "#172033",
-    borderRadius: 12,
+    backgroundColor: "#1e3a8a",
+    borderRadius: 8,
     paddingHorizontal: 16,
     paddingVertical: 12,
     flexDirection: "row",
@@ -316,7 +344,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
-    backgroundColor: "#f0a300",
+    backgroundColor: "#2563eb",
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 7,
@@ -333,5 +361,5 @@ const styles = StyleSheet.create({
   },
   navItem: { alignItems: "center", gap: 3 },
   navText: { fontSize: 11, color: "#9aa8ba" },
-  navActive: { color: "#e07a38" },
+  navActive: { color: "#2563eb" },
 });

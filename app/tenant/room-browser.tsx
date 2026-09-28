@@ -1,5 +1,12 @@
+import { TenantHeaderMark } from "@/components/tenant-header-mark";
+import { ApplicantTenantNav } from "@/components/tenant-navigation";
+import { useAuth } from "@/lib/auth-context";
+import { getFavoriteRooms, setFavoriteRooms } from "@/lib/favorite-rooms";
+import { db } from "@/lib/firebase";
+import { roomFromFirestore, roomKey, type TenantRoom } from "@/lib/room-data";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
 import React from "react";
 import {
   Animated,
@@ -12,12 +19,6 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
-import { getFavoriteRooms, setFavoriteRooms } from "@/lib/favorite-rooms";
-import { useAuth } from "@/lib/auth-context";
-import { db } from "@/lib/firebase";
-import { roomFromFirestore, roomKey, type TenantRoom } from "@/lib/room-data";
-import { ApplicantTenantNav } from "@/components/tenant-navigation";
 
 const filters = ["All Rooms", "Twin Sharing", "Single Occupancy"];
 
@@ -156,9 +157,14 @@ export default function RoomBrowser() {
   return (
     <SafeAreaView style={styles.page}>
       <View style={styles.header}>
-        <Text style={styles.kicker}>BOARDEASE</Text>
-        <View style={styles.headerRow}>
-          <Text style={styles.title}>Find your next room</Text>
+        <View style={styles.headerTop}>
+          <View style={styles.headerIdentity}>
+            <TenantHeaderMark />
+            <View style={styles.headerCopy}>
+              <Text style={styles.kicker}>BOARDEASE</Text>
+              <Text style={styles.title}>Find your next room</Text>
+            </View>
+          </View>
           <Pressable onPress={logout} style={styles.logoutButton}>
             <Ionicons name="log-out-outline" size={24} color="#fff" />
           </Pressable>
@@ -314,6 +320,9 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   kicker: { color: "#d9e5ff", fontSize: 13, fontWeight: "700", letterSpacing: 1.5, marginBottom: 4 },
+  headerTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 10 },
+  headerIdentity: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 11 },
+  headerCopy: { flex: 1, minWidth: 0 },
   headerRow: {
     flexDirection: "row",
     justifyContent: "space-between",

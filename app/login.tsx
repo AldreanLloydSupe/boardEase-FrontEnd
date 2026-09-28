@@ -1,9 +1,10 @@
 import { useAuth } from "@/lib/auth-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Link, router } from "expo-router";
-import React, { useState, useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Alert,
+  Animated,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -12,7 +13,6 @@ import {
   Text,
   TextInput,
   View,
-  Animated,
 } from "react-native";
 
 export default function Login() {
@@ -109,7 +109,7 @@ export default function Login() {
       >
         <View style={styles.brand}>
           <View style={styles.logo}>
-            <Text style={styles.logoText}>B</Text>
+            <Ionicons name="business" size={32} color="#fff" />
           </View>
           <Text style={styles.brandName}>BoardEase</Text>
           <Text style={styles.tagline}>

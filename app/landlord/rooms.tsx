@@ -1,19 +1,21 @@
+import { LandlordNavigation } from "@/components/landlord-navigation";
+import { useAuth } from "@/lib/auth-context";
+import { db } from "@/lib/firebase";
 import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
+import { router } from "expo-router";
 import {
   addDoc,
   collection,
   onSnapshot,
   serverTimestamp,
 } from "firebase/firestore";
-import { router } from "expo-router";
-import * as ImagePicker from "expo-image-picker";
-import { LandlordNavigation } from "@/components/landlord-navigation";
 import React, { useState } from "react";
 import {
-  Animated,
   Alert,
-  Modal,
+  Animated,
   Image,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -22,8 +24,6 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { db } from "@/lib/firebase";
-import { useAuth } from "@/lib/auth-context";
 
 type Room = {
   id: string;
@@ -238,11 +238,16 @@ export default function Rooms() {
     <SafeAreaView style={styles.page}>
       <View style={styles.header}>
         <Pressable onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={22} color="#172033" />
+          <Ionicons name="arrow-back" size={22} color="#fff" />
         </Pressable>
         <View style={styles.headerTitle}>
-          <Text style={styles.kicker}>BOARDEASE</Text>
-          <Text style={styles.title}>Rooms</Text>
+          <View style={styles.headerLogo}>
+            <Ionicons name="business" size={23} color="#fff" />
+          </View>
+          <View>
+            <Text style={styles.kicker}>BOARDEASE</Text>
+            <Text style={styles.title}>Rooms</Text>
+          </View>
         </View>
         <Pressable style={styles.addButton} onPress={openAddModal}>
           <Ionicons name="add" size={17} color="#fff" />
@@ -293,86 +298,114 @@ export default function Rooms() {
           <Ionicons name="search-outline" size={17} color="#8a99a9" />
           <Text style={styles.searchText}>Search room number or tenant...</Text>
         </View>
-        {isLoadingRooms ? (
-          <>
-            <SkeletonRoomCard />
-            <SkeletonRoomCard />
-            <SkeletonRoomCard />
-            <SkeletonRoomCard />
-          </>
-        ) : (
-          filteredRooms.map((room) => (
-            <View key={room.id} style={styles.roomCard}>
-            <View style={styles.roomHeader}>
-              <View>
-                <Text style={styles.roomName}>
-                  Room {room.number}{" "}
-                  <Text style={styles.roomType}>· {room.type}</Text>
-                </Text>
-                <Text
-                  style={[
-                    styles.status,
-                    room.status === "Available"
-                      ? styles.available
-                      : styles.occupied,
-                  ]}
-                >
-                  {room.status === "Available" ? "● Available" : "● Occupied"}
-                </Text>
+        <View style={styles.roomGrid}>
+          {isLoadingRooms ? (
+            <>
+              <SkeletonRoomCard />
+              <SkeletonRoomCard />
+              <SkeletonRoomCard />
+              <SkeletonRoomCard />
+            </>
+          ) : (
+            filteredRooms.map((room) => (
+              <View key={room.id} style={styles.roomCard}>
+                <View style={styles.roomImageWrap}>
+                  {room.image ? (
+                    <Image
+                      source={{ uri: room.image }}
+                      style={styles.roomImage}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <View style={styles.roomImagePlaceholder}>
+                      <Ionicons name="image-outline" size={25} color="#7394d6" />
+                      <Text style={styles.placeholderText}>No room photo</Text>
+                    </View>
+                  )}
+                  <View style={styles.roomImageActions}>
+                    <Pressable
+                      accessibilityLabel={`Edit room ${room.number}`}
+                      onPress={() => openEditModal(room)}
+                      style={styles.imageAction}
+                    >
+                      <Ionicons name="pencil" size={15} color="#2458c7" />
+                    </Pressable>
+                    <Pressable
+                      accessibilityLabel={`Delete room ${room.number}`}
+                      onPress={() => deleteRoom(room.id, room.number)}
+                      style={styles.imageAction}
+                    >
+                      <Ionicons name="trash" size={15} color="#dc3545" />
+                    </Pressable>
+                  </View>
+                </View>
+                <View style={styles.roomCardBody}>
+                  <View style={styles.roomHeader}>
+                    <View style={styles.roomHeading}>
+                      <Text style={styles.roomName} numberOfLines={1}>
+                        Room {room.number}
+                      </Text>
+                      <Text style={styles.roomType} numberOfLines={1}>
+                        {room.type}
+                      </Text>
+                    </View>
+                    <Text
+                      style={[
+                        styles.status,
+                        room.status === "Available"
+                          ? styles.available
+                          : styles.occupied,
+                      ]}
+                    >
+                      {room.status === "Available" ? "Available" : "Occupied"}
+                    </Text>
+                  </View>
+                  <View style={styles.roomInfo}>
+                    <View style={styles.tenantInfo}>
+                      <Text style={styles.label}>TENANT</Text>
+                      <Text style={styles.tenant} numberOfLines={1}>
+                        {room.tenant || "Ready for Tenant"}
+                      </Text>
+                    </View>
+                    <View style={styles.rentBox}>
+                      <Text style={styles.label}>RENT</Text>
+                      <Text style={styles.rent} numberOfLines={1}>
+                        ₱{room.rent}
+                        <Text style={styles.month}>/mo</Text>
+                      </Text>
+                    </View>
+                  </View>
+                  <View
+                    style={[
+                      styles.roomAction,
+                      room.status === "Available" && styles.assignAction,
+                    ]}
+                  >
+                    <Ionicons
+                      name={
+                        room.status === "Available"
+                          ? "checkmark-circle-outline"
+                          : "lock-closed-outline"
+                      }
+                      size={13}
+                      color={room.status === "Available" ? "#2458c7" : "#536783"}
+                    />
+                    <Text
+                      style={[
+                        styles.roomActionText,
+                        room.status === "Available" && styles.assignText,
+                      ]}
+                    >
+                      {room.status === "Available"
+                        ? "Available · Auto-assign"
+                        : "Occupied · Assigned"}
+                    </Text>
+                  </View>
+                </View>
               </View>
-              <View style={styles.actionButtons}>
-                <Pressable onPress={() => openEditModal(room)} style={styles.editButton}>
-                   <Ionicons name="pencil" size={16} color="#8a99a9" />
-                </Pressable>
-                <Pressable onPress={() => deleteRoom(room.id, room.number)} style={styles.editButton}>
-                   <Ionicons name="trash" size={16} color="#ff3b30" />
-                </Pressable>
-              </View>
-            </View>
-            <View style={styles.roomInfo}>
-              <View>
-                <Text style={styles.label}>TENANT</Text>
-                <Text style={styles.tenant}>
-                  {room.tenant || "Ready for Tenant"}
-                </Text>
-              </View>
-              <View style={styles.rentBox}>
-                <Text style={styles.label}>RENT</Text>
-                <Text style={styles.rent}>
-                  ₱{room.rent}
-                  <Text style={styles.month}> /mo</Text>
-                </Text>
-              </View>
-            </View>
-            <View
-              style={[
-                styles.roomAction,
-                room.status === "Available" && styles.assignAction,
-              ]}
-            >
-              <Ionicons
-                name={
-                  room.status === "Available"
-                    ? "checkmark-circle-outline"
-                    : "lock-closed-outline"
-                }
-                size={14}
-                color={room.status === "Available" ? "#fff" : "#536783"}
-              />
-              <Text
-                style={[
-                  styles.roomActionText,
-                  room.status === "Available" && styles.assignText,
-                ]}
-              >
-                {room.status === "Available"
-                  ? "Available · Approval assigns automatically"
-                  : "Occupied · Assigned through approval"}
-              </Text>
-            </View>
-          </View>
-          ))
-        )}
+            ))
+          )}
+        </View>
       </ScrollView>
       <LandlordNavigation active="Rooms" />
       <Modal
@@ -498,21 +531,27 @@ const SkeletonRoomCard = () => {
 
   return (
     <View style={styles.roomCard}>
-      <View style={styles.roomHeader}>
-        <Animated.View style={{ height: 16, width: 100, backgroundColor: '#e4ebf3', borderRadius: 4, opacity: anim }} />
-        <Animated.View style={{ height: 20, width: 70, backgroundColor: '#e4ebf3', borderRadius: 10, opacity: anim }} />
-      </View>
-      <View style={styles.roomInfo}>
-        <View>
-          <Animated.View style={{ height: 12, width: 50, backgroundColor: '#e4ebf3', borderRadius: 4, marginBottom: 6, opacity: anim }} />
-          <Animated.View style={{ height: 14, width: 80, backgroundColor: '#e4ebf3', borderRadius: 4, opacity: anim }} />
+      <Animated.View style={[styles.skeletonImage, { opacity: anim }]} />
+      <View style={styles.roomCardBody}>
+        <View style={styles.roomHeader}>
+          <View>
+            <Animated.View style={{ height: 14, width: 55, backgroundColor: '#e4ebf3', borderRadius: 4, opacity: anim }} />
+            <Animated.View style={{ height: 10, width: 42, backgroundColor: '#e4ebf3', borderRadius: 4, marginTop: 5, opacity: anim }} />
+          </View>
+          <Animated.View style={{ height: 20, width: 48, backgroundColor: '#e4ebf3', borderRadius: 10, opacity: anim }} />
         </View>
-        <View style={styles.rentBox}>
-          <Animated.View style={{ height: 12, width: 40, backgroundColor: '#e4ebf3', borderRadius: 4, marginBottom: 6, opacity: anim }} />
-          <Animated.View style={{ height: 16, width: 70, backgroundColor: '#e4ebf3', borderRadius: 4, opacity: anim }} />
+        <View style={styles.roomInfo}>
+          <View>
+            <Animated.View style={{ height: 10, width: 36, backgroundColor: '#e4ebf3', borderRadius: 4, marginBottom: 6, opacity: anim }} />
+            <Animated.View style={{ height: 12, width: 56, backgroundColor: '#e4ebf3', borderRadius: 4, opacity: anim }} />
+          </View>
+          <View style={styles.rentBox}>
+            <Animated.View style={{ height: 10, width: 30, backgroundColor: '#e4ebf3', borderRadius: 4, marginBottom: 6, opacity: anim }} />
+            <Animated.View style={{ height: 14, width: 45, backgroundColor: '#e4ebf3', borderRadius: 4, opacity: anim }} />
+          </View>
         </View>
+        <Animated.View style={{ height: 34, borderRadius: 7, backgroundColor: '#e4ebf3', opacity: anim }} />
       </View>
-      <Animated.View style={{ height: 32, borderRadius: 7, backgroundColor: '#e4ebf3', opacity: anim }} />
     </View>
   );
 };
@@ -539,11 +578,24 @@ function Summary({
       onPress={onPress}
       style={[styles.summaryItem, active && styles.summaryActive]}
     >
-      <Ionicons
-        name={icon}
-        size={17}
-        color={warning ? "#d98a00" : green ? "#12916a" : "#536783"}
-      />
+      <View
+        style={[
+          styles.summaryIcon,
+          {
+            backgroundColor: warning
+              ? "#fff5d6"
+              : green
+                ? "#e8f8f1"
+                : "#eaf1ff",
+          },
+        ]}
+      >
+        <Ionicons
+          name={icon}
+          size={17}
+          color={warning ? "#d98a00" : green ? "#12916a" : "#2864e8"}
+        />
+      </View>
       <Text style={styles.summaryLabel}>{label}</Text>
       <Text style={styles.summaryValue}>{value}</Text>
     </Pressable>
@@ -586,118 +638,188 @@ function BottomNav() {
   );
 }
 const styles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: "#f7f9fc" },
+  page: { flex: 1, backgroundColor: "#f3f7fd" },
   header: {
-    minHeight: 62,
-    backgroundColor: "#fff",
-    borderBottomWidth: 1,
-    borderColor: "#e8edf2",
+    minHeight: 92,
+    backgroundColor: "#2864e8",
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 14,
-    gap: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    gap: 14,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    shadowColor: "#173b80",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    elevation: 8,
+    zIndex: 1,
   },
-  headerTitle: { flex: 1 },
-  kicker: { fontSize: 12, color: "#b65c43" },
-  title: { fontSize: 17, fontWeight: "700", color: "#172033" },
+  headerTitle: { flex: 1, flexDirection: "row", alignItems: "center", gap: 10 },
+  headerLogo: {
+    width: 40,
+    height: 40,
+    borderRadius: 11,
+    backgroundColor: "rgba(255,255,255,0.16)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  kicker: { fontSize: 11, color: "#d9e5ff", fontWeight: "700", letterSpacing: 1.4 },
+  title: { fontSize: 24, fontWeight: "800", color: "#fff", marginTop: 2 },
   addButton: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    backgroundColor: "#173b36",
-    borderRadius: 7,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    backgroundColor: "rgba(255,255,255,0.16)",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   addText: { color: "#fff", fontSize: 12, fontWeight: "600" },
-  content: { padding: 12, paddingBottom: 20 },
-  overview: { fontSize: 15, fontWeight: "700", color: "#253149", marginTop: 4 },
-  caption: { fontSize: 11, color: "#78879b", marginTop: 4 },
-  summary: { flexDirection: "row", gap: 8, marginVertical: 12 },
+  content: { padding: 16, paddingBottom: 24 },
+  overview: { fontSize: 16, fontWeight: "700", color: "#253149", marginTop: 4 },
+  caption: { fontSize: 11, color: "#78879b", marginTop: 4, marginBottom: 2 },
+  summary: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginVertical: 12 },
   summaryItem: {
-    flex: 1,
+    flexBasis: "47%",
+    flexGrow: 1,
     backgroundColor: "#fff",
-    borderRadius: 9,
-    padding: 9,
+    borderRadius: 8,
+    padding: 12,
     borderWidth: 1,
-    borderColor: "#e5eaf1",
-    minHeight: 72,
+    borderColor: "#e1eafa",
+    minHeight: 92,
+    shadowColor: "#173b80",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 1,
   },
   summaryActive: {
     borderColor: "#2864e8",
-    borderWidth: 2,
-    backgroundColor: "#f2f6ff",
+    backgroundColor: "#f5f8ff",
   },
-  summaryLabel: { fontSize: 12, color: "#8390a2", marginTop: 5 },
+  summaryIcon: { width: 30, height: 30, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  summaryLabel: { fontSize: 11, color: "#64748b", marginTop: 7 },
   summaryValue: {
-    fontSize: 16,
-    fontWeight: "700",
+    fontSize: 18,
+    fontWeight: "800",
     color: "#253149",
-    marginTop: 3,
+    marginTop: 2,
   },
   search: {
     backgroundColor: "#fff",
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#e5eaf1",
-    height: 38,
+    borderColor: "#dce7f5",
+    height: 44,
     flexDirection: "row",
     alignItems: "center",
     gap: 7,
     paddingHorizontal: 11,
-    marginBottom: 10,
+    marginBottom: 12,
   },
   searchText: { fontSize: 12, color: "#9aa8ba" },
-  roomCard: {
-    backgroundColor: "#fff",
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#e5eaf1",
-    padding: 11,
-    marginBottom: 9,
+  roomGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    rowGap: 12,
   },
+  roomCard: {
+    width: "48%",
+    backgroundColor: "#fff",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#e1eafa",
+    overflow: "hidden",
+    shadowColor: "#173b80",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 7,
+    elevation: 2,
+  },
+  roomImageWrap: { position: "relative" },
+  roomImage: { width: "100%", aspectRatio: 1.4 },
+  roomImagePlaceholder: {
+    width: "100%",
+    aspectRatio: 1.4,
+    backgroundColor: "#eaf1ff",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+  },
+  placeholderText: { fontSize: 10, color: "#647da9", fontWeight: "600" },
+  skeletonImage: {
+    width: "100%",
+    aspectRatio: 1.4,
+    backgroundColor: "#e4ebf3",
+  },
+  roomImageActions: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    flexDirection: "row",
+    gap: 6,
+  },
+  imageAction: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: "rgba(255,255,255,0.94)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  roomCardBody: { padding: 11 },
   roomHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    gap: 5,
   },
-  actionButtons: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  roomName: { fontSize: 12, fontWeight: "700", color: "#253149" },
-  roomType: { fontSize: 11, fontWeight: "400", color: "#8390a2" },
+  roomHeading: { flex: 1, minWidth: 0 },
+  roomName: { fontSize: 13, fontWeight: "700", color: "#253149" },
+  roomType: { fontSize: 10, fontWeight: "400", color: "#8390a2", marginTop: 2 },
   status: {
-    fontSize: 11,
+    fontSize: 9,
+    fontWeight: "700",
     paddingHorizontal: 7,
-    paddingVertical: 4,
-    borderRadius: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    overflow: "hidden",
+    flexShrink: 0,
   },
-  available: { color: "#087f5b", backgroundColor: "#dff8ed" },
-  occupied: { color: "#087f5b", backgroundColor: "#dff8ed" },
+  available: { color: "#087f5b", backgroundColor: "#e8f8f1" },
+  occupied: { color: "#2458c7", backgroundColor: "#eaf1ff" },
   roomInfo: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginTop: 14,
-    marginBottom: 11,
+    alignItems: "flex-end",
+    gap: 6,
+    marginTop: 12,
+    marginBottom: 10,
   },
-  label: { fontSize: 12, color: "#8d9aaa", marginBottom: 3 },
-  tenant: { fontSize: 12, fontWeight: "600", color: "#253149" },
-  rentBox: { alignItems: "flex-end" },
-  rent: { fontSize: 13, fontWeight: "700", color: "#14795f" },
-  month: { fontSize: 11, fontWeight: "400", color: "#71809a" },
+  tenantInfo: { flex: 1, minWidth: 0 },
+  label: { fontSize: 9, color: "#8d9aaa", marginBottom: 3, fontWeight: "600" },
+  tenant: { fontSize: 10, fontWeight: "600", color: "#253149" },
+  rentBox: { alignItems: "flex-end", flexShrink: 0 },
+  rent: { fontSize: 12, fontWeight: "700", color: "#2458c7" },
+  month: { fontSize: 9, fontWeight: "400", color: "#71809a" },
   roomAction: {
-    height: 32,
+    minHeight: 34,
     borderRadius: 7,
-    backgroundColor: "#eeeae7",
+    backgroundColor: "#f3f7fd",
     alignItems: "center",
     justifyContent: "center",
     flexDirection: "row",
-    gap: 5,
+    gap: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 6,
   },
-  roomActionText: { fontSize: 12, color: "#394b61" },
-  assignAction: { backgroundColor: "#173b36" },
-  assignText: { color: "#fff" },
+  roomActionText: { flexShrink: 1, fontSize: 9, color: "#394b61", textAlign: "center" },
+  assignAction: { backgroundColor: "#eaf1ff" },
+  assignText: { color: "#2458c7" },
   nav: {
     height: 66,
     backgroundColor: "#fff",
@@ -779,11 +901,6 @@ const styles = StyleSheet.create({
     marginTop: 20,
   },
   saveText: { color: "#fff", fontSize: 14, fontWeight: "600" },
-  editButton: {
-    padding: 6,
-    backgroundColor: "#f4f7fb",
-    borderRadius: 8,
-  },
   imagePickerBtn: {
     height: 100,
     borderWidth: 2,

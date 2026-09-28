@@ -1,6 +1,7 @@
+import { TenantHeaderMark } from "@/components/tenant-header-mark";
+import { useAuth } from "@/lib/auth-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
-import React from "react";
 import {
   Alert,
   Image,
@@ -11,7 +12,6 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useAuth } from "@/lib/auth-context";
 
 export default function ApplicationDetails() {
   const { user } = useAuth();
@@ -34,7 +34,10 @@ export default function ApplicationDetails() {
           <Pressable onPress={() => router.back()}>
             <Ionicons name="arrow-back" size={21} color="#253149" />
           </Pressable>
-          <Text style={styles.topTitle}>Application Details</Text>
+          <View style={styles.headerTitleGroup}>
+            <TenantHeaderMark />
+            <Text style={styles.topTitle}>Application Details</Text>
+          </View>
           <Ionicons name="notifications-outline" size={20} color="#253149" />
         </View>
         <View style={styles.statusRow}>
@@ -129,6 +132,7 @@ const styles = StyleSheet.create({
     marginBottom: 17,
   },
   topTitle: { fontWeight: "700", color: "#253149" },
+  headerTitleGroup: { flexDirection: "row", alignItems: "center", gap: 8 },
   statusRow: { flexDirection: "row", alignItems: "center", gap: 7 },
   title: { fontSize: 19, fontWeight: "700", color: "#172033" },
   status: {

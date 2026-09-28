@@ -1,5 +1,13 @@
+import { db } from "@/lib/firebase";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
+import {
+  doc,
+  getDoc,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+} from "firebase/firestore";
 import React from "react";
 import {
   Alert,
@@ -10,14 +18,6 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import {
-  doc,
-  getDoc,
-  serverTimestamp,
-  setDoc,
-  updateDoc,
-} from "firebase/firestore";
-import { db } from "@/lib/firebase";
 
 export default function ApplicationReview() {
   const { name, applicationId } = useLocalSearchParams<{
@@ -142,6 +142,9 @@ export default function ApplicationReview() {
         <Pressable onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={21} color="#172033" />
         </Pressable>
+        <View style={styles.headerLogo}>
+          <Ionicons name="business" size={22} color="#fff" />
+        </View>
         <View style={styles.headerText}>
           <Text style={styles.title}>Review Applicant</Text>
           <Text style={styles.subtitle}>BoardEase Ref: #APP-2026-89</Text>
@@ -236,7 +239,7 @@ function Action({
         Alert.alert(label, `${label} action will be connected later.`)
       }
     >
-      <Ionicons name={icon} size={17} color="#173b36" />
+      <Ionicons name={icon} size={17} color="#2864e8" />
       <Text style={styles.actionText}>{label}</Text>
     </Pressable>
   );
@@ -255,7 +258,7 @@ function Card({
   return (
     <View style={styles.card}>
       <View style={styles.cardTitle}>
-        <Ionicons name={icon} size={19} color="#536783" />
+        <Ionicons name={icon} size={19} color="#2864e8" />
         <Text style={styles.cardHeading}>{title}</Text>
         <Text style={styles.tag}>{tag}</Text>
       </View>
@@ -280,20 +283,36 @@ function InfoLine({ label, value }: { label: string; value: string }) {
   );
 }
 const styles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: "#f8f6f2" },
+  page: { flex: 1, backgroundColor: "#f3f7fd" },
   header: {
-    minHeight: 62,
-    backgroundColor: "#fff",
-    borderBottomWidth: 1,
-    borderColor: "#e8e3dc",
-    paddingHorizontal: 14,
+    minHeight: 92,
+    backgroundColor: "#2864e8",
+    paddingHorizontal: 20,
+    paddingVertical: 14,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 10,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    shadowColor: "#173b80",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    elevation: 8,
+    zIndex: 1,
   },
-  headerText: { flex: 1 },
-  title: { fontSize: 17, fontWeight: "700", color: "#172033" },
-  subtitle: { fontSize: 11, color: "#8390a2", marginTop: 3 },
+  headerLogo: {
+    width: 38,
+    height: 38,
+    borderRadius: 11,
+    backgroundColor: "rgba(255,255,255,0.16)",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  headerText: { flex: 1, minWidth: 0 },
+  title: { fontSize: 19, fontWeight: "800", color: "#fff" },
+  subtitle: { fontSize: 10, color: "#d9e5ff", marginTop: 3 },
   pending: {
     color: "#a87500",
     backgroundColor: "#fff1c7",
@@ -302,21 +321,26 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     fontSize: 11,
   },
-  content: { padding: 14, paddingBottom: 100 },
+  content: { padding: 16, paddingBottom: 100 },
   profile: {
     backgroundColor: "#fff",
-    borderRadius: 13,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#e7e1d9",
-    padding: 14,
+    borderColor: "#e1eafa",
+    padding: 15,
     flexDirection: "row",
     gap: 12,
+    shadowColor: "#173b80",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 7,
+    elevation: 2,
   },
   initials: {
     width: 47,
     height: 47,
     borderRadius: 12,
-    backgroundColor: "#245448",
+    backgroundColor: "#2864e8",
     alignItems: "center",
     justifyContent: "center",
     position: "relative",
@@ -338,9 +362,9 @@ const styles = StyleSheet.create({
   role: {
     alignSelf: "flex-start",
     fontSize: 11,
-    color: "#207454",
+    color: "#2458c7",
     borderWidth: 1,
-    borderColor: "#a8ddc6",
+    borderColor: "#ccdcff",
     paddingHorizontal: 5,
     paddingVertical: 2,
     marginTop: 3,
@@ -351,23 +375,28 @@ const styles = StyleSheet.create({
   action: {
     flex: 1,
     height: 40,
-    borderRadius: 9,
+    borderRadius: 8,
     backgroundColor: "#fff",
     alignItems: "center",
     justifyContent: "center",
     flexDirection: "row",
     gap: 6,
     borderWidth: 1,
-    borderColor: "#eee7df",
+    borderColor: "#dce7f5",
   },
   actionText: { fontSize: 11, color: "#253149" },
   card: {
     backgroundColor: "#fff",
-    borderRadius: 13,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#e7e1d9",
+    borderColor: "#e1eafa",
     padding: 14,
     marginBottom: 12,
+    shadowColor: "#173b80",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 7,
+    elevation: 2,
   },
   cardTitle: {
     flexDirection: "row",
@@ -375,7 +404,7 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingBottom: 12,
     borderBottomWidth: 1,
-    borderColor: "#eee9e3",
+    borderColor: "#edf1f7",
   },
   cardHeading: { flex: 1, fontSize: 14, fontWeight: "700", color: "#253149" },
   tag: {
@@ -389,16 +418,16 @@ const styles = StyleSheet.create({
   summaryRow: { flexDirection: "row", gap: 8, marginTop: 12 },
   infoBox: {
     flex: 1,
-    backgroundColor: "#f5f1eb",
-    borderRadius: 9,
+    backgroundColor: "#f3f7fd",
+    borderRadius: 8,
     padding: 10,
     minHeight: 68,
   },
   boxLabel: { fontSize: 12, color: "#68778a" },
   boxValue: { fontSize: 12, fontWeight: "600", color: "#253149", marginTop: 6 },
   dueBox: {
-    backgroundColor: "#f5f1eb",
-    borderRadius: 9,
+    backgroundColor: "#f3f7fd",
+    borderRadius: 8,
     padding: 10,
     marginTop: 9,
   },
@@ -407,7 +436,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderColor: "#f0ece7",
+    borderColor: "#edf1f7",
   },
   lineLabel: { fontSize: 12, color: "#68778a" },
   lineValue: {
@@ -423,7 +452,7 @@ const styles = StyleSheet.create({
     right: 0,
     backgroundColor: "#fff",
     borderTopWidth: 1,
-    borderColor: "#e7e1d9",
+    borderColor: "#e1eafa",
     padding: 12,
     flexDirection: "row",
     gap: 8,
@@ -433,7 +462,7 @@ const styles = StyleSheet.create({
     height: 42,
     borderRadius: 9,
     borderWidth: 1,
-    borderColor: "#d9d0c6",
+    borderColor: "#ccdcff",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -452,7 +481,7 @@ const styles = StyleSheet.create({
     flex: 1.5,
     height: 42,
     borderRadius: 9,
-    backgroundColor: "#173b36",
+    backgroundColor: "#2864e8",
     alignItems: "center",
     justifyContent: "center",
     flexDirection: "row",

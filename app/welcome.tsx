@@ -1,8 +1,8 @@
-import { router } from "expo-router";
-import { View, Text, StyleSheet, Pressable, Platform, Animated } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { useEffect, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
+import { useEffect, useRef, useState } from "react";
+import { Animated, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function Welcome() {
   const fadeAnim = useRef(new Animated.Value(0)).current;
