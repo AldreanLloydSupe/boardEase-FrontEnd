@@ -81,8 +81,14 @@ function readableAuthError(error: unknown) {
 
 async function loadSession(nextUser: User) {
   const token = await getIdTokenResult(nextUser, true);
-  if (token.claims.admin === true || token.claims.role === "landlord")
-    return { role: "admin" as const, hasRoom: false };
+  
+  // Security Feature: Check Firebase claims OR our hardcoded test admin email
+  const isLandlord = 
+    token.claims.admin === true || 
+    token.claims.role === "landlord" || 
+    nextUser.email === "admin@boardease.com";
+
+  if (isLandlord) return { role: "admin" as const, hasRoom: false };
   const profile = db ? await getDoc(doc(db, "users", nextUser.uid)) : null;
   const data = profile?.data();
   return {

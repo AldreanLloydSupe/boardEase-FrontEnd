@@ -5,6 +5,7 @@ import React, { useEffect, useState } from "react";
 import {
   Alert,
   Image,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -16,7 +17,8 @@ import { collection, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
 export default function Tenants() {
-  const [allTenants, setAllTenants] = useState<any[][]>([]);
+  const [allTenants, setAllTenants] = useState<any[]>([]);
+  const [selectedTenant, setSelectedTenant] = useState<any | null>(null);
   const [loading, setLoading] = useState(Boolean(db));
   const [filter, setFilter] = useState<
     "all" | "overdue" | "ending" | "pending"
@@ -31,27 +33,31 @@ export default function Tenants() {
         const assignedTenants = usersSnapshot.docs
           .map((item) => ({ id: item.id, ...item.data() }))
           .filter((item: any) => item.role !== "admin" && item.hasRoom === true)
-          .map((item: any) => [
-            item.name || item.email || "Tenant",
-            `Room ${item.roomNumber || item.roomId || "Assigned"} · ${item.roomType || "Room"}`,
-            `₱${item.roomRent || "—"}`,
-            item.paymentStatus === "overdue" || item.isOverdue === true
-              ? "OVERDUE"
-              : "ACTIVE LEASE",
-            "#d9f7e8",
-            item.photoURL,
-          ]);
+          .map((item: any) => ({
+            id: item.id,
+            name: item.name || item.email || "Tenant",
+            room: `Room ${item.roomNumber || item.roomId || "Assigned"} · ${item.roomType || "Room"}`,
+            rent: `₱${item.roomRent || "—"}`,
+            status: item.paymentStatus === "overdue" || item.isOverdue === true ? "OVERDUE" : "ACTIVE LEASE",
+            color: "#d9f7e8",
+            photoURL: item.photoURL,
+            isPending: false,
+            raw: item
+          }));
         const pendingTenants = applicationsSnapshot.docs
           .map((item) => ({ id: item.id, ...item.data() }))
           .filter((item: any) => !item.status || item.status === "pending")
-          .map((item: any) => [
-            item.tenantName || item.tenantEmail || "Tenant",
-            `Applied for Room ${item.roomNumber || "requested room"}`,
-            `₱${item.price || "—"}`,
-            "PENDING REVIEW",
-            "#fff0c2",
-            item.tenantPhotoURL,
-          ]);
+          .map((item: any) => ({
+            id: item.id,
+            name: item.tenantName || item.tenantEmail || "Tenant",
+            room: `Applied for Room ${item.roomNumber || "requested room"}`,
+            rent: `₱${item.price || "—"}`,
+            status: "PENDING REVIEW",
+            color: "#fff0c2",
+            photoURL: item.tenantPhotoURL,
+            isPending: true,
+            raw: item
+          }));
         setAllTenants([...assignedTenants, ...pendingTenants]);
       })
       .catch(() => setAllTenants([]))
@@ -61,13 +67,13 @@ export default function Tenants() {
     (tenant) =>
       filter === "all" ||
       (filter === "overdue"
-        ? tenant[3].includes("OVERDUE")
+        ? tenant.status.includes("OVERDUE")
         : filter === "ending"
-          ? tenant[3].includes("ENDING")
-          : tenant[3].includes("PENDING")),
+          ? tenant.status.includes("ENDING")
+          : tenant.status.includes("PENDING")),
   );
   const overdueCount = allTenants.filter((tenant) =>
-    tenant[3].includes("OVERDUE"),
+    tenant.status.includes("OVERDUE"),
   ).length;
   return (
     <SafeAreaView style={styles.page}>
@@ -76,10 +82,10 @@ export default function Tenants() {
           <Text style={styles.kicker}>BOARDEASE</Text>
           <Text style={styles.title}>Tenants</Text>
           <Text style={styles.subtitle}>
-            {allTenants.filter((tenant) => tenant[3] === "ACTIVE LEASE").length}{" "}
+            {allTenants.filter((tenant) => tenant.status === "ACTIVE LEASE").length}{" "}
             Active Tenants · 0 Overdue ·{" "}
             {
-              allTenants.filter((tenant) => tenant[3].includes("PENDING"))
+              allTenants.filter((tenant) => tenant.status.includes("PENDING"))
                 .length
             }{" "}
             Pending Applications
@@ -130,7 +136,7 @@ export default function Tenants() {
             >
               Pending (
               {
-                allTenants.filter((tenant) => tenant[3].includes("PENDING"))
+                allTenants.filter((tenant) => tenant.status.includes("PENDING"))
                   .length
               }
               )
@@ -179,34 +185,33 @@ export default function Tenants() {
             </View>
           )
         )}
-        {filteredTenants.map(([name, room, rent, status, color, photoURL], index) => (
-          <View key={`${name}-${room}-${index}`} style={styles.card}>
+        {filteredTenants.map((tenant, index) => (
+          <Pressable key={`${tenant.name}-${tenant.room}-${index}`} style={styles.card} onPress={() => setSelectedTenant(tenant)}>
             <View style={styles.cardTop}>
-              {photoURL ? (
-                <Image source={{ uri: photoURL }} style={styles.avatarImage} />
+              {tenant.photoURL ? (
+                <Image source={{ uri: tenant.photoURL }} style={styles.avatarImage} />
               ) : (
                 <View style={styles.avatarInitials}>
-                  <Text style={styles.avatarInitialsText}>{String(name).slice(0, 2).toUpperCase()}</Text>
+                  <Text style={styles.avatarInitialsText}>{String(tenant.name).slice(0, 2).toUpperCase()}</Text>
                 </View>
               )}
-              <Text style={styles.avatar}>ðŸ‘¤</Text>
               <View style={styles.person}>
-                <Text style={styles.name}>{name}</Text>
-                <Text style={styles.room}>{room}</Text>
+                <Text style={styles.name}>{tenant.name}</Text>
+                <Text style={styles.room}>{tenant.room}</Text>
                 <Text style={styles.phone}>+63 917 555 1234</Text>
               </View>
-              <Text style={[styles.badge, { backgroundColor: color }]}>
-                {status}
+              <Text style={[styles.badge, { backgroundColor: tenant.color }]}>
+                {tenant.status}
               </Text>
             </View>
             <View style={styles.tenantActions}>
               <Text style={styles.rent}>
-                {rent}
+                {tenant.rent}
                 <Text style={styles.month}>/mo</Text>
               </Text>
               <Pressable
                 style={styles.smallButton}
-                onPress={() => Alert.alert("Call tenant", `Call ${name}?`)}
+                onPress={(e) => { e.stopPropagation(); Alert.alert("Call tenant", `Call ${tenant.name}?`); }}
               >
                 <Ionicons name="call-outline" size={12} color="#173b36" />
                 <Text>Call</Text>
@@ -214,27 +219,132 @@ export default function Tenants() {
               <Pressable
                 style={[
                   styles.smallButton,
-                  status.includes("OVERDUE") && styles.notifyButton,
+                  tenant.status.includes("OVERDUE") && styles.notifyButton,
                 ]}
-                onPress={() =>
-                  Alert.alert("Notification", `A reminder was sent to ${name}.`)
-                }
+                onPress={(e) => { e.stopPropagation(); setSelectedTenant(tenant); }}
               >
                 <Ionicons
                   name="notifications-outline"
                   size={12}
-                  color={status.includes("OVERDUE") ? "#fff" : "#173b36"}
+                  color={tenant.status.includes("OVERDUE") ? "#fff" : "#173b36"}
                 />
                 <Text
-                  style={status.includes("OVERDUE") && styles.notifyButtonText}
+                  style={tenant.status.includes("OVERDUE") && styles.notifyButtonText}
                 >
-                  {status.includes("OVERDUE") ? "Notify" : "Profile"}
+                  {tenant.status.includes("OVERDUE") ? "Notify" : "Profile"}
                 </Text>
               </Pressable>
             </View>
-          </View>
+          </Pressable>
         ))}
       </ScrollView>
+      <Modal
+        visible={!!selectedTenant}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setSelectedTenant(null)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modal}>
+            {selectedTenant && (
+              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 30 }}>
+                <View style={styles.modalHeader}>
+                  <Pressable onPress={() => setSelectedTenant(null)} style={styles.closeBtn}>
+                    <Ionicons name="close" size={24} color="#536783" />
+                  </Pressable>
+                </View>
+                
+                <View style={styles.tenantProfile}>
+                  {selectedTenant.photoURL ? (
+                    <Image source={{ uri: selectedTenant.photoURL }} style={styles.modalAvatar} />
+                  ) : (
+                    <View style={styles.modalAvatarPlaceholder}>
+                      <Text style={styles.modalAvatarInitials}>{String(selectedTenant.name).slice(0, 2).toUpperCase()}</Text>
+                    </View>
+                  )}
+                  <Text style={styles.modalName}>{selectedTenant.name}</Text>
+                  <Text style={styles.modalRoom}>{selectedTenant.room}</Text>
+                  <View style={[styles.badge, { backgroundColor: selectedTenant.color, alignSelf: 'center', marginTop: 8 }]}>
+                    <Text style={{ fontSize: 11, fontWeight: '600' }}>{selectedTenant.status}</Text>
+                  </View>
+                </View>
+
+                {!selectedTenant.isPending && (
+                  <View style={styles.section}>
+                    <Text style={styles.sectionTitle}>Payment History</Text>
+                    <View style={styles.historyCard}>
+                      <View style={styles.historyRow}>
+                        <View>
+                          <Text style={styles.historyItemTitle}>September Rent</Text>
+                          <Text style={styles.historyItemDate}>Sep 1, 2026</Text>
+                        </View>
+                        <Text style={styles.historyItemAmount}>Paid {selectedTenant.rent}</Text>
+                      </View>
+                      <View style={styles.historyDivider} />
+                      <View style={styles.historyRow}>
+                        <View>
+                          <Text style={styles.historyItemTitle}>August Rent</Text>
+                          <Text style={styles.historyItemDate}>Aug 2, 2026</Text>
+                        </View>
+                        <Text style={styles.historyItemAmount}>Paid {selectedTenant.rent}</Text>
+                      </View>
+                    </View>
+                  </View>
+                )}
+
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>Recent Activity</Text>
+                  <View style={styles.activityList}>
+                    <View style={styles.activityItem}>
+                      <View style={styles.activityDot} />
+                      <View>
+                        <Text style={styles.activityTitle}>Maintenance request completed</Text>
+                        <Text style={styles.activityDate}>Sep 12, 2026</Text>
+                      </View>
+                    </View>
+                    <View style={styles.activityItem}>
+                      <View style={styles.activityDot} />
+                      <View>
+                        <Text style={styles.activityTitle}>Lease agreement signed</Text>
+                        <Text style={styles.activityDate}>Aug 1, 2026</Text>
+                      </View>
+                    </View>
+                  </View>
+                </View>
+
+                {!selectedTenant.isPending && (
+                  <View style={styles.dangerZone}>
+                    <Text style={styles.dangerTitle}>Landlord Actions</Text>
+                    <Pressable 
+                      style={styles.evictBtn}
+                      onPress={() => {
+                        Alert.alert(
+                          "30-Day Notice",
+                          `Are you sure you want to issue a 30-day notice to remove ${selectedTenant.name}?`,
+                          [
+                            { text: "Cancel", style: "cancel" },
+                            { 
+                              text: "Issue Notice", 
+                              style: "destructive",
+                              onPress: () => {
+                                Alert.alert("Notice Issued", "The tenant has been notified.");
+                                setSelectedTenant(null);
+                              }
+                            }
+                          ]
+                        )
+                      }}
+                    >
+                      <Ionicons name="warning-outline" size={18} color="#c62828" />
+                      <Text style={styles.evictBtnText}>Issue 30-Day Removal Notice</Text>
+                    </Pressable>
+                  </View>
+                )}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
       <LandlordNavigation active="Tenants" />
     </SafeAreaView>
   );
@@ -437,4 +547,152 @@ const styles = StyleSheet.create({
   navItem: { alignItems: "center", gap: 3 },
   navText: { fontSize: 11, color: "#9aa8ba" },
   navActive: { color: "#2864e8" },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(15,23,42,.4)",
+    justifyContent: "flex-end",
+  },
+  modal: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    maxHeight: "90%",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    marginBottom: 4,
+  },
+  closeBtn: { padding: 4 },
+  tenantProfile: {
+    alignItems: "center",
+    marginBottom: 24,
+  },
+  modalAvatar: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    marginBottom: 12,
+  },
+  modalAvatarPlaceholder: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: "#d9eee6",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+  modalAvatarInitials: {
+    fontSize: 24,
+    fontWeight: "700",
+    color: "#16805d",
+  },
+  modalName: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#172033",
+  },
+  modalRoom: {
+    fontSize: 13,
+    color: "#728197",
+    marginTop: 4,
+  },
+  section: {
+    marginBottom: 24,
+  },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#172033",
+    marginBottom: 12,
+  },
+  historyCard: {
+    backgroundColor: "#f7f9fc",
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "#e5eaf1",
+  },
+  historyRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  historyItemTitle: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#253149",
+  },
+  historyItemDate: {
+    fontSize: 11,
+    color: "#728197",
+    marginTop: 2,
+  },
+  historyItemAmount: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#12916a",
+  },
+  historyDivider: {
+    height: 1,
+    backgroundColor: "#e5eaf1",
+    marginVertical: 12,
+  },
+  activityList: {
+    gap: 16,
+    paddingHorizontal: 8,
+  },
+  activityItem: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  activityDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#2864e8",
+    marginTop: 6,
+  },
+  activityTitle: {
+    fontSize: 13,
+    color: "#253149",
+  },
+  activityDate: {
+    fontSize: 11,
+    color: "#8997a6",
+    marginTop: 2,
+  },
+  dangerZone: {
+    marginTop: 8,
+    padding: 16,
+    backgroundColor: "#fff5f5",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#ffe3e3",
+  },
+  dangerTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#c62828",
+    marginBottom: 12,
+  },
+  evictBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#c62828",
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  evictBtnText: {
+    color: "#c62828",
+    fontWeight: "600",
+    fontSize: 13,
+  },
 });

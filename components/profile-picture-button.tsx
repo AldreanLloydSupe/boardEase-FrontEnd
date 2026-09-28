@@ -45,6 +45,7 @@ export function ProfilePictureButton({
   return (
     <Pressable
       onPress={interactive ? choosePhoto : undefined}
+      pointerEvents={interactive ? "auto" : "none"}
       style={[
         styles.container,
         { width: size, height: size, borderRadius: size / 2 },

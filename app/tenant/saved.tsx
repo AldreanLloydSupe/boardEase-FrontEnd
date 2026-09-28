@@ -21,15 +21,17 @@ import {
 } from "@/components/tenant-navigation";
 
 export default function SavedRooms() {
-  const { hasRoom } = useAuth();
+  const { hasRoom, user } = useAuth();
   const [favorites, setFavorites] = React.useState<string[]>([]);
   const [rooms, setRooms] = React.useState<TenantRoom[]>([]);
 
   React.useEffect(() => {
-    getFavoriteRooms()
-      .then(setFavorites)
-      .catch(() => undefined);
-  }, []);
+    if (user?.uid) {
+      getFavoriteRooms(user.uid)
+        .then(setFavorites)
+        .catch(() => undefined);
+    }
+  }, [user?.uid]);
 
   React.useEffect(() => {
     if (!db) {
@@ -46,9 +48,10 @@ export default function SavedRooms() {
   }, []);
 
   async function removeFavorite(number: string) {
+    if (!user?.uid) return;
     const next = favorites.filter((item) => item !== number);
     setFavorites(next);
-    await setFavoriteRooms(next);
+    await setFavoriteRooms(user.uid, next);
   }
 
   const saved = rooms.filter((room) => favorites.includes(room.number));

@@ -19,6 +19,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { getFavoriteRooms, setFavoriteRooms } from "@/lib/favorite-rooms";
 import { useAuth } from "@/lib/auth-context";
 import { createApplication, createTourRequest } from "@/lib/request-data";
+import { collection, getDocs, query, where } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 export default function RoomDetails() {
   const params = useLocalSearchParams<{
@@ -36,20 +38,61 @@ export default function RoomDetails() {
   const [showDatePicker, setShowDatePicker] = React.useState(false);
   const [tourNote, setTourNote] = React.useState("");
   const [isFavorite, setIsFavorite] = React.useState(false);
+  const [isApplying, setIsApplying] = React.useState(false);
+  const [hasApplied, setHasApplied] = React.useState(false);
+  const [isRequestingTour, setIsRequestingTour] = React.useState(false);
+  const [hasRequestedTour, setHasRequestedTour] = React.useState(false);
 
   React.useEffect(() => {
-    getFavoriteRooms()
-      .then((saved) => setIsFavorite(saved.includes(number)))
-      .catch(() => undefined);
-  }, [number]);
+    if (user?.uid) {
+      getFavoriteRooms(user.uid)
+        .then((saved) => setIsFavorite(saved.includes(number)))
+        .catch(() => undefined);
+    }
+  }, [number, user?.uid]);
+
+  React.useEffect(() => {
+    const checkStatus = async () => {
+      if (!db || !user) return;
+      try {
+        const appsQuery = query(
+          collection(db, "applications"),
+          where("tenantId", "==", user.uid),
+          where("roomNumber", "==", number)
+        );
+        const appsSnap = await getDocs(appsQuery);
+        const applied = appsSnap.docs.some(doc => {
+          const status = doc.data().status;
+          return !status || status === "pending" || status === "approved";
+        });
+        if (applied) setHasApplied(true);
+        
+        const toursQuery = query(
+          collection(db, "tourRequests"),
+          where("tenantId", "==", user.uid),
+          where("roomNumber", "==", number)
+        );
+        const toursSnap = await getDocs(toursQuery);
+        const requestedTour = toursSnap.docs.some(doc => {
+          const status = doc.data().status;
+          return !status || status === "pending" || status === "accepted";
+        });
+        if (requestedTour) setHasRequestedTour(true);
+      } catch (err) {
+        // ignore errors
+      }
+    };
+    checkStatus();
+  }, [user, number]);
 
   async function toggleFavorite() {
-    const saved = await getFavoriteRooms();
+    if (!user?.uid) return;
+    const saved = await getFavoriteRooms(user.uid);
     const next = saved.includes(number)
       ? saved.filter((item) => item !== number)
       : [...saved, number];
     setIsFavorite(next.includes(number));
-    await setFavoriteRooms(next);
+    await setFavoriteRooms(user.uid, next);
   }
 
   function requestTour() {
@@ -72,6 +115,10 @@ export default function RoomDetails() {
       day: "numeric",
       year: "numeric",
     });
+    
+    setIsRequestingTour(true);
+    await new Promise(resolve => setTimeout(resolve, 800));
+    
     try {
       if (!user)
         throw new Error("Please log in again before requesting a tour.");
@@ -82,6 +129,7 @@ export default function RoomDetails() {
         tourNote.trim(),
       );
       setTourModalVisible(false);
+      setHasRequestedTour(true);
       Alert.alert(
         "Tour request sent",
         `Room ${number} tour requested for ${dateLabel}. The landlord will be notified.`,
@@ -91,6 +139,8 @@ export default function RoomDetails() {
         "Unable to request tour",
         error instanceof Error ? error.message : "Please try again.",
       );
+    } finally {
+      setIsRequestingTour(false);
     }
   }
 
@@ -179,33 +229,51 @@ export default function RoomDetails() {
       </ScrollView>
 
       <View style={styles.actions}>
-        <Pressable style={styles.tourButton} onPress={requestTour}>
-          <Ionicons name="calendar-outline" size={18} color="#2864e8" />
-          <Text style={styles.tourText}>Request a Tour</Text>
+        <Pressable 
+          style={[styles.tourButton, hasRequestedTour && styles.tourButtonDisabled]} 
+          onPress={requestTour}
+          disabled={hasRequestedTour}
+        >
+          <Ionicons name="calendar-outline" size={18} color={hasRequestedTour ? "#8390a2" : "#2864e8"} />
+          <Text style={[styles.tourText, hasRequestedTour && styles.tourTextDisabled]}>
+            {hasRequestedTour ? "Tour Requested ✓" : "Request a Tour"}
+          </Text>
         </Pressable>
         <Pressable
-          style={styles.applyButton}
+          style={[styles.applyButton, (isApplying || hasApplied) && styles.applyButtonDisabled]}
+          disabled={isApplying || hasApplied}
           onPress={async () => {
             try {
               if (!user)
                 throw new Error("Please log in again before applying.");
+              
+              setIsApplying(true);
+              await new Promise(resolve => setTimeout(resolve, 800));
+                
               const application = await createApplication(user, {
                 roomNumber: number,
                 roomType: type,
                 price,
                 image: params.image,
               });
-              router.push({
-                pathname: "/tenant/applications",
-                params: {
-                  applicationId: application.id,
-                  number,
-                  type,
-                  price,
-                  image: params.image ?? "",
-                },
-              } as any);
+              
+              setIsApplying(false);
+              setHasApplied(true);
+              
+              setTimeout(() => {
+                router.push({
+                  pathname: "/tenant/applications",
+                  params: {
+                    applicationId: application.id,
+                    number,
+                    type,
+                    price,
+                    image: params.image ?? "",
+                  },
+                } as any);
+              }, 1200);
             } catch (error) {
+              setIsApplying(false);
               Alert.alert(
                 "Unable to apply",
                 error instanceof Error ? error.message : "Please try again.",
@@ -213,7 +281,9 @@ export default function RoomDetails() {
             }
           }}
         >
-          <Text style={styles.applyText}>Apply for this Room</Text>
+          <Text style={[styles.applyText, (isApplying || hasApplied) && styles.applyTextDisabled]}>
+            {isApplying ? "Submitting..." : hasApplied ? "Submitted ✓" : "Apply for this Room"}
+          </Text>
         </Pressable>
       </View>
 
@@ -287,8 +357,14 @@ export default function RoomDetails() {
               multiline
               textAlignVertical="top"
             />
-            <Pressable style={styles.modalSubmit} onPress={submitTourRequest}>
-              <Text style={styles.modalSubmitText}>Send Tour Request</Text>
+            <Pressable 
+              style={[styles.modalSubmit, isRequestingTour && styles.applyButtonDisabled]} 
+              onPress={submitTourRequest}
+              disabled={isRequestingTour}
+            >
+              <Text style={[styles.modalSubmitText, isRequestingTour && styles.applyTextDisabled]}>
+                {isRequestingTour ? "Sending Request..." : "Send Tour Request"}
+              </Text>
             </Pressable>
             <Pressable
               style={styles.modalCancel}
@@ -533,4 +609,18 @@ const styles = StyleSheet.create({
   modalSubmitText: { color: "#fff", fontWeight: "700", fontSize: 13 },
   modalCancel: { alignItems: "center", paddingVertical: 13 },
   modalCancelText: { color: "#71809a", fontSize: 12, fontWeight: "600" },
+  applyButtonDisabled: {
+    backgroundColor: "#cbd5e1",
+    borderColor: "#cbd5e1",
+  },
+  applyTextDisabled: {
+    color: "#64748b",
+  },
+  tourButtonDisabled: {
+    borderColor: "#cbd5e1",
+    backgroundColor: "#f1f5f9",
+  },
+  tourTextDisabled: {
+    color: "#64748b",
+  },
 });

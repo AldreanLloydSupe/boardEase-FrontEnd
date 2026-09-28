@@ -70,7 +70,7 @@ export default function TenantHome() {
                 Casa Verde Boarding House · 2nd Floor
               </Text>
             </View>
-            <Text style={styles.lease}>Active Lease</Text>
+            <Text style={styles.lease}>● Active Lease</Text>
           </View>
           <View style={styles.roomDetails}>
             <View>
@@ -119,7 +119,7 @@ export default function TenantHome() {
           </View>
         </View>
         <View style={styles.bulletin}>
-          <Text style={styles.sectionTitle}>ðŸ“¢ BoardEase Bulletin</Text>
+          <Text style={styles.sectionTitle}>📣 BoardEase Bulletin</Text>
           <Text style={styles.bulletinText}>
             Monthly General Cleaning & Inspection
           </Text>
@@ -227,6 +227,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 7,
     paddingVertical: 4,
     fontSize: 12,
+    alignSelf: "flex-start",
+    overflow: "hidden",
   },
   detail: { fontSize: 12, color: "#253149", fontWeight: "600", marginTop: 4 },
   roomDetails: { flexDirection: "row", gap: 9, marginTop: 14 },
@@ -293,26 +295,33 @@ const styles = StyleSheet.create({
   },
   bottomBar: {
     position: "absolute",
-    bottom: 66,
-    left: 10,
-    right: 10,
+    bottom: 85,
+    left: 14,
+    right: 14,
     backgroundColor: "#172033",
-    borderRadius: 10,
-    padding: 10,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.15,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 10,
+    elevation: 5,
   },
-  bottomText: { color: "#fff", fontSize: 12 },
+  bottomText: { color: "#fff", fontSize: 13, fontWeight: "500" },
   call: {
     flexDirection: "row",
-    gap: 4,
+    alignItems: "center",
+    gap: 5,
     backgroundColor: "#f0a300",
-    borderRadius: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
   },
-  callText: { color: "#fff", fontSize: 12 },
+  callText: { color: "#fff", fontSize: 12, fontWeight: "600" },
   nav: {
     height: 64,
     backgroundColor: "#fff",

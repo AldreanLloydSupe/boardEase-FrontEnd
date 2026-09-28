@@ -51,10 +51,7 @@ function Navigation({
             style={[styles.item, isQr && styles.qrItem]}
             onPress={() =>
               path === "qr"
-                ? Alert.alert(
-                    "QR Code",
-                    "QR functionality will be connected later.",
-                  )
+                ? router.push("/tenant/qr" as any)
                 : router.replace(path as any)
             }
           >

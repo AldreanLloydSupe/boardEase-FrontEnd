@@ -6,11 +6,14 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 import { router } from "expo-router";
+import * as ImagePicker from "expo-image-picker";
 import { LandlordNavigation } from "@/components/landlord-navigation";
 import React, { useState } from "react";
 import {
+  Animated,
   Alert,
   Modal,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -30,14 +33,35 @@ type Room = {
   rent: string;
   tenant?: string;
   attention?: boolean;
+  amenities?: string[];
+  guidelines?: string;
+  image?: string;
 };
+
+const AMENITIES = [
+  "WiFi",
+  "Aircon",
+  "Private Bath",
+  "Balcony",
+  "Study Desk",
+  "Water Dispenser",
+];
+
 export default function Rooms() {
   const { user } = useAuth();
+  const [isLoadingRooms, setIsLoadingRooms] = useState(true);
+  const [isAddingRoom, setIsAddingRoom] = useState(false);
   const [rooms, setRooms] = useState<Room[]>([]);
-  const [addOpen, setAddOpen] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingRoomId, setEditingRoomId] = useState<string | null>(null);
+  
   const [number, setNumber] = useState("");
   const [type, setType] = useState("");
   const [rent, setRent] = useState("");
+  const [guidelines, setGuidelines] = useState("");
+  const [selectedAmenities, setSelectedAmenities] = useState<string[]>([]);
+  const [imageUri, setImageUri] = useState("");
+  
   const [filter, setFilter] = useState<
     "all" | "available" | "occupied" | "attention"
   >("all");
@@ -59,10 +83,17 @@ export default function Rooms() {
             rent: String(item.data().rent ?? item.data().price ?? "0"),
             tenant: item.data().tenant,
             attention: item.data().attention === true,
+            amenities: item.data().amenities || [],
+            guidelines: item.data().guidelines || "",
+            image: item.data().image || "",
           })),
         );
+        setIsLoadingRooms(false);
       },
-      () => setRooms([]),
+      () => {
+        setRooms([]);
+        setIsLoadingRooms(false);
+      },
     );
   }, []);
   const filteredRooms = rooms.filter(
@@ -72,7 +103,67 @@ export default function Rooms() {
         ? room.attention
         : room.status.toLowerCase() === filter),
   );
-  async function addRoom() {
+  const openEditModal = (room: Room) => {
+    setEditingRoomId(room.id);
+    setNumber(room.number);
+    setType(room.type);
+    setRent(room.rent);
+    setGuidelines(room.guidelines || "");
+    setSelectedAmenities(room.amenities || []);
+    setImageUri(room.image || "");
+    setModalOpen(true);
+  };
+
+  const openAddModal = () => {
+    setEditingRoomId(null);
+    setNumber("");
+    setType("");
+    setRent("");
+    setGuidelines("");
+    setSelectedAmenities([]);
+    setImageUri("");
+    setModalOpen(true);
+  };
+
+  const deleteRoom = (id: string, roomNumber: string) => {
+    Alert.alert(
+      "Delete Room",
+      `Are you sure you want to delete Room ${roomNumber}? This action cannot be undone.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              if (!db) return;
+              const { doc, deleteDoc } = await import("firebase/firestore");
+              await deleteDoc(doc(db, "rooms", id));
+              Alert.alert("Success", `Room ${roomNumber} has been deleted.`);
+            } catch (error) {
+              Alert.alert("Error", "Could not delete room. Please try again.");
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const pickImage = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 0.5,
+      base64: true,
+    });
+
+    if (!result.canceled && result.assets[0].base64) {
+      setImageUri(`data:image/jpeg;base64,${result.assets[0].base64}`);
+    }
+  };
+
+  async function saveRoom() {
     if (!number || !type || !rent) {
       Alert.alert(
         "Missing details",
@@ -83,49 +174,64 @@ export default function Rooms() {
     const normalizedNumber = number.trim();
     const normalizedType = type.trim();
     const normalizedRent = rent.trim();
-    if (rooms.some((room) => room.number === normalizedNumber)) {
+    const normalizedGuidelines = guidelines.trim();
+    
+    if (!editingRoomId && rooms.some((room) => room.number === normalizedNumber)) {
       Alert.alert(
         "Room already exists",
         `Room ${normalizedNumber} is already listed.`,
       );
       return;
     }
-    const room = {
+    
+    const roomData = {
       number: normalizedNumber,
       type: normalizedType,
-      status: "Available" as const,
       rent: normalizedRent,
       price: normalizedRent,
-      amenities: ["WiFi"],
-      createdBy: user?.uid ?? null,
+      amenities: selectedAmenities.length > 0 ? selectedAmenities : [],
+      guidelines: normalizedGuidelines,
+      image: imageUri,
     };
+    
+    setIsAddingRoom(true);
+    await new Promise(resolve => setTimeout(resolve, 400));
+    
     try {
       if (db) {
-        const saved = await addDoc(collection(db, "rooms"), {
-          ...room,
-          createdAt: serverTimestamp(),
-        });
-        setRooms((current) => [
-          ...current,
-          { ...room, id: saved.id, status: "Available" },
-        ]);
+        if (editingRoomId) {
+          const { doc, updateDoc } = await import("firebase/firestore");
+          await updateDoc(doc(db, "rooms", editingRoomId), roomData);
+          setRooms((current) => current.map(r => r.id === editingRoomId ? { ...r, ...roomData } : r));
+          Alert.alert("Success", `Room ${number} updated.`);
+        } else {
+          const saved = await addDoc(collection(db, "rooms"), {
+            ...roomData,
+            status: "Available" as const,
+            createdBy: user?.uid ?? null,
+            createdAt: serverTimestamp(),
+          });
+          setRooms((current) => [
+            ...current,
+            { ...roomData, id: saved.id, status: "Available" as const, attention: false },
+          ]);
+          Alert.alert("Room added", `Room ${number} is now available.`);
+        }
       } else {
         Alert.alert(
           "Firebase unavailable",
-          "Connect Firebase before adding rooms.",
+          "Connect Firebase before saving rooms.",
         );
         return;
       }
-      setNumber("");
-      setType("");
-      setRent("");
-      setAddOpen(false);
-      Alert.alert("Room added", `Room ${number} is now available.`);
+      setModalOpen(false);
     } catch {
       Alert.alert(
-        "Unable to add room",
+        "Unable to save room",
         "Check your Firebase connection and try again.",
       );
+    } finally {
+      setIsAddingRoom(false);
     }
   }
   return (
@@ -138,7 +244,7 @@ export default function Rooms() {
           <Text style={styles.kicker}>BOARDEASE</Text>
           <Text style={styles.title}>Rooms</Text>
         </View>
-        <Pressable style={styles.addButton} onPress={() => setAddOpen(true)}>
+        <Pressable style={styles.addButton} onPress={openAddModal}>
           <Ionicons name="add" size={17} color="#fff" />
           <Text style={styles.addText}>Add Room</Text>
         </Pressable>
@@ -187,23 +293,41 @@ export default function Rooms() {
           <Ionicons name="search-outline" size={17} color="#8a99a9" />
           <Text style={styles.searchText}>Search room number or tenant...</Text>
         </View>
-        {filteredRooms.map((room) => (
-          <View key={room.id} style={styles.roomCard}>
+        {isLoadingRooms ? (
+          <>
+            <SkeletonRoomCard />
+            <SkeletonRoomCard />
+            <SkeletonRoomCard />
+            <SkeletonRoomCard />
+          </>
+        ) : (
+          filteredRooms.map((room) => (
+            <View key={room.id} style={styles.roomCard}>
             <View style={styles.roomHeader}>
-              <Text style={styles.roomName}>
-                Room {room.number}{" "}
-                <Text style={styles.roomType}>· {room.type}</Text>
-              </Text>
-              <Text
-                style={[
-                  styles.status,
-                  room.status === "Available"
-                    ? styles.available
-                    : styles.occupied,
-                ]}
-              >
-                {room.status === "Available" ? "● Available" : "● Occupied"}
-              </Text>
+              <View>
+                <Text style={styles.roomName}>
+                  Room {room.number}{" "}
+                  <Text style={styles.roomType}>· {room.type}</Text>
+                </Text>
+                <Text
+                  style={[
+                    styles.status,
+                    room.status === "Available"
+                      ? styles.available
+                      : styles.occupied,
+                  ]}
+                >
+                  {room.status === "Available" ? "● Available" : "● Occupied"}
+                </Text>
+              </View>
+              <View style={styles.actionButtons}>
+                <Pressable onPress={() => openEditModal(room)} style={styles.editButton}>
+                   <Ionicons name="pencil" size={16} color="#8a99a9" />
+                </Pressable>
+                <Pressable onPress={() => deleteRoom(room.id, room.number)} style={styles.editButton}>
+                   <Ionicons name="trash" size={16} color="#ff3b30" />
+                </Pressable>
+              </View>
             </View>
             <View style={styles.roomInfo}>
               <View>
@@ -247,23 +371,41 @@ export default function Rooms() {
               </Text>
             </View>
           </View>
-        ))}
+          ))
+        )}
       </ScrollView>
       <LandlordNavigation active="Rooms" />
       <Modal
-        visible={addOpen}
+        visible={modalOpen}
         transparent
         animationType="slide"
-        onRequestClose={() => setAddOpen(false)}
+        onRequestClose={() => setModalOpen(false)}
       >
         <View style={styles.modalBackdrop}>
           <View style={styles.modal}>
             <View style={styles.modalTitleRow}>
-              <Text style={styles.modalTitle}>Add Room</Text>
-              <Pressable onPress={() => setAddOpen(false)}>
+              <Text style={styles.modalTitle}>{editingRoomId ? "Edit Room" : "Add Room"}</Text>
+              <Pressable onPress={() => setModalOpen(false)}>
                 <Ionicons name="close" size={23} color="#536783" />
               </Pressable>
             </View>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20 }}>
+            
+            <Text style={styles.inputLabel}>Room Image</Text>
+            {imageUri ? (
+              <View style={styles.imagePreviewContainer}>
+                <Image source={{ uri: imageUri }} style={styles.imagePreview} />
+                <Pressable onPress={() => setImageUri("")} style={styles.removeImageBtn}>
+                  <Ionicons name="close-circle" size={24} color="#ff3b30" />
+                </Pressable>
+              </View>
+            ) : (
+              <Pressable style={styles.imagePickerBtn} onPress={pickImage}>
+                <Ionicons name="image-outline" size={24} color="#2864e8" />
+                <Text style={styles.imagePickerText}>Upload Image</Text>
+              </Pressable>
+            )}
+            
             <Text style={styles.inputLabel}>Room Number</Text>
             <TextInput
               style={styles.input}
@@ -287,15 +429,94 @@ export default function Rooms() {
               placeholder="e.g. 5000"
               keyboardType="number-pad"
             />
-            <Pressable style={styles.saveButton} onPress={addRoom}>
-              <Text style={styles.saveText}>Add Room</Text>
+            <Text style={styles.inputLabel}>Room Guidelines (Optional)</Text>
+            <TextInput
+              style={[styles.input, styles.textArea]}
+              value={guidelines}
+              onChangeText={setGuidelines}
+              placeholder="e.g. No smoking, No pets allowed"
+              multiline
+              numberOfLines={3}
+            />
+            <Text style={styles.inputLabel}>Amenities</Text>
+            <View style={styles.amenitiesContainer}>
+              {AMENITIES.map((amenity) => (
+                <Pressable
+                  key={amenity}
+                  style={[
+                    styles.amenityChip,
+                    selectedAmenities.includes(amenity) && styles.amenityChipSelected,
+                  ]}
+                  onPress={() => {
+                    setSelectedAmenities((prev) =>
+                      prev.includes(amenity)
+                        ? prev.filter((a) => a !== amenity)
+                        : [...prev, amenity]
+                    );
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.amenityChipText,
+                      selectedAmenities.includes(amenity) &&
+                        styles.amenityChipTextSelected,
+                    ]}
+                  >
+                    {amenity}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            <Pressable 
+              style={[styles.saveButton, isAddingRoom && { backgroundColor: '#e0e0e0' }]} 
+              onPress={saveRoom}
+              disabled={isAddingRoom}
+            >
+              <Text style={[styles.saveText, isAddingRoom && { color: '#9e9e9e' }]}>
+                {isAddingRoom ? "Saving..." : editingRoomId ? "Save Changes" : "Add Room"}
+              </Text>
             </Pressable>
+            </ScrollView>
           </View>
         </View>
       </Modal>
     </SafeAreaView>
   );
 }
+
+const SkeletonRoomCard = () => {
+  const anim = React.useRef(new Animated.Value(0.3)).current;
+
+  React.useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(anim, { toValue: 0.7, duration: 800, useNativeDriver: true }),
+        Animated.timing(anim, { toValue: 0.3, duration: 800, useNativeDriver: true }),
+      ])
+    ).start();
+  }, [anim]);
+
+  return (
+    <View style={styles.roomCard}>
+      <View style={styles.roomHeader}>
+        <Animated.View style={{ height: 16, width: 100, backgroundColor: '#e4ebf3', borderRadius: 4, opacity: anim }} />
+        <Animated.View style={{ height: 20, width: 70, backgroundColor: '#e4ebf3', borderRadius: 10, opacity: anim }} />
+      </View>
+      <View style={styles.roomInfo}>
+        <View>
+          <Animated.View style={{ height: 12, width: 50, backgroundColor: '#e4ebf3', borderRadius: 4, marginBottom: 6, opacity: anim }} />
+          <Animated.View style={{ height: 14, width: 80, backgroundColor: '#e4ebf3', borderRadius: 4, opacity: anim }} />
+        </View>
+        <View style={styles.rentBox}>
+          <Animated.View style={{ height: 12, width: 40, backgroundColor: '#e4ebf3', borderRadius: 4, marginBottom: 6, opacity: anim }} />
+          <Animated.View style={{ height: 16, width: 70, backgroundColor: '#e4ebf3', borderRadius: 4, opacity: anim }} />
+        </View>
+      </View>
+      <Animated.View style={{ height: 32, borderRadius: 7, backgroundColor: '#e4ebf3', opacity: anim }} />
+    </View>
+  );
+};
+
 function Summary({
   icon,
   label,
@@ -440,6 +661,10 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
   },
+  actionButtons: {
+    flexDirection: "row",
+    gap: 8,
+  },
   roomName: { fontSize: 12, fontWeight: "700", color: "#253149" },
   roomType: { fontSize: 11, fontWeight: "400", color: "#8390a2" },
   status: {
@@ -514,6 +739,37 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#172033",
   },
+  textArea: {
+    height: 80,
+    textAlignVertical: "top",
+    paddingTop: 12,
+  },
+  amenitiesContainer: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 4,
+  },
+  amenityChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: "#f4f7fb",
+    borderWidth: 1,
+    borderColor: "#e4e9f0",
+  },
+  amenityChipSelected: {
+    backgroundColor: "#2864e8",
+    borderColor: "#2864e8",
+  },
+  amenityChipText: {
+    fontSize: 12,
+    color: "#526174",
+    fontWeight: "500",
+  },
+  amenityChipTextSelected: {
+    color: "#fff",
+  },
   saveButton: {
     height: 46,
     backgroundColor: "#2864e8",
@@ -523,4 +779,44 @@ const styles = StyleSheet.create({
     marginTop: 20,
   },
   saveText: { color: "#fff", fontSize: 14, fontWeight: "600" },
+  editButton: {
+    padding: 6,
+    backgroundColor: "#f4f7fb",
+    borderRadius: 8,
+  },
+  imagePickerBtn: {
+    height: 100,
+    borderWidth: 2,
+    borderStyle: "dashed",
+    borderColor: "#ccd7e4",
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#f4f7fb",
+    marginBottom: 8,
+  },
+  imagePickerText: {
+    color: "#536783",
+    fontSize: 12,
+    marginTop: 4,
+  },
+  imagePreviewContainer: {
+    position: "relative",
+    height: 140,
+    width: "100%",
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  imagePreview: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 8,
+  },
+  removeImageBtn: {
+    position: "absolute",
+    top: -10,
+    right: -10,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+  },
 });

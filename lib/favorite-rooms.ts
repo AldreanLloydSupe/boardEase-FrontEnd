@@ -1,12 +1,14 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const FAVORITES_KEY = "boardease-favorite-rooms";
-
-export async function getFavoriteRooms() {
-  const saved = await AsyncStorage.getItem(FAVORITES_KEY);
+export async function getFavoriteRooms(userId: string) {
+  if (!userId) return [];
+  const key = `boardease-favorite-rooms-${userId}`;
+  const saved = await AsyncStorage.getItem(key);
   return saved ? (JSON.parse(saved) as string[]) : [];
 }
 
-export async function setFavoriteRooms(roomNumbers: string[]) {
-  await AsyncStorage.setItem(FAVORITES_KEY, JSON.stringify(roomNumbers));
+export async function setFavoriteRooms(userId: string, roomNumbers: string[]) {
+  if (!userId) return;
+  const key = `boardease-favorite-rooms-${userId}`;
+  await AsyncStorage.setItem(key, JSON.stringify(roomNumbers));
 }

@@ -13,7 +13,7 @@ export default function Index() {
     );
   }
 
-  if (!user) return <Redirect href="/login" />;
+  if (!user) return <Redirect href="/welcome" />;
   if (role === "admin") return <Redirect href="/landlord/dashboard" />;
   return (
     <Redirect href={hasRoom ? "/tenant/tenant-home" : "/tenant/room-browser"} />

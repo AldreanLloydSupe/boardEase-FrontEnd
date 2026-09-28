@@ -1,5 +1,7 @@
+import { useAuth } from "@/lib/auth-context";
+import { Ionicons } from "@expo/vector-icons";
 import { Link, router } from "expo-router";
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
@@ -10,9 +12,8 @@ import {
   Text,
   TextInput,
   View,
+  Animated,
 } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
-import { useAuth } from "@/lib/auth-context";
 
 export default function Signup() {
   const { signUp } = useAuth();
@@ -27,16 +28,36 @@ export default function Signup() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+  const [loadingSkeleton, setLoadingSkeleton] = useState(true);
+  const pulseAnim = useRef(new Animated.Value(0.4)).current;
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 0.4, duration: 800, useNativeDriver: true }),
+      ])
+    ).start();
+
+    const timer = setTimeout(() => {
+      setLoadingSkeleton(false);
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, []);
+
   const update = (key: keyof typeof form) => (value: string) =>
     setForm((current) => ({ ...current, [key]: value }));
 
   async function submit() {
+    setErrorMsg("");
     if (
       !form.name ||
       !form.email ||
       !form.password ||
       form.password !== form.confirm
     ) {
+      setErrorMsg("Complete the form and make sure your passwords match.");
       Alert.alert(
         "Check your details",
         "Complete the form and make sure your passwords match.",
@@ -44,6 +65,7 @@ export default function Signup() {
       return;
     }
     if (!agreedToTerms) {
+      setErrorMsg("Please agree to the Terms of Service and Privacy Policy.");
       Alert.alert(
         "Agreement required",
         "Please agree to the Terms of Service and Privacy Policy before creating your account.",
@@ -55,23 +77,60 @@ export default function Signup() {
       await signUp(form.name, form.email, form.password, form.phone);
       router.replace("/");
     } catch (error) {
-      Alert.alert(
-        "Unable to create account",
-        error instanceof Error ? error.message : "Please try again.",
-      );
+      const msg = error instanceof Error ? error.message : "Please try again.";
+      setErrorMsg(msg);
+      Alert.alert("Unable to create account", msg);
     } finally {
       setBusy(false);
     }
   }
 
+  if (loadingSkeleton) {
+    return (
+      <View style={styles.page}>
+        <View style={styles.content}>
+          <View style={styles.brand}>
+            <Animated.View style={[styles.skeletonLogo, { opacity: pulseAnim }]} />
+            <Animated.View style={[styles.skeletonBrandName, { opacity: pulseAnim }]} />
+            <Animated.View style={[styles.skeletonTagline, { opacity: pulseAnim }]} />
+          </View>
+          <View style={styles.card}>
+            <Animated.View style={[styles.skeletonTitle, { opacity: pulseAnim }]} />
+            <Animated.View style={[styles.skeletonSub, { opacity: pulseAnim }]} />
+            
+            {Array.from({ length: 5 }).map((_, i) => (
+              <View style={styles.field} key={i}>
+                <Animated.View style={[styles.skeletonLabel, { opacity: pulseAnim }]} />
+                <Animated.View style={[styles.skeletonInput, { opacity: pulseAnim }]} />
+              </View>
+            ))}
+            
+            <Animated.View style={[styles.skeletonSection, { opacity: pulseAnim }]} />
+            
+            {Array.from({ length: 2 }).map((_, i) => (
+              <View style={styles.field} key={`em-${i}`}>
+                <Animated.View style={[styles.skeletonLabel, { opacity: pulseAnim }]} />
+                <Animated.View style={[styles.skeletonInput, { opacity: pulseAnim }]} />
+              </View>
+            ))}
+
+            <Animated.View style={[styles.skeletonButton, { opacity: pulseAnim, marginTop: 14 }]} />
+          </View>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <KeyboardAvoidingView
       style={styles.page}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 40 : 20}
     >
       <ScrollView
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
         <View style={styles.brand}>
           <View style={styles.logo}>
@@ -87,44 +146,50 @@ export default function Signup() {
           <Text style={styles.sub}>
             Fill in your personal & contact details to get started
           </Text>
+          {!!errorMsg && <Text style={styles.errorText}>{errorMsg}</Text>}
           <Field
             label="Full Name"
-            placeholder="Juan Dela Cruz"
+            placeholder="Enter your full name"
             value={form.name}
-            onChangeText={update("name")}
+            onChangeText={(t) => { update("name")(t); setErrorMsg(""); }}
+            error={!!errorMsg && !form.name}
           />
           <Field
             label="Contact Number"
             placeholder="+63 917 555 1234"
             value={form.phone}
-            onChangeText={update("phone")}
+            onChangeText={(t) => { update("phone")(t); setErrorMsg(""); }}
             keyboardType="phone-pad"
+            error={!!errorMsg && !form.phone}
           />
           <Field
             label="Email Address"
             placeholder="juan.delacruz@email.com"
             value={form.email}
-            onChangeText={update("email")}
+            onChangeText={(t) => { update("email")(t); setErrorMsg(""); }}
             keyboardType="email-address"
             autoCapitalize="none"
+            error={!!errorMsg && !form.email}
           />
           <PasswordField
             label="Password"
             placeholder="********"
             value={form.password}
-            onChangeText={update("password")}
+            onChangeText={(t) => { update("password")(t); setErrorMsg(""); }}
             secureTextEntry={!showPassword}
             showPassword={showPassword}
             onToggle={() => setShowPassword((visible) => !visible)}
+            error={!!errorMsg && (!form.password || form.password !== form.confirm)}
           />
           <PasswordField
             label="Confirm Password"
             placeholder="********"
             value={form.confirm}
-            onChangeText={update("confirm")}
+            onChangeText={(t) => { update("confirm")(t); setErrorMsg(""); }}
             secureTextEntry={!showConfirm}
             showPassword={showConfirm}
             onToggle={() => setShowConfirm((visible) => !visible)}
+            error={!!errorMsg && (!form.confirm || form.password !== form.confirm)}
           />
           <Text style={styles.section}>EMERGENCY CONTACT</Text>
           <Field
@@ -172,14 +237,24 @@ export default function Signup() {
 
 function Field({
   label,
+  error,
   ...props
-}: React.ComponentProps<typeof TextInput> & { label: string }) {
+}: React.ComponentProps<typeof TextInput> & { label: string; error?: boolean }) {
+  const [isFocused, setIsFocused] = React.useState(false);
   return (
     <View style={styles.field}>
-      <Text style={styles.label}>{label}</Text>
+      <Text style={[styles.label, isFocused && styles.labelFocused, error && styles.labelError]}>{label}</Text>
       <TextInput
-        style={styles.input}
+        style={[styles.input, isFocused && styles.inputFocused, error && styles.inputError]}
         placeholderTextColor="#99a8bd"
+        onFocus={(e) => {
+          setIsFocused(true);
+          props.onFocus?.(e);
+        }}
+        onBlur={(e) => {
+          setIsFocused(false);
+          props.onBlur?.(e);
+        }}
         {...props}
       />
     </View>
@@ -189,19 +264,30 @@ function PasswordField({
   label,
   showPassword,
   onToggle,
+  error,
   ...props
 }: React.ComponentProps<typeof TextInput> & {
   label: string;
   showPassword: boolean;
   onToggle: () => void;
+  error?: boolean;
 }) {
+  const [isFocused, setIsFocused] = React.useState(false);
   return (
     <View style={styles.field}>
-      <Text style={styles.label}>{label}</Text>
-      <View style={styles.passwordWrap}>
+      <Text style={[styles.label, isFocused && styles.labelFocused, error && styles.labelError]}>{label}</Text>
+      <View style={[styles.passwordWrap, isFocused && styles.inputFocused, error && styles.inputError]}>
         <TextInput
           style={styles.passwordInput}
           placeholderTextColor="#99a8bd"
+          onFocus={(e) => {
+            setIsFocused(true);
+            props.onFocus?.(e);
+          }}
+          onBlur={(e) => {
+            setIsFocused(false);
+            props.onBlur?.(e);
+          }}
           {...props}
         />
         <Pressable
@@ -212,7 +298,7 @@ function PasswordField({
           <Ionicons
             name={showPassword ? "eye-off-outline" : "eye-outline"}
             size={21}
-            color="#71809a"
+            color={isFocused ? "#2864e8" : "#71809a"}
           />
         </Pressable>
       </View>
@@ -249,23 +335,45 @@ const styles = StyleSheet.create({
   title: { fontSize: 18, fontWeight: "700", color: "#172033" },
   sub: { fontSize: 11, color: "#738199", marginTop: 5, marginBottom: 18 },
   field: { marginBottom: 14 },
-  label: { fontSize: 12, color: "#2f415d", marginBottom: 6 },
+  label: { fontSize: 12, color: "#2f415d", marginBottom: 6, fontWeight: "600" },
+  labelFocused: { color: "#2864e8" },
   input: {
-    height: 43,
-    borderWidth: 1,
-    borderColor: "#9aa6b8",
-    borderRadius: 4,
-    paddingHorizontal: 12,
-    fontSize: 14,
+    height: 48,
+    borderWidth: 1.5,
+    borderColor: "#cfd9e6",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    fontSize: 15,
     color: "#1f2b40",
+    backgroundColor: "#fff",
+  },
+  inputFocused: {
+    borderColor: "#2864e8",
+    backgroundColor: "#f4f8ff",
+  },
+  labelError: { color: "#e11d48" },
+  inputError: {
+    borderColor: "#e11d48",
+    backgroundColor: "#fff1f2",
+  },
+  errorText: {
+    color: "#e11d48",
+    fontSize: 13,
+    marginBottom: 15,
+    backgroundColor: "#fff1f2",
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#fbcfe8",
   },
   passwordWrap: {
-    height: 43,
-    borderWidth: 1,
-    borderColor: "#9aa6b8",
-    borderRadius: 4,
+    height: 48,
+    borderWidth: 1.5,
+    borderColor: "#cfd9e6",
+    borderRadius: 12,
     flexDirection: "row",
     alignItems: "center",
+    backgroundColor: "#fff",
   },
   passwordInput: {
     flex: 1,
@@ -321,4 +429,14 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   copy: { textAlign: "center", fontSize: 10, color: "#a6b1c0", marginTop: 20 },
+  // Skeleton Styles
+  skeletonLogo: { width: 54, height: 54, borderRadius: 16, backgroundColor: '#d1d8e0' },
+  skeletonBrandName: { width: 120, height: 22, borderRadius: 4, backgroundColor: '#d1d8e0', marginTop: 10 },
+  skeletonTagline: { width: 220, height: 14, borderRadius: 4, backgroundColor: '#d1d8e0', marginTop: 6 },
+  skeletonTitle: { width: 150, height: 22, borderRadius: 4, backgroundColor: '#d1d8e0' },
+  skeletonSub: { width: '80%', height: 14, borderRadius: 4, backgroundColor: '#d1d8e0', marginTop: 5, marginBottom: 18 },
+  skeletonLabel: { width: 80, height: 12, borderRadius: 4, backgroundColor: '#d1d8e0', marginBottom: 6 },
+  skeletonInput: { height: 43, borderRadius: 4, backgroundColor: '#e2e8f0' },
+  skeletonSection: { width: 140, height: 12, borderRadius: 4, backgroundColor: '#d1d8e0', alignSelf: 'center', marginVertical: 16 },
+  skeletonButton: { height: 44, borderRadius: 8, backgroundColor: '#d1d8e0' },
 });

@@ -1,5 +1,7 @@
+import { useAuth } from "@/lib/auth-context";
+import { Ionicons } from "@expo/vector-icons";
 import { Link, router } from "expo-router";
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
@@ -10,9 +12,8 @@ import {
   Text,
   TextInput,
   View,
+  Animated,
 } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
-import { useAuth } from "@/lib/auth-context";
 
 export default function Login() {
   const { signIn, resetPassword, firebaseReady } = useAuth();
@@ -20,17 +21,34 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+  const [loadingSkeleton, setLoadingSkeleton] = useState(true);
+  const pulseAnim = useRef(new Animated.Value(0.4)).current;
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 0.4, duration: 800, useNativeDriver: true }),
+      ])
+    ).start();
+
+    const timer = setTimeout(() => {
+      setLoadingSkeleton(false);
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, []);
 
   async function submit() {
     try {
       setBusy(true);
+      setErrorMsg("");
       await signIn(email, password);
       router.replace("/");
     } catch (error) {
-      Alert.alert(
-        "Unable to log in",
-        error instanceof Error ? error.message : "Please check your details.",
-      );
+      const msg = error instanceof Error ? error.message : "Please check your details.";
+      setErrorMsg(msg);
+      Alert.alert("Unable to log in", msg);
     } finally {
       setBusy(false);
     }
@@ -51,14 +69,43 @@ export default function Login() {
     }
   }
 
+  if (loadingSkeleton) {
+    return (
+      <View style={styles.page}>
+        <View style={styles.content}>
+          <View style={styles.brand}>
+            <Animated.View style={[styles.skeletonLogo, { opacity: pulseAnim }]} />
+            <Animated.View style={[styles.skeletonBrandName, { opacity: pulseAnim }]} />
+            <Animated.View style={[styles.skeletonTagline, { opacity: pulseAnim }]} />
+          </View>
+          <View style={styles.card}>
+            <Animated.View style={[styles.skeletonTitle, { opacity: pulseAnim }]} />
+            <View style={styles.field}>
+              <Animated.View style={[styles.skeletonLabel, { opacity: pulseAnim }]} />
+              <Animated.View style={[styles.skeletonInput, { opacity: pulseAnim }]} />
+            </View>
+            <View style={styles.field}>
+              <Animated.View style={[styles.skeletonLabel, { opacity: pulseAnim }]} />
+              <Animated.View style={[styles.skeletonInput, { opacity: pulseAnim }]} />
+            </View>
+            <Animated.View style={[styles.skeletonForgot, { opacity: pulseAnim }]} />
+            <Animated.View style={[styles.skeletonButton, { opacity: pulseAnim }]} />
+          </View>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <KeyboardAvoidingView
       style={styles.page}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 40 : 20}
     >
       <ScrollView
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
         <View style={styles.brand}>
           <View style={styles.logo}>
@@ -71,22 +118,25 @@ export default function Login() {
         </View>
         <View style={styles.card}>
           <Text style={styles.title}>Welcome back</Text>
+          {!!errorMsg && <Text style={styles.errorText}>{errorMsg}</Text>}
           <Field
             label="Email"
             value={email}
-            onChangeText={setEmail}
-            placeholder="you@example.com"
+            onChangeText={(t) => { setEmail(t); setErrorMsg(""); }}
+            placeholder="Enter your email"
             keyboardType="email-address"
             autoCapitalize="none"
+            error={!!errorMsg}
           />
           <PasswordField
             label="Password"
             value={password}
-            onChangeText={setPassword}
-            placeholder="********"
+            onChangeText={(t) => { setPassword(t); setErrorMsg(""); }}
+            placeholder="Enter your Password"
             secureTextEntry={!showPassword}
             showPassword={showPassword}
             onToggle={() => setShowPassword((visible) => !visible)}
+            error={!!errorMsg}
           />
           <Pressable style={styles.forgot} onPress={forgotPassword}>
             <Text style={styles.link}>Forgot password?</Text>
@@ -115,14 +165,24 @@ export default function Login() {
 
 function Field({
   label,
+  error,
   ...props
-}: React.ComponentProps<typeof TextInput> & { label: string }) {
+}: React.ComponentProps<typeof TextInput> & { label: string; error?: boolean }) {
+  const [isFocused, setIsFocused] = React.useState(false);
   return (
     <View style={styles.field}>
-      <Text style={styles.label}>{label}</Text>
+      <Text style={[styles.label, isFocused && styles.labelFocused, error && styles.labelError]}>{label}</Text>
       <TextInput
-        style={styles.input}
+        style={[styles.input, isFocused && styles.inputFocused, error && styles.inputError]}
         placeholderTextColor="#9aa8ba"
+        onFocus={(e) => {
+          setIsFocused(true);
+          props.onFocus?.(e);
+        }}
+        onBlur={(e) => {
+          setIsFocused(false);
+          props.onBlur?.(e);
+        }}
         {...props}
       />
     </View>
@@ -133,19 +193,30 @@ function PasswordField({
   label,
   showPassword,
   onToggle,
+  error,
   ...props
 }: React.ComponentProps<typeof TextInput> & {
   label: string;
   showPassword: boolean;
   onToggle: () => void;
+  error?: boolean;
 }) {
+  const [isFocused, setIsFocused] = React.useState(false);
   return (
     <View style={styles.field}>
-      <Text style={styles.label}>{label}</Text>
-      <View style={styles.passwordWrap}>
+      <Text style={[styles.label, isFocused && styles.labelFocused, error && styles.labelError]}>{label}</Text>
+      <View style={[styles.passwordWrap, isFocused && styles.inputFocused, error && styles.inputError]}>
         <TextInput
           style={styles.passwordInput}
           placeholderTextColor="#9aa8ba"
+          onFocus={(e) => {
+            setIsFocused(true);
+            props.onFocus?.(e);
+          }}
+          onBlur={(e) => {
+            setIsFocused(false);
+            props.onBlur?.(e);
+          }}
           {...props}
         />
         <Pressable
@@ -156,7 +227,7 @@ function PasswordField({
           <Ionicons
             name={showPassword ? "eye-off-outline" : "eye-outline"}
             size={21}
-            color="#71809a"
+            color={isFocused ? "#2864e8" : "#71809a"}
           />
         </Pressable>
       </View>
@@ -200,23 +271,46 @@ const styles = StyleSheet.create({
     marginBottom: 22,
   },
   field: { marginBottom: 17 },
-  label: { fontSize: 12, color: "#536783", marginBottom: 7 },
+  label: { fontSize: 12, color: "#536783", marginBottom: 7, fontWeight: "600" },
+  labelFocused: { color: "#2864e8" },
   input: {
-    height: 45,
-    borderWidth: 1,
+    height: 48,
+    borderWidth: 1.5,
     borderColor: "#cfd9e6",
-    borderRadius: 9,
-    paddingHorizontal: 13,
+    borderRadius: 12,
+    paddingHorizontal: 16,
     fontSize: 15,
     color: "#1f2b40",
+    backgroundColor: "#fff",
+  },
+  inputFocused: {
+    borderColor: "#2864e8",
+    backgroundColor: "#f4f8ff",
+  },
+  labelError: { color: "#e11d48" },
+  inputError: {
+    borderColor: "#e11d48",
+    backgroundColor: "#fff1f2",
+  },
+  errorText: {
+    color: "#e11d48",
+    fontSize: 13,
+    marginBottom: 15,
+    marginTop: -10,
+    backgroundColor: "#fff1f2",
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#fbcfe8",
   },
   passwordWrap: {
-    height: 45,
-    borderWidth: 1,
+    height: 48,
+    borderWidth: 1.5,
     borderColor: "#cfd9e6",
-    borderRadius: 9,
+    borderRadius: 12,
     flexDirection: "row",
     alignItems: "center",
+    backgroundColor: "#fff",
   },
   passwordInput: {
     flex: 1,
@@ -243,4 +337,13 @@ const styles = StyleSheet.create({
   buttonText: { color: "#fff", fontSize: 15, fontWeight: "600" },
   bottomText: { fontSize: 12, color: "#71809a", marginTop: 17 },
   setup: { fontSize: 12, color: "#8b98aa", textAlign: "center", marginTop: 18 },
+  // Skeleton Styles
+  skeletonLogo: { width: 56, height: 56, borderRadius: 16, backgroundColor: '#d1d8e0', marginBottom: 12 },
+  skeletonBrandName: { width: 120, height: 24, borderRadius: 4, backgroundColor: '#d1d8e0', marginBottom: 10 },
+  skeletonTagline: { width: 220, height: 14, borderRadius: 4, backgroundColor: '#d1d8e0' },
+  skeletonTitle: { width: 140, height: 22, borderRadius: 4, backgroundColor: '#d1d8e0', marginBottom: 22 },
+  skeletonLabel: { width: 60, height: 12, borderRadius: 4, backgroundColor: '#d1d8e0', marginBottom: 7 },
+  skeletonInput: { height: 45, borderRadius: 9, backgroundColor: '#e2e8f0' },
+  skeletonForgot: { width: 100, height: 12, borderRadius: 4, backgroundColor: '#d1d8e0', alignSelf: 'flex-end', marginTop: -2, marginBottom: 17 },
+  skeletonButton: { height: 46, borderRadius: 9, backgroundColor: '#d1d8e0' },
 });

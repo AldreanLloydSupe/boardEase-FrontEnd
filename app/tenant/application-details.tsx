@@ -97,6 +97,7 @@ export default function ApplicationDetails() {
           <Text style={styles.messageText}>Message Property Management</Text>
         </Pressable>
         <Pressable
+          style={styles.cancelContainer}
           onPress={() =>
             Alert.alert(
               "Cancel application",
@@ -104,7 +105,7 @@ export default function ApplicationDetails() {
             )
           }
         >
-          <Text style={styles.cancel}>Cancel Application</Text>
+          <Text style={styles.cancelText}>Cancel Application</Text>
         </Pressable>
       </ScrollView>
     </SafeAreaView>
@@ -218,10 +219,17 @@ const styles = StyleSheet.create({
     marginTop: 14,
   },
   messageText: { color: "#fff", fontSize: 12, fontWeight: "700" },
-  cancel: {
-    textAlign: "center",
-    color: "#b65745",
-    fontSize: 11,
-    marginTop: 15,
+  cancelContainer: {
+    height: 45,
+    borderRadius: 9,
+    backgroundColor: "#dc2626",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 10,
+  },
+  cancelText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "700",
   },
 });

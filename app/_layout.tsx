@@ -1,3 +1,4 @@
+
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import "react-native-reanimated";
@@ -11,8 +12,9 @@ export const unstable_settings = {
 export default function RootLayout() {
   return (
     <AuthProvider>
-      <Stack>
+      <Stack screenOptions={{ animation: 'fade', contentStyle: { backgroundColor: '#ffffff' } }}>
         <Stack.Screen name="index" options={{ headerShown: false }} />
+        <Stack.Screen name="welcome" options={{ headerShown: false }} />
         <Stack.Screen name="login" options={{ headerShown: false }} />
         <Stack.Screen name="signup" options={{ headerShown: false }} />
         <Stack.Screen name="landlord" options={{ headerShown: false }} />

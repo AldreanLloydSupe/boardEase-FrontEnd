@@ -37,7 +37,17 @@
           }
         }
       ],
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "expo-font",
+      "expo-image",
+      "expo-status-bar",
+      "expo-web-browser",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow BoardEase to access your camera to scan QR codes for payments."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
