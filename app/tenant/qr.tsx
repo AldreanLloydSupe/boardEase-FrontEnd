@@ -1,8 +1,9 @@
-import React from 'react';
-import { StyleSheet, Text, View, Pressable, Alert } from 'react-native';
+import { TenantHeaderMark } from '@/components/tenant-header-mark';
+import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { router } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import React from 'react';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function QRScanner() {
@@ -66,7 +67,10 @@ export default function QRScanner() {
           <Pressable onPress={() => router.back()} style={styles.backButton}>
             <Ionicons name="close" size={28} color="#fff" />
           </Pressable>
-          <Text style={styles.title}>Scan QR Code</Text>
+          <View style={styles.titleGroup}>
+            <TenantHeaderMark />
+            <Text style={styles.title}>Scan QR Code</Text>
+          </View>
           <View style={{ width: 44 }} />
         </View>
 
@@ -149,6 +153,13 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 18,
     fontWeight: '700',
+  },
+  titleGroup: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 9,
   },
   uiWrapper: {
     position: 'absolute',

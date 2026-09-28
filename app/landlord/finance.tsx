@@ -1,13 +1,12 @@
+import { LandlordNavigation } from "@/components/landlord-navigation";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { LandlordNavigation } from "@/components/landlord-navigation";
-import React from "react";
 import {
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -18,9 +17,14 @@ export default function Finance() {
   return (
     <SafeAreaView style={styles.page}>
       <View style={styles.header}>
-        <View>
-          <Text style={styles.kicker}>BOARDEASE · Casa Verde</Text>
-          <Text style={styles.title}>Financial Overview</Text>
+        <View style={styles.headerBrand}>
+          <View style={styles.headerLogo}>
+            <Ionicons name="business" size={24} color="#fff" />
+          </View>
+          <View style={styles.headerCopy}>
+            <Text style={styles.kicker}>BOARDEASE · Casa Verde</Text>
+            <Text style={styles.title}>Financial Overview</Text>
+          </View>
         </View>
       </View>
       <ScrollView contentContainerStyle={styles.content}>
@@ -54,7 +58,7 @@ export default function Finance() {
         <Section title="Inflow Composition" action="Total: ₱0" />
         <View style={styles.composition}>
           <View
-            style={[styles.bar, { width: "86%", backgroundColor: "#173b36" }]}
+            style={[styles.bar, { width: "86%", backgroundColor: "#2864e8" }]}
           />
           <View
             style={[styles.bar, { width: "9%", backgroundColor: "#f0aa41" }]}
@@ -98,7 +102,7 @@ export default function Finance() {
             <Ionicons
               name="checkmark-circle-outline"
               size={22}
-              color="#168866"
+              color="#2864e8"
             />
             <View style={styles.flex}>
               <Text style={styles.person}>{name}</Text>
@@ -114,7 +118,7 @@ export default function Finance() {
           ["Caretaker Stipend", "Scheduled", "₱12,000"],
         ].map(([name, detail, amount]) => (
           <View style={styles.payment} key={name}>
-            <Ionicons name="receipt-outline" size={21} color="#8f806a" />
+            <Ionicons name="receipt-outline" size={21} color="#2864e8" />
             <View style={styles.flex}>
               <Text style={styles.person}>{name}</Text>
               <Text style={styles.muted}>{detail}</Text>
@@ -191,19 +195,37 @@ function BottomNav() {
   );
 }
 const styles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: "#f7f5f1" },
+  page: { flex: 1, backgroundColor: "#f3f7fd" },
   header: {
-    minHeight: 66,
-    backgroundColor: "#fff",
-    borderBottomWidth: 1,
-    borderColor: "#e8e3dc",
-    paddingHorizontal: 14,
+    minHeight: 94,
+    backgroundColor: "#2864e8",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    shadowColor: "#173b80",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    elevation: 8,
+    zIndex: 1,
   },
-  kicker: { fontSize: 12, color: "#b65c43" },
-  title: { fontSize: 17, fontWeight: "700", color: "#172033", marginTop: 3 },
+  headerBrand: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 12 },
+  headerLogo: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.16)",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  headerCopy: { flex: 1, minWidth: 0 },
+  kicker: { fontSize: 11, color: "#d9e5ff", fontWeight: "700", letterSpacing: 1.4 },
+  title: { fontSize: 24, fontWeight: "800", color: "#fff", marginTop: 3 },
   paymentButton: {
     backgroundColor: "#173b36",
     borderRadius: 7,
@@ -214,37 +236,58 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   paymentText: { color: "#fff", fontSize: 12, fontWeight: "600" },
-  content: { padding: 12, paddingBottom: 25 },
+  content: { padding: 16, paddingBottom: 25 },
   period: {
     backgroundColor: "#fff",
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#e5e0d8",
-    padding: 10,
+    borderColor: "#dce7f5",
+    padding: 12,
     flexDirection: "row",
     justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: 14,
+    shadowColor: "#173b80",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 1,
   },
-  sectionLabel: { fontSize: 12, color: "#8997a6", letterSpacing: 0.5 },
+  sectionLabel: { fontSize: 11, color: "#64748b", letterSpacing: 1, fontWeight: "700" },
   revenue: {
-    backgroundColor: "#fff",
-    borderRadius: 10,
-    padding: 12,
+    backgroundColor: "#eaf1ff",
+    borderColor: "#ccdcff",
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 16,
     marginTop: 7,
     flexDirection: "row",
     alignItems: "center",
     position: "relative",
+    minHeight: 96,
+    shadowColor: "#173b80",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.07,
+    shadowRadius: 8,
+    elevation: 2,
   },
-  revenueValue: { fontSize: 21, fontWeight: "700", color: "#173b36" },
+  revenueValue: { fontSize: 28, fontWeight: "800", color: "#1d4ed8" },
   muted: { fontSize: 11, color: "#8390a2", marginTop: 3 },
   emptyText: {
     fontSize: 12,
     color: "#71809a",
     backgroundColor: "#fff",
-    borderRadius: 10,
-    padding: 14,
+    borderWidth: 1,
+    borderColor: "#e1eafa",
+    borderRadius: 8,
+    padding: 16,
     textAlign: "center",
     marginBottom: 12,
+    shadowColor: "#173b80",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 1,
   },
   growth: {
     backgroundColor: "#d9f7e8",
@@ -260,48 +303,66 @@ const styles = StyleSheet.create({
     right: 12,
     top: 17,
     fontSize: 11,
-    color: "#536783",
+    color: "#2458c7",
+    fontWeight: "600",
   },
-  smallGrid: { flexDirection: "row", gap: 8, marginTop: 8 },
+  smallGrid: { flexDirection: "row", gap: 10, marginTop: 10 },
   metric: {
     flex: 1,
     backgroundColor: "#fff",
-    borderRadius: 9,
-    padding: 11,
+    borderRadius: 8,
+    padding: 13,
     borderWidth: 1,
-    borderColor: "#e5e0d8",
+    borderColor: "#e1eafa",
+    minHeight: 96,
+    shadowColor: "#173b80",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 1,
   },
-  metricLabel: { fontSize: 12, color: "#8997a6" },
-  metricValue: { fontSize: 15, fontWeight: "700", marginTop: 5 },
+  metricLabel: { fontSize: 10, color: "#64748b", fontWeight: "700", letterSpacing: 0.5 },
+  metricValue: { fontSize: 19, fontWeight: "800", marginTop: 8 },
   section: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginTop: 17,
-    marginBottom: 8,
+    marginTop: 23,
+    marginBottom: 10,
   },
-  sectionTitle: { fontSize: 13, fontWeight: "700", color: "#253149" },
-  sectionAction: { fontSize: 11, color: "#a84b2f" },
-  composition: { backgroundColor: "#fff", borderRadius: 10, padding: 12 },
+  sectionTitle: { fontSize: 14, fontWeight: "700", color: "#253149" },
+  sectionAction: { fontSize: 11, color: "#2864e8", fontWeight: "600" },
+  composition: {
+    backgroundColor: "#fff",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#e1eafa",
+    padding: 14,
+    shadowColor: "#173b80",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 1,
+  },
   bar: { height: 8, borderRadius: 4, marginBottom: 10 },
   line: {
     flexDirection: "row",
     justifyContent: "space-between",
     paddingVertical: 7,
     borderBottomWidth: 1,
-    borderColor: "#f0ece7",
+    borderColor: "#edf1f7",
   },
   lineLabel: { fontSize: 12, color: "#536783" },
   lineValue: { fontSize: 12, fontWeight: "700", color: "#253149" },
   overdue: {
     backgroundColor: "#fff",
-    borderRadius: 9,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#f0d5cf",
-    padding: 10,
+    borderColor: "#ffd8d3",
+    padding: 12,
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 6,
+    marginBottom: 8,
   },
   round: {
     width: 28,
@@ -316,13 +377,15 @@ const styles = StyleSheet.create({
   overdueAmount: { color: "#d9634b", fontSize: 11, fontWeight: "700" },
   payment: {
     backgroundColor: "#fff",
-    borderRadius: 9,
-    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#e1eafa",
+    padding: 12,
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 6,
+    marginBottom: 8,
   },
-  paymentAmount: { color: "#168866", fontSize: 11, fontWeight: "700" },
+  paymentAmount: { color: "#2458c7", fontSize: 12, fontWeight: "700" },
   nav: {
     height: 66,
     backgroundColor: "#fff",

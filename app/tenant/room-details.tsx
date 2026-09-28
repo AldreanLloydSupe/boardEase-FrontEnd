@@ -1,6 +1,12 @@
+import { TenantHeaderMark } from "@/components/tenant-header-mark";
+import { useAuth } from "@/lib/auth-context";
+import { getFavoriteRooms, setFavoriteRooms } from "@/lib/favorite-rooms";
+import { db } from "@/lib/firebase";
+import { createApplication, createTourRequest } from "@/lib/request-data";
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { router, useLocalSearchParams } from "expo-router";
+import { collection, getDocs, query, where } from "firebase/firestore";
 import React from "react";
 import {
   Alert,
@@ -16,11 +22,6 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { getFavoriteRooms, setFavoriteRooms } from "@/lib/favorite-rooms";
-import { useAuth } from "@/lib/auth-context";
-import { createApplication, createTourRequest } from "@/lib/request-data";
-import { collection, getDocs, query, where } from "firebase/firestore";
-import { db } from "@/lib/firebase";
 
 export default function RoomDetails() {
   const params = useLocalSearchParams<{
@@ -155,7 +156,10 @@ export default function RoomDetails() {
           <Pressable style={styles.back} onPress={() => router.back()}>
             <Ionicons name="chevron-back" size={21} color="#253149" />
           </Pressable>
-          <Text style={styles.topTitle}>Room Details</Text>
+          <View style={styles.headerTitleGroup}>
+            <TenantHeaderMark />
+            <Text style={styles.topTitle}>Room Details</Text>
+          </View>
           <Pressable onPress={toggleFavorite}>
             <Ionicons
               name={isFavorite ? "heart" : "heart-outline"}
@@ -432,6 +436,7 @@ const styles = StyleSheet.create({
     borderColor: "#e3e8ef",
   },
   topTitle: { fontSize: 16, fontWeight: "700", color: "#253149" },
+  headerTitleGroup: { flexDirection: "row", alignItems: "center", gap: 8 },
   hero: {
     width: "100%",
     height: 220,
