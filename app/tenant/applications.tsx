@@ -253,6 +253,7 @@ function CareRequests({
   const [newRequestOpen, setNewRequestOpen] = React.useState(false);
   const [requestTitle, setRequestTitle] = React.useState("");
   const [requestDetails, setRequestDetails] = React.useState("");
+  const [requestDate, setRequestDate] = React.useState("");
 
   React.useEffect(() => {
     if (!db || !tenantId) return;
@@ -293,6 +294,7 @@ function CareRequests({
           roomType,
           title: request.title,
           details: request.details,
+          dateNeeded: requestDate.trim(),
           status: "in_progress",
           createdAt: serverTimestamp(),
         });
@@ -302,6 +304,7 @@ function CareRequests({
       }
       setRequestTitle("");
       setRequestDetails("");
+      setRequestDate("");
       setNewRequestOpen(false);
     } catch {
       Alert.alert("Unable to send request", "Please try again.");
@@ -452,6 +455,13 @@ function CareRequests({
               onChangeText={setRequestDetails}
               placeholder="Add details for the caretaker"
               multiline
+            />
+            <Text style={styles.inputLabel}>Date Needed</Text>
+            <TextInput
+              style={styles.input}
+              value={requestDate}
+              onChangeText={setRequestDate}
+              placeholder="e.g. ASAP, Tomorrow, Specific Date"
             />
             <Pressable style={styles.saveButton} onPress={submitRequest}>
               <Text style={styles.saveButtonText}>Submit Request</Text>
@@ -1145,7 +1155,7 @@ const styles = StyleSheet.create({
   },
   multilineInput: { minHeight: 70, textAlignVertical: "top" },
   saveButton: {
-    backgroundColor: "#0d382c",
+    backgroundColor: "#2864e8",
     borderRadius: 8,
     alignItems: "center",
     paddingVertical: 12,

@@ -23,6 +23,7 @@ export default function Login() {
   const [busy, setBusy] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [loadingSkeleton, setLoadingSkeleton] = useState(true);
+  const [successDelay, setSuccessDelay] = useState(false);
   const pulseAnim = useRef(new Animated.Value(0.4)).current;
 
   useEffect(() => {
@@ -44,12 +45,14 @@ export default function Login() {
       setBusy(true);
       setErrorMsg("");
       await signIn(email, password);
-      router.replace("/");
+      setSuccessDelay(true);
+      setTimeout(() => {
+        router.replace("/");
+      }, 2000);
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Please check your details.";
       setErrorMsg(msg);
       Alert.alert("Unable to log in", msg);
-    } finally {
       setBusy(false);
     }
   }
@@ -67,6 +70,26 @@ export default function Login() {
         error instanceof Error ? error.message : "Please try again.",
       );
     }
+  }
+
+  if (successDelay) {
+    return (
+      <View style={styles.dashboardSkeletonPage}>
+        <View style={styles.dashboardSkeletonHeader}>
+          <Animated.View style={[styles.skeletonHeaderTitle, { opacity: pulseAnim }]} />
+          <Animated.View style={[styles.skeletonHeaderSubtitle, { opacity: pulseAnim }]} />
+        </View>
+        <View style={styles.dashboardSkeletonContent}>
+          <Animated.View style={[styles.skeletonCardLarge, { opacity: pulseAnim }]} />
+          <View style={styles.skeletonGrid}>
+            <Animated.View style={[styles.skeletonCardSmall, { opacity: pulseAnim }]} />
+            <Animated.View style={[styles.skeletonCardSmall, { opacity: pulseAnim }]} />
+            <Animated.View style={[styles.skeletonCardSmall, { opacity: pulseAnim }]} />
+            <Animated.View style={[styles.skeletonCardSmall, { opacity: pulseAnim }]} />
+          </View>
+        </View>
+      </View>
+    );
   }
 
   if (loadingSkeleton) {
@@ -346,4 +369,19 @@ const styles = StyleSheet.create({
   skeletonInput: { height: 45, borderRadius: 9, backgroundColor: '#e2e8f0' },
   skeletonForgot: { width: 100, height: 12, borderRadius: 4, backgroundColor: '#d1d8e0', alignSelf: 'flex-end', marginTop: -2, marginBottom: 17 },
   skeletonButton: { height: 46, borderRadius: 9, backgroundColor: '#d1d8e0' },
+  dashboardSkeletonPage: { flex: 1, backgroundColor: "#f3f7fd" },
+  dashboardSkeletonHeader: {
+    height: 140,
+    backgroundColor: "#2864e8",
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    padding: 20,
+    justifyContent: "flex-end",
+  },
+  skeletonHeaderTitle: { width: 150, height: 28, borderRadius: 6, backgroundColor: "#578af0", marginBottom: 8 },
+  skeletonHeaderSubtitle: { width: 100, height: 16, borderRadius: 4, backgroundColor: "#578af0" },
+  dashboardSkeletonContent: { padding: 16, marginTop: 10, gap: 16 },
+  skeletonCardLarge: { width: "100%", height: 120, borderRadius: 12, backgroundColor: "#e2e8f0" },
+  skeletonGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12, justifyContent: "space-between" },
+  skeletonCardSmall: { width: "48%", height: 100, borderRadius: 12, backgroundColor: "#e2e8f0" },
 });
