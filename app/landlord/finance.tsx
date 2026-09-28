@@ -1,19 +1,139 @@
 import { LandlordNavigation } from "@/components/landlord-navigation";
+import { db } from "@/lib/firebase";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import {
+    collection,
+    doc,
+    onSnapshot,
+    updateDoc,
+    type DocumentData,
+} from "firebase/firestore";
+import React from "react";
+import {
+    ActivityIndicator,
+    Alert,
+    Image,
+    Modal,
     Pressable,
     ScrollView,
     StyleSheet,
     Text,
+    TouchableOpacity,
     View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-const overdue: string[][] = [];
-const payments: string[][] = [];
+type Payment = {
+  id: string;
+  tenantId?: string;
+  tenantName?: string;
+  amount?: number | string;
+  referenceNumber?: string;
+  reference?: string;
+  dateSent?: string;
+  timeSent?: string;
+  receiptUrl?: string;
+  status?: string;
+  createdAt?: { toMillis: () => number } | Date | string | null;
+};
+
+function amountValue(amount: Payment["amount"]) {
+  if (typeof amount === "number") return Number.isFinite(amount) ? amount : 0;
+  if (typeof amount !== "string") return 0;
+  const parsed = Number(amount.replace(/[^\d.-]/g, ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function paymentTime(payment: Payment) {
+  const createdAt = payment.createdAt;
+  if (createdAt && typeof createdAt === "object" && "toMillis" in createdAt) {
+    return createdAt.toMillis();
+  }
+  if (createdAt instanceof Date) return createdAt.getTime();
+  if (typeof createdAt === "string") return Date.parse(createdAt) || 0;
+  return 0;
+}
+
+function formatCurrency(amount: number) {
+  return amount.toLocaleString("en-PH", {
+    style: "currency",
+    currency: "PHP",
+    maximumFractionDigits: 2,
+  });
+}
+
+function paymentDate(payment: Payment) {
+  if (payment.dateSent) return payment.dateSent;
+  const timestamp = paymentTime(payment);
+  return timestamp ? new Date(timestamp).toLocaleDateString("en-PH") : "Date unavailable";
+}
 
 export default function Finance() {
+  const [pendingPayments, setPendingPayments] = React.useState<Payment[]>([]);
+  const [approvedPayments, setApprovedPayments] = React.useState<Payment[]>([]);
+  const [allPayments, setAllPayments] = React.useState<Payment[]>([]);
+  const [selectedPayment, setSelectedPayment] = React.useState<Payment | null>(null);
+  const [showAllPayments, setShowAllPayments] = React.useState(false);
+  const [isLoading, setIsLoading] = React.useState(Boolean(db));
+  const [isUpdating, setIsUpdating] = React.useState(false);
+  const [loadError, setLoadError] = React.useState(!db);
+
+  React.useEffect(() => {
+    if (!db) {
+      return;
+    }
+
+    return onSnapshot(
+      collection(db, "payments"),
+      (snapshot) => {
+        const allPayments = snapshot.docs.map((paymentDoc) => ({
+          id: paymentDoc.id,
+          ...(paymentDoc.data() as DocumentData),
+        })) as Payment[];
+        allPayments.sort((left, right) => paymentTime(right) - paymentTime(left));
+        setAllPayments(allPayments);
+        setPendingPayments(allPayments.filter((payment) => payment.status === "pending"));
+        setApprovedPayments(allPayments.filter((payment) => payment.status === "approved"));
+        setLoadError(false);
+        setIsLoading(false);
+      },
+      () => {
+        setLoadError(true);
+        setIsLoading(false);
+      },
+    );
+  }, []);
+
+  const pendingTotal = pendingPayments.reduce(
+    (total, payment) => total + amountValue(payment.amount),
+    0,
+  );
+  const approvedTotal = approvedPayments.reduce(
+    (total, payment) => total + amountValue(payment.amount),
+    0,
+  );
+  const recentPayments = allPayments.slice(0, 8);
+
+  async function updatePaymentStatus(payment: Payment, status: "approved" | "rejected") {
+    if (!db) return;
+    setIsUpdating(true);
+    try {
+      await updateDoc(doc(db, "payments", payment.id), { status });
+      setSelectedPayment(null);
+      Alert.alert(
+        status === "approved" ? "Payment approved" : "Payment rejected",
+        status === "approved"
+          ? "The payment is now included in collected revenue."
+          : "The payment submission has been rejected.",
+      );
+    } catch {
+      Alert.alert("Unable to update payment", "Check your connection and try again.");
+    } finally {
+      setIsUpdating(false);
+    }
+  }
+
   return (
     <SafeAreaView style={styles.page}>
       <View style={styles.header}>
@@ -27,7 +147,7 @@ export default function Finance() {
           </View>
         </View>
       </View>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
         <View style={styles.period}>
           <Text>October 2026</Text>
           <Ionicons name="calendar-outline" size={16} color="#66768a" />
@@ -35,8 +155,8 @@ export default function Finance() {
         <Text style={styles.sectionLabel}>COLLECTED REVENUE</Text>
         <View style={styles.revenue}>
           <View>
-            <Text style={styles.revenueValue}>₱0</Text>
-            <Text style={styles.muted}>No tenant payments yet</Text>
+            <Text style={styles.revenueValue}>{formatCurrency(approvedTotal)}</Text>
+            <Text style={styles.muted}>{approvedPayments.length} approved payments</Text>
           </View>
           <Text style={styles.growth}>+12.4%</Text>
           <Text style={styles.revenuePercent}>66.2% Goal</Text>
@@ -44,8 +164,8 @@ export default function Finance() {
         <View style={styles.smallGrid}>
           <Metric
             label="PENDING/OVERDUE"
-            value="₱0"
-            sub="No unpaid units"
+            value={formatCurrency(pendingTotal)}
+            sub={`${pendingPayments.length} pending payments`}
             color="#d9634b"
           />
           <Metric
@@ -77,40 +197,72 @@ export default function Finance() {
             </View>
           ))}
         </View>
-        <Section title="Overdue Watchlist" action="0 Payments" />
-        {overdue.length === 0 && (
-          <Text style={styles.emptyText}>No overdue tenant payments.</Text>
+        <Section title="Overdue Watchlist" action={`${pendingPayments.length} Payments`} />
+        {isLoading ? (
+          <ActivityIndicator color="#2864e8" />
+        ) : pendingPayments.length === 0 ? (
+          <Text style={styles.emptyText}>No pending tenant payments.</Text>
+        ) : (
+          pendingPayments.slice(0, 4).map((payment) => (
+            <Pressable
+              style={styles.overdue}
+              key={payment.id}
+              onPress={() => setSelectedPayment(payment)}
+              accessibilityRole="button"
+              accessibilityLabel={`Review pending payment from ${payment.tenantName || "Tenant"}`}
+            >
+              <View style={styles.round}>
+                <Text>{(payment.tenantName || "Tenant").slice(0, 2).toUpperCase()}</Text>
+              </View>
+              <View style={styles.flex}>
+                <Text style={styles.person}>{payment.tenantName || "Tenant"}</Text>
+                <Text style={styles.muted}>{paymentDate(payment)} · Pending review</Text>
+              </View>
+              <Text style={styles.overdueAmount}>{formatCurrency(amountValue(payment.amount))}</Text>
+            </Pressable>
+          ))
         )}
-        {overdue.map(([name, detail, amount]) => (
-          <View style={styles.overdue} key={name}>
-            <View style={styles.round}>
-              <Text>{name.slice(0, 2)}</Text>
-            </View>
-            <View style={styles.flex}>
-              <Text style={styles.person}>{name}</Text>
-              <Text style={styles.muted}>{detail}</Text>
-            </View>
-            <Text style={styles.overdueAmount}>{amount}</Text>
-          </View>
-        ))}
-        <Section title="Recent Payments" action="See all (0)" />
-        {payments.length === 0 && (
+        <Section
+          title="Recent Payments"
+          action={`See all (${allPayments.length})`}
+          onPress={() => setShowAllPayments(true)}
+        />
+        {loadError ? (
+          <Text style={styles.emptyText}>Unable to load payments. Check your Firebase connection and permissions.</Text>
+        ) : isLoading ? (
+          <ActivityIndicator color="#2864e8" />
+        ) : recentPayments.length === 0 ? (
           <Text style={styles.emptyText}>No tenant payments recorded yet.</Text>
+        ) : (
+          recentPayments.map((payment) => {
+            const row = (
+              <View style={styles.payment}>
+                <Ionicons
+                  name={payment.status === "approved" ? "checkmark-circle-outline" : payment.status === "pending" ? "time-outline" : "close-circle-outline"}
+                  size={22}
+                  color={payment.status === "approved" ? "#168866" : payment.status === "pending" ? "#d9634b" : "#71809a"}
+                />
+                <View style={styles.flex}>
+                  <Text style={styles.person}>{payment.tenantName || "Tenant"}</Text>
+                  <Text style={styles.muted}>{paymentDate(payment)}</Text>
+                </View>
+                <View style={styles.paymentTrailing}>
+                  <Text style={styles.paymentAmount}>{formatCurrency(amountValue(payment.amount))}</Text>
+                  <Text style={[styles.statusBadge, payment.status === "approved" ? styles.approvedBadge : payment.status === "pending" ? styles.pendingBadge : styles.rejectedBadge]}>
+                    {payment.status === "approved" ? "Approved" : payment.status === "pending" ? "Pending" : "Rejected"}
+                  </Text>
+                </View>
+              </View>
+            );
+            return payment.status === "pending" ? (
+              <Pressable key={payment.id} onPress={() => setSelectedPayment(payment)} accessibilityRole="button">
+                {row}
+              </Pressable>
+            ) : (
+              <View key={payment.id}>{row}</View>
+            );
+          })
         )}
-        {payments.map(([name, detail, amount]) => (
-          <View style={styles.payment} key={name}>
-            <Ionicons
-              name="checkmark-circle-outline"
-              size={22}
-              color="#2864e8"
-            />
-            <View style={styles.flex}>
-              <Text style={styles.person}>{name}</Text>
-              <Text style={styles.muted}>{detail}</Text>
-            </View>
-            <Text style={styles.paymentAmount}>{amount}</Text>
-          </View>
-        ))}
         <Section title="Payables & Remittances" action="Due Early Nov" />
         {[
           ["Devon Light & Power", "Due Nov 03", "₱4,210"],
@@ -128,6 +280,106 @@ export default function Finance() {
         ))}
       </ScrollView>
       <LandlordNavigation active="Finance" />
+      <Modal
+        visible={showAllPayments}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowAllPayments(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.historyModal}>
+            <View style={styles.detailHeader}>
+              <View style={styles.flex}>
+                <Text style={styles.detailTitle}>Payment History</Text>
+                <Text style={styles.muted}>{allPayments.length} submissions</Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setShowAllPayments(false)}
+                style={styles.closeHistoryButton}
+                accessibilityRole="button"
+                accessibilityLabel="Close payment history"
+              >
+                <Ionicons name="close" size={22} color="#526174" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView contentContainerStyle={styles.historyList}>
+              {allPayments.length === 0 ? (
+                <Text style={styles.emptyText}>No tenant payments recorded yet.</Text>
+              ) : (
+                allPayments.map((payment) => (
+                  <TouchableOpacity
+                    key={payment.id}
+                    style={styles.historyItem}
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      setShowAllPayments(false);
+                      if (payment.status === "pending") setSelectedPayment(payment);
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${payment.tenantName || "Tenant"}, ${formatCurrency(amountValue(payment.amount))}, ${payment.status || "unknown"}`}
+                  >
+                    <View style={styles.flex}>
+                      <Text style={styles.person}>{payment.tenantName || "Tenant"}</Text>
+                      <Text style={styles.muted}>{paymentDate(payment)}</Text>
+                    </View>
+                    <View style={styles.paymentTrailing}>
+                      <Text style={styles.paymentAmount}>{formatCurrency(amountValue(payment.amount))}</Text>
+                      <Text style={[styles.statusBadge, payment.status === "approved" ? styles.approvedBadge : payment.status === "pending" ? styles.pendingBadge : styles.rejectedBadge]}>
+                        {payment.status === "approved" ? "Approved" : payment.status === "pending" ? "Pending" : "Rejected"}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                ))
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+      <Modal
+        visible={selectedPayment !== null}
+        transparent
+        animationType="slide"
+        onRequestClose={() => !isUpdating && setSelectedPayment(null)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.detailModal}>
+            <View style={styles.detailHeader}>
+              <View style={styles.flex}>
+                <Text style={styles.detailTitle}>Payment Review</Text>
+                <Text style={styles.muted}>{selectedPayment?.tenantName || "Tenant"} · {selectedPayment ? paymentDate(selectedPayment) : ""}</Text>
+              </View>
+              <Pressable onPress={() => setSelectedPayment(null)} disabled={isUpdating} accessibilityLabel="Close payment details">
+                <Ionicons name="close" size={22} color="#526174" />
+              </Pressable>
+            </View>
+            <Text style={styles.detailLabel}>GCash Reference Number</Text>
+            <Text style={styles.detailValue}>{selectedPayment?.referenceNumber || selectedPayment?.reference || "Not provided"}</Text>
+            <Text style={styles.detailLabel}>Amount</Text>
+            <Text style={styles.detailValue}>{selectedPayment ? formatCurrency(amountValue(selectedPayment.amount)) : ""}</Text>
+            {selectedPayment?.receiptUrl ? (
+              <Image source={{ uri: selectedPayment.receiptUrl }} style={styles.detailReceipt} resizeMode="contain" />
+            ) : (
+              <Text style={styles.emptyReceipt}>No receipt image attached.</Text>
+            )}
+            <View style={styles.reviewActions}>
+              <Pressable
+                style={[styles.rejectButton, isUpdating && styles.disabledButton]}
+                onPress={() => selectedPayment && updatePaymentStatus(selectedPayment, "rejected")}
+                disabled={isUpdating}
+              >
+                <Text style={styles.rejectText}>{isUpdating ? "Updating..." : "Reject"}</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.approveButton, isUpdating && styles.disabledButton]}
+                onPress={() => selectedPayment && updatePaymentStatus(selectedPayment, "approved")}
+                disabled={isUpdating}
+              >
+                {isUpdating ? <ActivityIndicator color="#fff" /> : <Text style={styles.approveText}>Approve</Text>}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -150,11 +402,30 @@ function Metric({
     </View>
   );
 }
-function Section({ title, action }: { title: string; action: string }) {
+function Section({
+  title,
+  action,
+  onPress,
+}: {
+  title: string;
+  action: string;
+  onPress?: () => void;
+}) {
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>{title}</Text>
-      <Text style={styles.sectionAction}>{action}</Text>
+      {onPress ? (
+        <TouchableOpacity
+          style={styles.sectionActionButton}
+          onPress={onPress}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+        >
+          <Text style={styles.sectionAction}>{action}</Text>
+        </TouchableOpacity>
+      ) : (
+        <Text style={styles.sectionAction}>{action}</Text>
+      )}
     </View>
   );
 }
@@ -210,8 +481,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.18,
     shadowRadius: 12,
-    elevation: 8,
-    zIndex: 1,
+    elevation: 0,
+    marginBottom: 8,
   },
   headerBrand: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 12 },
   headerLogo: {
@@ -236,7 +507,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   paymentText: { color: "#fff", fontSize: 12, fontWeight: "600" },
-  content: { padding: 16, paddingBottom: 25 },
+  scroll: { flex: 1 },
+  content: { padding: 16, paddingTop: 18, paddingBottom: 25 },
   period: {
     backgroundColor: "#fff",
     borderRadius: 8,
@@ -332,6 +604,15 @@ const styles = StyleSheet.create({
   },
   sectionTitle: { fontSize: 14, fontWeight: "700", color: "#253149" },
   sectionAction: { fontSize: 11, color: "#2864e8", fontWeight: "600" },
+  sectionActionButton: {
+    minHeight: 36,
+    minWidth: 48,
+    paddingHorizontal: 5,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 10,
+    elevation: 2,
+  },
   composition: {
     backgroundColor: "#fff",
     borderRadius: 8,
@@ -386,6 +667,101 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   paymentAmount: { color: "#2458c7", fontSize: 12, fontWeight: "700" },
+  paymentTrailing: { alignItems: "flex-end", gap: 5 },
+  statusBadge: {
+    overflow: "hidden",
+    borderRadius: 10,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    fontSize: 9,
+    fontWeight: "700",
+  },
+  approvedBadge: { backgroundColor: "#d9f7e8", color: "#168866" },
+  pendingBadge: { backgroundColor: "#fff0dc", color: "#a75b12" },
+  rejectedBadge: { backgroundColor: "#eef1f5", color: "#64748b" },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(15,23,42,0.45)",
+    justifyContent: "flex-end",
+  },
+  detailModal: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    padding: 20,
+    paddingBottom: 30,
+    maxHeight: "85%",
+  },
+  historyModal: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    padding: 20,
+    paddingBottom: 28,
+    height: "82%",
+  },
+  historyList: { paddingBottom: 20 },
+  historyItem: {
+    minHeight: 60,
+    backgroundColor: "#fff",
+    borderBottomWidth: 1,
+    borderColor: "#edf1f7",
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+  },
+  closeHistoryButton: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 10,
+  },
+  detailHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    marginBottom: 14,
+  },
+  detailTitle: { color: "#253149", fontSize: 18, fontWeight: "700" },
+  detailLabel: { color: "#64748b", fontSize: 11, marginTop: 10 },
+  detailValue: { color: "#253149", fontSize: 14, fontWeight: "600", marginTop: 3 },
+  detailReceipt: {
+    width: "100%",
+    height: 240,
+    marginTop: 14,
+    borderRadius: 8,
+    backgroundColor: "#f3f7fd",
+  },
+  emptyReceipt: {
+    color: "#71809a",
+    textAlign: "center",
+    padding: 20,
+    marginTop: 14,
+    backgroundColor: "#f3f7fd",
+    borderRadius: 8,
+  },
+  reviewActions: { flexDirection: "row", gap: 10, marginTop: 16 },
+  rejectButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: "#d9634b",
+    borderRadius: 8,
+    minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  rejectText: { color: "#b54835", fontSize: 13, fontWeight: "700" },
+  approveButton: {
+    flex: 1,
+    backgroundColor: "#168866",
+    borderRadius: 8,
+    minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  approveText: { color: "#fff", fontSize: 13, fontWeight: "700" },
+  disabledButton: { opacity: 0.6 },
   nav: {
     height: 66,
     backgroundColor: "#fff",

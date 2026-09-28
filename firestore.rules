@@ -15,8 +15,47 @@ service cloud.firestore {
       allow write: if request.auth != null && request.auth.uid == userId;
     }
 
+    match /payments/{paymentId} {
+      allow create: if request.auth != null &&
+        request.resource.data.tenantId == request.auth.uid &&
+        request.resource.data.keys().hasOnly([
+          'tenantId',
+          'tenantName',
+          'referenceNumber',
+          'dateSent',
+          'timeSent',
+          'amount',
+          'receiptUrl',
+          'status',
+          'createdAt'
+        ]) &&
+        request.resource.data.keys().hasAll([
+          'tenantId',
+          'tenantName',
+          'referenceNumber',
+          'dateSent',
+          'timeSent',
+          'amount',
+          'receiptUrl',
+          'status',
+          'createdAt'
+        ]) &&
+        request.resource.data.tenantName is string &&
+        request.resource.data.referenceNumber is string &&
+        request.resource.data.dateSent is string &&
+        request.resource.data.timeSent is string &&
+        request.resource.data.amount is number &&
+        request.resource.data.receiptUrl is string &&
+        request.resource.data.status == 'pending' &&
+        request.resource.data.createdAt == request.time;
+      allow read: if request.auth != null &&
+        (resource.data.tenantId == request.auth.uid || isLandlord());
+      allow update, delete: if isLandlord();
+    }
+
     match /rooms/{roomId} {
-      allow read, write: if request.auth != null && request.auth.token.admin == true;
+      allow read: if isLandlord();
+      allow write: if request.auth != null && request.auth.token.admin == true;
     }
 
     match /messages/{messageId} {

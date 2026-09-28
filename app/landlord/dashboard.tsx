@@ -9,7 +9,9 @@ import {
   collection,
   getDocs,
   onSnapshot,
+  query,
   serverTimestamp,
+  where,
 } from "firebase/firestore";
 import React from "react";
 import {
@@ -20,45 +22,119 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 const stats = [
   {
-    value: "0/24",
     label: "Occupied Rooms",
     color: "#2463e8",
     iconBackground: "#eaf1ff",
     icon: "bed-outline" as const,
-    foot: "0% occupied",
   },
   {
-    value: "5",
     label: "Pending Apps",
     color: "#e09a00",
     iconBackground: "#fff5d6",
     icon: "document-text-outline" as const,
-    foot: "Needs Action",
   },
   {
-    value: "3",
     label: "Overdue Payments",
     color: "#ef4444",
     iconBackground: "#fff0f0",
     icon: "alert-circle-outline" as const,
-    foot: "No overdue users",
   },
   {
-    value: "₱0",
     label: "This Month's Revenue",
     color: "#099268",
     iconBackground: "#e8f8f1",
     icon: "cash-outline" as const,
-    foot: "No payments yet",
   },
 ];
 const dues: string[][] = [];
+
+type PaymentStatRecord = {
+  id: string;
+  tenantId?: string;
+  tenantName?: string;
+  amount?: number | string;
+  status?: string;
+  dateSent?: unknown;
+  createdAt?: unknown;
+  dueDate?: unknown;
+  dueAt?: unknown;
+  dueDateTime?: unknown;
+  paymentDueDate?: unknown;
+};
+
+function paymentAmount(amount: PaymentStatRecord["amount"]) {
+  if (typeof amount === "number") return Number.isFinite(amount) ? amount : 0;
+  if (typeof amount !== "string") return 0;
+  const parsed = Number(amount.replace(/[^\d.-]/g, ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function firestoreDate(value: unknown, endOfDay = false): Date | null {
+  if (value instanceof Date) return value;
+  if (value && typeof value === "object" && "toDate" in value) {
+    const toDate = (value as { toDate?: unknown }).toDate;
+    if (typeof toDate === "function") {
+      const converted = toDate.call(value);
+      if (converted instanceof Date && !Number.isNaN(converted.getTime())) {
+        return converted;
+      }
+    }
+  }
+  if (typeof value !== "string") return null;
+  const dateOnly = value.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (dateOnly) {
+    const parsed = new Date(
+      Number(dateOnly[3]),
+      Number(dateOnly[1]) - 1,
+      Number(dateOnly[2]),
+    );
+    if (endOfDay) parsed.setHours(23, 59, 59, 999);
+    return parsed;
+  }
+  const isoDateOnly = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoDateOnly) {
+    const parsed = new Date(
+      Number(isoDateOnly[1]),
+      Number(isoDateOnly[2]) - 1,
+      Number(isoDateOnly[3]),
+    );
+    if (endOfDay) parsed.setHours(23, 59, 59, 999);
+    return parsed;
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function revenueDate(payment: PaymentStatRecord) {
+  return (
+    firestoreDate(payment.dateSent) ??
+    firestoreDate(payment.createdAt)
+  );
+}
+
+function dueDate(payment: PaymentStatRecord) {
+  return (
+    firestoreDate(payment.dueDate, true) ??
+    firestoreDate(payment.dueAt, true) ??
+    firestoreDate(payment.dueDateTime, true) ??
+    firestoreDate(payment.paymentDueDate, true)
+  );
+}
+
+function formatPeso(amount: number) {
+  return `₱${amount.toLocaleString("en-PH", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
 type DashboardNotification = {
   id: string;
   tenantName?: string;
@@ -97,6 +173,10 @@ export default function Dashboard() {
   >([]);
   const [maintenanceNotifications, setMaintenanceNotifications] =
     React.useState<DashboardNotification[]>([]);
+  const [occupiedRooms, setOccupiedRooms] = React.useState(0);
+  const [totalRooms, setTotalRooms] = React.useState(0);
+  const [monthlyRevenue, setMonthlyRevenue] = React.useState(0);
+  const [overdueTenantCount, setOverdueTenantCount] = React.useState(0);
   const notificationCount =
     applicationNotifications.length +
     tourNotifications.length +
@@ -142,12 +222,90 @@ export default function Dashboard() {
       },
       () => setMaintenanceNotifications([]),
     );
+    const stopRooms = onSnapshot(
+      collection(db, "rooms"),
+      (snapshot) => {
+        const records = snapshot.docs.map((room) => room.data());
+        const occupiedCount = records.filter((room) =>
+          room.isOccupied === true ||
+          String(room.status ?? "").toLowerCase() === "occupied",
+        ).length;
+        setTotalRooms(records.length);
+        setOccupiedRooms(occupiedCount);
+      },
+      () => {
+        setTotalRooms(0);
+        setOccupiedRooms(0);
+      },
+    );
+    const currentDate = new Date();
+    const monthStart = new Date(
+      currentDate.getFullYear(),
+      currentDate.getMonth(),
+      1,
+    );
+    const nextMonthStart = new Date(
+      currentDate.getFullYear(),
+      currentDate.getMonth() + 1,
+      1,
+    );
+    const stopApprovedPayments = onSnapshot(
+      query(collection(db, "payments"), where("status", "==", "approved")),
+      (snapshot) => {
+        const currentMonthTotal = snapshot.docs.reduce((total, paymentDoc) => {
+          const payment = {
+            id: paymentDoc.id,
+            ...paymentDoc.data(),
+          } as PaymentStatRecord;
+          const paidAt = revenueDate(payment);
+          if (
+            !paidAt ||
+            paidAt < monthStart ||
+            paidAt >= nextMonthStart
+          ) {
+            return total;
+          }
+          return total + paymentAmount(payment.amount);
+        }, 0);
+        setMonthlyRevenue(currentMonthTotal);
+      },
+      () => setMonthlyRevenue(0),
+    );
+    const stopOverduePayments = onSnapshot(
+      query(
+        collection(db, "payments"),
+        where("status", "in", ["overdue", "unpaid"]),
+      ),
+      (snapshot) => {
+        const now = Date.now();
+        const overdueTenantIds = new Set(
+          snapshot.docs
+            .map((paymentDoc) => ({
+              id: paymentDoc.id,
+              ...paymentDoc.data(),
+            }) as PaymentStatRecord)
+            .filter((payment) => {
+              const due = dueDate(payment);
+              return due !== null && due.getTime() < now;
+            })
+            .map((payment) => payment.tenantId || payment.tenantName || payment.id),
+        );
+        setOverdueTenantCount(overdueTenantIds.size);
+      },
+      () => setOverdueTenantCount(0),
+    );
     return () => {
       stopApplications();
       stopTours();
       stopMaintenance();
+      stopRooms();
+      stopApprovedPayments();
+      stopOverduePayments();
     };
   }, []);
+  const occupancyPercent = totalRooms
+    ? Math.round((occupiedRooms / totalRooms) * 100)
+    : 0;
   async function logout() {
     await signOut();
     router.replace("/login");
@@ -300,9 +458,13 @@ export default function Dashboard() {
             <View key={stat.label} style={styles.stat}>
               <View style={styles.statTop}>
                 <Text style={[styles.statValue, { color: stat.color }]}>
-                  {stat.label === "Pending Apps"
-                    ? applicationNotifications.length
-                    : stat.value}
+                  {stat.label === "Occupied Rooms"
+                    ? `${occupiedRooms}/${totalRooms}`
+                    : stat.label === "Pending Apps"
+                      ? applicationNotifications.length
+                      : stat.label === "Overdue Payments"
+                        ? overdueTenantCount
+                        : formatPeso(monthlyRevenue)}
                 </Text>
                 <View style={[styles.statIcon, { backgroundColor: stat.iconBackground }]}>
                   <Ionicons name={stat.icon} size={20} color={stat.color} />
@@ -310,7 +472,17 @@ export default function Dashboard() {
               </View>
               <Text style={styles.statLabel}>{stat.label}</Text>
               <Text style={[styles.statFoot, { color: stat.color }]}>
-                {stat.foot}
+                {stat.label === "Occupied Rooms"
+                  ? `${occupancyPercent}% occupied`
+                  : stat.label === "Pending Apps"
+                    ? "Needs Action"
+                    : stat.label === "Overdue Payments"
+                      ? overdueTenantCount === 0
+                        ? "No overdue users"
+                        : `${overdueTenantCount} tenant${overdueTenantCount === 1 ? "" : "s"} overdue`
+                      : monthlyRevenue > 0
+                        ? "Approved payments this month"
+                        : "No approved payments this month"}
               </Text>
             </View>
           ))}
@@ -798,9 +970,15 @@ function SectionTitle({
   return (
     <View style={styles.sectionTitle}>
       <Text style={styles.sectionText}>{title}</Text>
-      <Pressable onPress={onPress} disabled={!onPress}>
+      <TouchableOpacity
+        onPress={onPress}
+        disabled={!onPress}
+        activeOpacity={0.7}
+        style={styles.sectionActionButton}
+        accessibilityRole="button"
+      >
         <Text style={styles.see}>{action}</Text>
-      </Pressable>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -1035,6 +1213,15 @@ const styles = StyleSheet.create({
   },
   sectionText: { fontSize: 14, fontWeight: "700", color: "#253149" },
   see: { fontSize: 12, color: "#2864e8" },
+  sectionActionButton: {
+    minHeight: 40,
+    minWidth: 60,
+    paddingHorizontal: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 10,
+    elevation: 2,
+  },
   application: {
     backgroundColor: "#fff",
     borderWidth: 1,

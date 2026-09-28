@@ -3,11 +3,22 @@ import { AssignedTenantNav } from "@/components/tenant-navigation";
 import { useAuth } from "@/lib/auth-context";
 import { db } from "@/lib/firebase";
 import { Ionicons } from "@expo/vector-icons";
-import { addDoc, collection, serverTimestamp } from "firebase/firestore";
+import DateTimePicker, {
+    type DateTimePickerEvent,
+} from "@react-native-community/datetimepicker";
+import * as ImagePicker from "expo-image-picker";
+import {
+    addDoc,
+    collection,
+    serverTimestamp,
+} from "firebase/firestore";
 import React from "react";
 import {
+    ActivityIndicator,
     Alert,
+    Image,
     Modal,
+    Platform,
     Pressable,
     ScrollView,
     StyleSheet,
@@ -20,43 +31,149 @@ import { SafeAreaView } from "react-native-safe-area-context";
 export default function TenantPayments() {
   const { user } = useAuth();
   const [proofOpen, setProofOpen] = React.useState(false);
-  const [reference, setReference] = React.useState("");
-  const [date, setDate] = React.useState("");
-  const [time, setTime] = React.useState("");
+  const [referenceNumber, setReferenceNumber] = React.useState("");
+  const [sentAt, setSentAt] = React.useState(() => new Date());
+  const [datePickerOpen, setDatePickerOpen] = React.useState(false);
+  const [timePickerOpen, setTimePickerOpen] = React.useState(false);
+  const [selectedImage, setSelectedImage] =
+    React.useState<ImagePicker.ImagePickerAsset | null>(null);
   const [amount, setAmount] = React.useState("₱3,500.00");
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+
+  function openProof() {
+    setSentAt(new Date());
+    setDatePickerOpen(false);
+    setTimePickerOpen(false);
+    setProofOpen(true);
+  }
+
+  function handleDateChange(
+    event: DateTimePickerEvent,
+    selectedDate?: Date,
+  ) {
+    if (Platform.OS === "android") setDatePickerOpen(false);
+    if (event.type === "set" && selectedDate) {
+      setSentAt((current) => {
+        const next = new Date(current);
+        next.setFullYear(
+          selectedDate.getFullYear(),
+          selectedDate.getMonth(),
+          selectedDate.getDate(),
+        );
+        return next;
+      });
+    }
+  }
+
+  function handleTimeChange(
+    event: DateTimePickerEvent,
+    selectedTime?: Date,
+  ) {
+    if (Platform.OS === "android") setTimePickerOpen(false);
+    if (event.type === "set" && selectedTime) {
+      setSentAt((current) => {
+        const next = new Date(current);
+        next.setHours(selectedTime.getHours(), selectedTime.getMinutes(), 0, 0);
+        return next;
+      });
+    }
+  }
+
+  async function chooseReceipt() {
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          "Photo access needed",
+          "Allow access to your photos to attach a payment receipt.",
+        );
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        quality: 0.4,
+        base64: true,
+      });
+      if (result.canceled) return;
+      const asset = result.assets[0];
+      if (!asset?.uri || !asset.base64) {
+        Alert.alert("Unable to read image", "Choose another receipt photo.");
+        return;
+      }
+      if (asset.base64.length > 900_000) {
+        Alert.alert(
+          "Image too large for Firestore",
+          "Choose or crop a smaller receipt photo, then try again.",
+        );
+        return;
+      }
+      setSelectedImage(asset);
+    } catch {
+      Alert.alert("Unable to open photos", "Please try selecting the receipt again.");
+    }
+  }
 
   async function submitProof() {
-    if (!reference.trim() || !date.trim() || !time.trim() || !amount.trim()) {
+    if (!referenceNumber.trim()) {
       Alert.alert(
-        "Incomplete payment proof",
-        "Complete all payment fields first.",
+        "Reference number required",
+        "Enter the GCash reference number before submitting.",
       );
       return;
     }
+    if (!selectedImage?.base64) {
+      Alert.alert(
+        "Receipt required",
+        "Choose a photo of your payment receipt before submitting.",
+      );
+      return;
+    }
+    const parsedAmount = Number(amount.replace(/[^\d.-]/g, ""));
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      Alert.alert("Invalid amount", "Enter a valid amount greater than zero.");
+      return;
+    }
+    if (!db || !user) {
+      Alert.alert(
+        "Firebase unavailable",
+        "Sign in and check the Firebase configuration before submitting payment proof.",
+      );
+      return;
+    }
+
+    setIsSubmitting(true);
     try {
-      if (db && user) {
-        await addDoc(collection(db, "payments"), {
-          tenantId: user.uid,
-          tenantName: user.displayName || user.email || "Tenant",
-          reference: reference.trim(),
-          date: date.trim(),
-          time: time.trim(),
-          amount: amount.trim(),
-          status: "pending",
-          createdAt: serverTimestamp(),
-        });
-      }
+      const receiptBase64 = `data:image/jpeg;base64,${selectedImage.base64}`;
+
+      await addDoc(collection(db, "payments"), {
+        tenantId: user.uid,
+        tenantName: user.displayName || user.email || "Tenant",
+        amount: parsedAmount,
+        referenceNumber: referenceNumber.trim(),
+        dateSent: formatDate(sentAt),
+        timeSent: formatTime(sentAt),
+        receiptUrl: receiptBase64,
+        status: "pending",
+        createdAt: serverTimestamp(),
+      });
+
       setProofOpen(false);
       Alert.alert(
         "Proof submitted",
         "Your payment is waiting for landlord verification.",
       );
-      setReference("");
-    } catch {
+      setReferenceNumber("");
+      setSelectedImage(null);
+    } catch (error: unknown) {
       Alert.alert(
         "Unable to submit proof",
-        "Please check your Firebase connection and try again.",
+        error instanceof Error
+          ? error.message
+          : "Please check your connection and try again.",
       );
+    } finally {
+      setIsSubmitting(false);
     }
   }
   return (
@@ -103,7 +220,7 @@ export default function TenantPayments() {
           />
           <Pressable
             style={styles.payButton}
-            onPress={() => setProofOpen(true)}
+            onPress={openProof}
           >
             <Ionicons name="flash" size={15} color="#fff" />
             <Text style={styles.payText}>Pay ₱3,500.00 Now</Text>
@@ -156,7 +273,7 @@ export default function TenantPayments() {
           <Text style={styles.instruction}>1. Open your GCash app and tap Send Money.</Text>
           <Text style={styles.instruction}>2. Send exactly the amount shown above.</Text>
           <Text style={styles.instruction}>3. Keep your GCash reference number.</Text>
-          <Pressable style={styles.proofButton} onPress={() => setProofOpen(true)}>
+          <Pressable style={styles.proofButton} onPress={openProof}>
             <Ionicons name="receipt-outline" size={15} color="#fff" />
             <Text style={styles.proofButtonText}>Submit GCash Payment Proof</Text>
           </Pressable>
@@ -230,28 +347,56 @@ export default function TenantPayments() {
             <Text style={styles.inputLabel}>GCash Reference No.</Text>
             <TextInput
               style={styles.input}
-              value={reference}
-              onChangeText={setReference}
+              value={referenceNumber}
+              onChangeText={setReferenceNumber}
               placeholder="e.g. 1002 8492 7104"
             />
             <View style={styles.inputRow}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.inputLabel}>Date Sent</Text>
-                <TextInput
-                  style={styles.input}
-                  value={date}
-                  onChangeText={setDate}
-                  placeholder="10/01/2026"
-                />
+                <Pressable
+                  style={styles.pickerButton}
+                  onPress={() => {
+                    setDatePickerOpen((open) => !open);
+                    setTimePickerOpen(false);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Date sent, ${formatDate(sentAt)}`}
+                >
+                  <Text style={styles.pickerText}>{formatDate(sentAt)}</Text>
+                  <Ionicons name="calendar-outline" size={16} color="#526174" />
+                </Pressable>
+                {datePickerOpen && (
+                  <DateTimePicker
+                    value={sentAt}
+                    mode="date"
+                    display={Platform.OS === "ios" ? "compact" : "default"}
+                    onChange={handleDateChange}
+                  />
+                )}
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.inputLabel}>Time Sent</Text>
-                <TextInput
-                  style={styles.input}
-                  value={time}
-                  onChangeText={setTime}
-                  placeholder="10:30 AM"
-                />
+                <Pressable
+                  style={styles.pickerButton}
+                  onPress={() => {
+                    setTimePickerOpen((open) => !open);
+                    setDatePickerOpen(false);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Time sent, ${formatTime(sentAt)}`}
+                >
+                  <Text style={styles.pickerText}>{formatTime(sentAt)}</Text>
+                  <Ionicons name="time-outline" size={16} color="#526174" />
+                </Pressable>
+                {timePickerOpen && (
+                  <DateTimePicker
+                    value={sentAt}
+                    mode="time"
+                    display={Platform.OS === "ios" ? "compact" : "default"}
+                    onChange={handleTimeChange}
+                  />
+                )}
               </View>
             </View>
             <Text style={styles.inputLabel}>Amount Transferred</Text>
@@ -261,15 +406,48 @@ export default function TenantPayments() {
               onChangeText={setAmount}
               keyboardType="decimal-pad"
             />
-            <View style={styles.uploadBox}>
-              <Text style={styles.uploadIcon}>▧</Text>
-              <Text style={styles.uploadTitle}>Tap to upload receipt</Text>
-              <Text style={styles.modalHint}>PNG/JPG, max 10MB</Text>
-            </View>
-            <Pressable style={styles.submitButton} onPress={submitProof}>
-              <Text style={styles.submitText}>
-                ▷ Submit GCash Payment Proof
-              </Text>
+            <Pressable
+              style={styles.uploadBox}
+              onPress={chooseReceipt}
+              accessibilityRole="button"
+              accessibilityLabel={selectedImage ? "Change receipt image" : "Upload receipt image"}
+            >
+              {selectedImage ? (
+                <>
+                  <Image source={{ uri: selectedImage.uri }} style={styles.receiptPreview} />
+                  <Text style={styles.uploadTitle}>Receipt selected</Text>
+                  <Text style={styles.changeReceipt}>Tap to change</Text>
+                </>
+              ) : (
+                <>
+                  <Ionicons name="cloud-upload-outline" size={22} color="#2864e8" />
+                  <Text style={styles.uploadTitle}>Tap to upload receipt</Text>
+                  <Text style={styles.modalHint}>Compressed JPEG receipt</Text>
+                </>
+              )}
+            </Pressable>
+            {selectedImage && (
+              <Pressable
+                style={styles.removeReceiptButton}
+                onPress={() => setSelectedImage(null)}
+                accessibilityRole="button"
+                accessibilityLabel="Remove receipt image"
+              >
+                <Text style={styles.removeReceiptText}>Remove receipt</Text>
+              </Pressable>
+            )}
+            <Pressable
+              style={[styles.submitButton, isSubmitting && styles.submitButtonDisabled]}
+              onPress={submitProof}
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.submitText}>
+                  ▷ Submit GCash Payment Proof
+                </Text>
+              )}
             </Pressable>
             <Text style={styles.notice}>
               Payments are manually verified by the landlord. You will receive
@@ -280,6 +458,19 @@ export default function TenantPayments() {
       </Modal>
     </SafeAreaView>
   );
+}
+
+function formatDate(value: Date) {
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${month}/${day}/${value.getFullYear()}`;
+}
+
+function formatTime(value: Date) {
+  return value.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function Line({
@@ -516,6 +707,18 @@ const styles = StyleSheet.create({
     color: "#253149",
     backgroundColor: "#fbfcfd",
   },
+  pickerButton: {
+    height: 42,
+    borderWidth: 1,
+    borderColor: "#d4e0f0",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#fbfcfd",
+  },
+  pickerText: { color: "#253149", fontSize: 13 },
   inputRow: { flexDirection: "row", gap: 8 },
   uploadBox: {
     borderWidth: 1,
@@ -526,6 +729,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 12,
   },
+  receiptPreview: {
+    width: 190,
+    height: 84,
+    borderRadius: 6,
+    resizeMode: "cover",
+  },
+  changeReceipt: { color: "#2864e8", fontSize: 10, marginTop: 2 },
+  removeReceiptButton: { alignSelf: "flex-end", paddingVertical: 6 },
+  removeReceiptText: { color: "#c0392b", fontSize: 11, fontWeight: "700" },
   uploadIcon: { color: "#2864e8", fontSize: 22 },
   uploadTitle: {
     color: "#42526a",
@@ -540,6 +752,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 12,
   },
+  submitButtonDisabled: { opacity: 0.65 },
   submitText: { color: "#fff", fontSize: 12, fontWeight: "700" },
   notice: { color: "#78879b", fontSize: 10, marginTop: 10, lineHeight: 15 },
 });
