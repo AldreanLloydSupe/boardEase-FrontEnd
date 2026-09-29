@@ -22,9 +22,17 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Record<string, boolean>>({});
   const [loadingSkeleton, setLoadingSkeleton] = useState(true);
   const [successDelay, setSuccessDelay] = useState(false);
   const pulseAnim = useRef(new Animated.Value(0.4)).current;
+
+  const triggerFeedback = (field: string) => {
+    setFieldErrors((prev) => ({ ...prev, [field]: true }));
+    setTimeout(() => {
+      setFieldErrors((prev) => ({ ...prev, [field]: false }));
+    }, 1000);
+  };
 
   useEffect(() => {
     Animated.loop(
@@ -44,6 +52,17 @@ export default function Login() {
     try {
       setBusy(true);
       setErrorMsg("");
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        setFieldErrors((prev) => ({ ...prev, email: true }));
+        setErrorMsg("Please enter a valid email address (mobile numbers are not accepted).");
+        Alert.alert(
+          "Invalid Email",
+          "Please enter a valid email address (mobile numbers are not accepted)."
+        );
+        setBusy(false);
+        return;
+      }
       await signIn(email, password);
       setSuccessDelay(true);
       setTimeout(() => {
@@ -145,11 +164,15 @@ export default function Login() {
           <Field
             label="Email"
             value={email}
-            onChangeText={(t) => { setEmail(t); setErrorMsg(""); }}
+            onChangeText={(t) => { 
+              setEmail(t); 
+              setErrorMsg(""); 
+              setFieldErrors((prev) => ({ ...prev, email: false }));
+            }}
             placeholder="Enter your email"
             keyboardType="email-address"
             autoCapitalize="none"
-            error={!!errorMsg}
+            error={(!!errorMsg && !email) || fieldErrors.email}
           />
           <PasswordField
             label="Password"
@@ -159,7 +182,7 @@ export default function Login() {
             secureTextEntry={!showPassword}
             showPassword={showPassword}
             onToggle={() => setShowPassword((visible) => !visible)}
-            error={!!errorMsg}
+            error={!!errorMsg && !fieldErrors.email}
           />
           <Pressable style={styles.forgot} onPress={forgotPassword}>
             <Text style={styles.link}>Forgot password?</Text>

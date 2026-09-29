@@ -23,14 +23,24 @@ export default function Signup() {
     email: "",
     password: "",
     confirm: "",
+    emergencyName: "",
+    emergencyPhone: "",
   });
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [busy, setBusy] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Record<string, boolean>>({});
   const [loadingSkeleton, setLoadingSkeleton] = useState(true);
   const pulseAnim = useRef(new Animated.Value(0.4)).current;
+
+  const triggerFeedback = (field: string) => {
+    setFieldErrors((prev) => ({ ...prev, [field]: true }));
+    setTimeout(() => {
+      setFieldErrors((prev) => ({ ...prev, [field]: false }));
+    }, 1000);
+  };
 
   useEffect(() => {
     Animated.loop(
@@ -64,6 +74,18 @@ export default function Signup() {
       );
       return;
     }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(form.email)) {
+      setFieldErrors((prev) => ({ ...prev, email: true }));
+      setErrorMsg("Please enter a valid email address (mobile numbers are not accepted).");
+      Alert.alert(
+        "Invalid Email",
+        "Please enter a valid email address (mobile numbers are not accepted).",
+      );
+      return;
+    }
+
     if (!agreedToTerms) {
       setErrorMsg("Please agree to the Terms of Service and Privacy Policy.");
       Alert.alert(
@@ -151,25 +173,39 @@ export default function Signup() {
             label="Full Name"
             placeholder="Enter your full name"
             value={form.name}
-            onChangeText={(t) => { update("name")(t); setErrorMsg(""); }}
-            error={!!errorMsg && !form.name}
+            onChangeText={(t) => { 
+              const lettersOnly = t.replace(/[^a-zA-Z\s]/g, "");
+              if (t !== lettersOnly) triggerFeedback("name");
+              update("name")(lettersOnly); 
+              setErrorMsg(""); 
+            }}
+            error={(!!errorMsg && !form.name) || fieldErrors.name}
           />
           <Field
             label="Contact Number"
-            placeholder="+63 917 555 1234"
+            placeholder="09175551234"
             value={form.phone}
-            onChangeText={(t) => { update("phone")(t); setErrorMsg(""); }}
+            onChangeText={(t) => { 
+              const numbersOnly = t.replace(/[^0-9]/g, "");
+              if (t !== numbersOnly) triggerFeedback("phone");
+              update("phone")(numbersOnly); 
+              setErrorMsg(""); 
+            }}
             keyboardType="phone-pad"
-            error={!!errorMsg && !form.phone}
+            error={(!!errorMsg && !form.phone) || fieldErrors.phone}
           />
           <Field
             label="Email Address"
             placeholder="juan.delacruz@email.com"
             value={form.email}
-            onChangeText={(t) => { update("email")(t); setErrorMsg(""); }}
+            onChangeText={(t) => { 
+              update("email")(t); 
+              setErrorMsg(""); 
+              setFieldErrors((prev) => ({ ...prev, email: false }));
+            }}
             keyboardType="email-address"
             autoCapitalize="none"
-            error={!!errorMsg && !form.email}
+            error={(!!errorMsg && !form.email) || fieldErrors.email}
           />
           <PasswordField
             label="Password"
@@ -194,12 +230,28 @@ export default function Signup() {
           <Text style={styles.section}>EMERGENCY CONTACT</Text>
           <Field
             label="Contact Name & Relationship"
-            placeholder="Maria Dela Cruz (Mother)"
+            placeholder="Maria Dela Cruz Mother"
+            value={form.emergencyName}
+            onChangeText={(t) => {
+              const lettersOnly = t.replace(/[^a-zA-Z\s]/g, "");
+              if (t !== lettersOnly) triggerFeedback("emergencyName");
+              update("emergencyName")(lettersOnly);
+              setErrorMsg("");
+            }}
+            error={fieldErrors.emergencyName}
           />
           <Field
             label="Emergency Contact Number"
-            placeholder="0918 222 3344"
+            placeholder="09182223344"
             keyboardType="phone-pad"
+            value={form.emergencyPhone}
+            onChangeText={(t) => {
+              const numbersOnly = t.replace(/[^0-9]/g, "");
+              if (t !== numbersOnly) triggerFeedback("emergencyPhone");
+              update("emergencyPhone")(numbersOnly);
+              setErrorMsg("");
+            }}
+            error={fieldErrors.emergencyPhone}
           />
           <Pressable
             style={styles.check}
