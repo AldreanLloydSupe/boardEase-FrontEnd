@@ -6,6 +6,7 @@ import {
 import { useAuth } from "@/lib/auth-context";
 import { db } from "@/lib/firebase";
 import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import { router, useLocalSearchParams } from "expo-router";
 import {
   addDoc,
@@ -19,12 +20,16 @@ import {
 } from "firebase/firestore";
 import React from "react";
 import {
+  ActivityIndicator,
   Alert,
   Image,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -236,6 +241,45 @@ export default function Applications() {
   );
 }
 
+const MAINTENANCE_CATEGORIES = [
+  { id: "Plumbing", label: "Plumbing", icon: "water-outline" },
+  { id: "Electrical", label: "Electrical", icon: "flash-outline" },
+  { id: "Bed & Furniture", label: "Furniture", icon: "bed-outline" },
+  { id: "Aircon & Fan", label: "Aircon/Fan", icon: "snow-outline" },
+  { id: "Wi-Fi & Utility", label: "Wi-Fi", icon: "wifi-outline" },
+  { id: "General Repair", label: "General", icon: "construct-outline" },
+] as const;
+
+type MaintenanceTicket = {
+  id: string;
+  title: string;
+  details: string;
+  category?: string;
+  priority?: "normal" | "urgent";
+  photoUri?: string | null;
+  allowEntry?: boolean;
+  preferredTime?: string;
+  status?: "in_progress" | "parts_sourced" | "completed";
+  createdAt?: any;
+};
+
+function categoryIcon(category?: string) {
+  switch (category) {
+    case "Plumbing":
+      return "🚿";
+    case "Electrical":
+      return "⚡";
+    case "Bed & Furniture":
+      return "🛏️";
+    case "Aircon & Fan":
+      return "❄️";
+    case "Wi-Fi & Utility":
+      return "📶";
+    default:
+      return "🔧";
+  }
+}
+
 function CareRequests({
   tenantName,
   tenantId,
@@ -247,13 +291,22 @@ function CareRequests({
   roomNumber: string;
   roomType: string;
 }) {
-  const [requests, setRequests] = React.useState<
-    { id: string; title: string; details: string }[]
-  >([]);
+  const [requests, setRequests] = React.useState<MaintenanceTicket[]>([]);
   const [newRequestOpen, setNewRequestOpen] = React.useState(false);
+  const [activeFilter, setActiveFilter] = React.useState<
+    "all" | "in_progress" | "urgent" | "completed"
+  >("all");
+
+  // Form states
   const [requestTitle, setRequestTitle] = React.useState("");
   const [requestDetails, setRequestDetails] = React.useState("");
   const [requestDate, setRequestDate] = React.useState("");
+  const [category, setCategory] = React.useState("Plumbing");
+  const [priority, setPriority] = React.useState<"normal" | "urgent">("normal");
+  const [photoUri, setPhotoUri] = React.useState<string | null>(null);
+  const [allowEntry, setAllowEntry] = React.useState(true);
+  const [preferredTime, setPreferredTime] = React.useState("Anytime");
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
 
   React.useEffect(() => {
     if (!db || !tenantId) return;
@@ -269,47 +322,148 @@ function CareRequests({
             id: record.id,
             title: String(data.title || "Maintenance request"),
             details: String(data.details || "Awaiting caretaker review."),
+            category: data.category ? String(data.category) : "Plumbing",
+            priority: data.priority === "urgent" ? "urgent" : "normal",
+            photoUri: data.photoUri ? String(data.photoUri) : null,
+            allowEntry: data.allowEntry !== false,
+            preferredTime: data.preferredTime
+              ? String(data.preferredTime)
+              : "Anytime",
+            status: (data.status as any) || "in_progress",
+            createdAt: data.createdAt,
           };
         }),
       );
     });
   }, [tenantId]);
 
+  async function pickPhoto() {
+    try {
+      const permission =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          "Permission needed",
+          "Please allow photo library access in device settings to attach a photo.",
+        );
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        quality: 0.7,
+      });
+      if (!result.canceled && result.assets[0]?.uri) {
+        setPhotoUri(result.assets[0].uri);
+      }
+    } catch {
+      Alert.alert("Unable to pick photo", "Please try again.");
+    }
+  }
+
+  async function takePhoto() {
+    try {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          "Camera permission needed",
+          "Please allow camera access in device settings to snap a picture.",
+        );
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        quality: 0.7,
+      });
+      if (!result.canceled && result.assets[0]?.uri) {
+        setPhotoUri(result.assets[0].uri);
+      }
+    } catch {
+      Alert.alert("Unable to open camera", "Please try again.");
+    }
+  }
+
+  function handlePhotoOption() {
+    Alert.alert("Attach Photo Proof", "Choose an option", [
+      { text: "Take Photo", onPress: takePhoto },
+      { text: "Choose from Library", onPress: pickPhoto },
+      { text: "Cancel", style: "cancel" },
+    ]);
+  }
+
   async function submitRequest() {
     if (!requestTitle.trim()) {
-      Alert.alert("Missing request", "Enter what needs to be fixed.");
+      Alert.alert(
+        "Missing title",
+        "Please state what needs attention (e.g. Bathroom sink leaking).",
+      );
       return;
     }
-    const request = {
+    setIsSubmitting(true);
+    const requestData = {
       id: `local-${Date.now()}`,
+      tenantId,
+      tenantName,
+      roomNumber,
+      roomType,
       title: requestTitle.trim(),
       details: requestDetails.trim() || "Awaiting caretaker review.",
+      dateNeeded: requestDate.trim(),
+      category,
+      priority,
+      photoUri: photoUri || null,
+      allowEntry,
+      preferredTime,
+      status: "in_progress" as const,
     };
     try {
       if (db && tenantId) {
         const saved = await addDoc(collection(db, "maintenanceRequests"), {
-          tenantId,
-          tenantName,
-          roomNumber,
-          roomType,
-          title: request.title,
-          details: request.details,
-          dateNeeded: requestDate.trim(),
-          status: "in_progress",
+          ...requestData,
           createdAt: serverTimestamp(),
         });
-        request.id = saved.id;
+        requestData.id = saved.id;
       } else {
-        setRequests((current) => [request, ...current]);
+        setRequests((current) => [requestData, ...current]);
       }
+      // Reset form
       setRequestTitle("");
       setRequestDetails("");
       setRequestDate("");
+      setCategory("Plumbing");
+      setPriority("normal");
+      setPhotoUri(null);
+      setAllowEntry(true);
+      setPreferredTime("Anytime");
       setNewRequestOpen(false);
+      Alert.alert(
+        "Request Logged",
+        `Your ${priority === "urgent" ? "urgent " : ""}maintenance ticket for Room ${roomNumber} has been submitted for Kuya Bert.`,
+      );
     } catch {
       Alert.alert("Unable to send request", "Please try again.");
+    } finally {
+      setIsSubmitting(false);
     }
   }
+
+  const filteredRequests = requests.filter((req) => {
+    if (activeFilter === "in_progress") return req.status !== "completed";
+    if (activeFilter === "urgent")
+      return req.priority === "urgent" && req.status !== "completed";
+    if (activeFilter === "completed") return req.status === "completed";
+    return true;
+  });
+
+  const inProgressCount = requests.filter(
+    (r) => r.status !== "completed",
+  ).length;
+  const urgentCount = requests.filter(
+    (r) => r.priority === "urgent" && r.status !== "completed",
+  ).length;
+  const completedCount = requests.filter(
+    (r) => r.status === "completed",
+  ).length;
 
   return (
     <SafeAreaView style={styles.page}>
@@ -338,6 +492,7 @@ function CareRequests({
             <View style={styles.notificationDot} />
           </Pressable>
         </View>
+
         <View style={styles.requestTitleRow}>
           <Text style={styles.sectionHeading}>Requests</Text>
           <Pressable
@@ -348,126 +503,520 @@ function CareRequests({
             <Text style={styles.newRequestText}>New Request</Text>
           </Pressable>
         </View>
+
         <View style={styles.requestFilters}>
-          <Text style={styles.requestFilterActive}>All {requests.length}</Text>
-          <Text style={styles.requestFilter}>In Progress {requests.length}</Text>
-          <Text style={styles.requestFilter}>Pending 0</Text>
-          <Text style={styles.requestFilter}>Resolved 0</Text>
+          <Pressable onPress={() => setActiveFilter("all")}>
+            <Text
+              style={
+                activeFilter === "all"
+                  ? styles.requestFilterActive
+                  : styles.requestFilter
+              }
+            >
+              All ({requests.length})
+            </Text>
+          </Pressable>
+          <Pressable onPress={() => setActiveFilter("in_progress")}>
+            <Text
+              style={
+                activeFilter === "in_progress"
+                  ? styles.requestFilterActive
+                  : styles.requestFilter
+              }
+            >
+              In Progress ({inProgressCount})
+            </Text>
+          </Pressable>
+          <Pressable onPress={() => setActiveFilter("urgent")}>
+            <Text
+              style={
+                activeFilter === "urgent"
+                  ? styles.requestFilterActive
+                  : styles.requestFilter
+              }
+            >
+              Urgent ({urgentCount})
+            </Text>
+          </Pressable>
+          <Pressable onPress={() => setActiveFilter("completed")}>
+            <Text
+              style={
+                activeFilter === "completed"
+                  ? styles.requestFilterActive
+                  : styles.requestFilter
+              }
+            >
+              Resolved ({completedCount})
+            </Text>
+          </Pressable>
         </View>
+
         <View style={styles.urgentCard}>
-          <View style={styles.urgentIcon}><Ionicons name="alert" size={17} color="#fff" /></View>
+          <View style={styles.urgentIcon}>
+            <Ionicons name="alert" size={17} color="#fff" />
+          </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.urgentTitle}>Urgent Issue?</Text>
-            <Text style={styles.urgentText}>Call the caretaker for emergencies.</Text>
-            <Pressable style={styles.callCaretaker} onPress={() => Alert.alert("Call caretaker", "Calling the caretaker...")}>
+            <Text style={styles.urgentText}>
+              Active water leak or electrical spark? Call Kuya Bert immediately.
+            </Text>
+            <Pressable
+              style={styles.callCaretaker}
+              onPress={() =>
+                Alert.alert(
+                  "Call caretaker",
+                  "Calling Kuya Bert (+63 917 554 8921)...",
+                )
+              }
+            >
               <Ionicons name="call" size={13} color="#fff" />
-              <Text style={styles.callCaretakerText}>Call Caretaker</Text>
+              <Text style={styles.callCaretakerText}>Call Caretaker Now</Text>
             </Pressable>
           </View>
         </View>
-        {requests.map((request) => (
-          <View style={styles.activeRequestCard} key={request.id}>
-            <View style={styles.requestCardTop}>
-              <Text style={styles.requestStatus}>IN PROGRESS</Text>
-              <Text style={styles.requestCode}>NEW REQUEST</Text>
-            </View>
-            <Text style={styles.requestName}>{request.title}</Text>
-            <View style={styles.requestMeta}>
-              <Text>Maintenance · Room {roomNumber}</Text>
-              <Text>Just now</Text>
-            </View>
-            <View style={styles.progressBar}><View style={styles.progressFill} /></View>
-            <View style={styles.progressLabels}><Text>Reported</Text><Text>Parts Sourced</Text><Text>Completion</Text></View>
-            <View style={styles.caretakerRow}>
-              <View style={styles.caretakerAvatar}><Text>KB</Text></View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.caretakerName}>Kuya Bert (Caretaker)</Text>
-                <Text style={styles.muted}>{request.details}</Text>
+
+        {filteredRequests.length === 0 ? (
+          <View style={styles.emptyRequestCard}>
+            <Ionicons name="construct-outline" size={28} color="#9aa8ba" />
+            <Text style={[styles.muted, { marginTop: 6 }]}>
+              No requests under this filter.
+            </Text>
+          </View>
+        ) : (
+          filteredRequests.map((request) => {
+            const isCompleted = request.status === "completed";
+            const isPartsSourced = request.status === "parts_sourced";
+            const progressPercent = isCompleted
+              ? "100%"
+              : isPartsSourced
+                ? "66%"
+                : "33%";
+            const statusColor = isCompleted
+              ? "#16805d"
+              : isPartsSourced
+                ? "#d97706"
+                : "#2864e8";
+            const statusText = isCompleted
+              ? "COMPLETED"
+              : isPartsSourced
+                ? "PARTS SOURCED"
+                : "IN PROGRESS";
+
+            return (
+              <View style={styles.activeRequestCard} key={request.id}>
+                <View style={styles.requestCardTop}>
+                  <View style={styles.requestTopBadges}>
+                    <Text
+                      style={[
+                        styles.requestStatus,
+                        {
+                          color: statusColor,
+                          backgroundColor:
+                            isCompleted
+                              ? "#e6f8f0"
+                              : isPartsSourced
+                                ? "#fef3c7"
+                                : "#eaf1ff",
+                        },
+                      ]}
+                    >
+                      {statusText}
+                    </Text>
+                    {request.priority === "urgent" && (
+                      <View style={styles.urgentBadge}>
+                        <Ionicons name="flame" size={11} color="#dc2626" />
+                        <Text style={styles.urgentBadgeText}>URGENT</Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={styles.requestCode}>
+                    #REQ-{request.id.slice(0, 4).toUpperCase()}
+                  </Text>
+                </View>
+
+                <Text style={styles.requestName}>{request.title}</Text>
+
+                <View style={styles.requestMeta}>
+                  <Text style={styles.requestMetaCategory}>
+                    {categoryIcon(request.category)} {request.category || "General"} · Room {roomNumber}
+                  </Text>
+                  <Text style={styles.requestMetaTime}>
+                    {request.preferredTime && request.preferredTime !== "Anytime"
+                      ? request.preferredTime
+                      : "Anytime"}
+                  </Text>
+                </View>
+
+                {request.photoUri && (
+                  <View style={styles.cardPhotoThumbWrap}>
+                    <Image
+                      source={{ uri: request.photoUri }}
+                      style={styles.cardPhotoThumb}
+                    />
+                    <Text style={styles.cardPhotoNote}>Photo attached for caretaker</Text>
+                  </View>
+                )}
+
+                {request.allowEntry && (
+                  <View style={styles.entryAllowedBadge}>
+                    <Ionicons name="key-outline" size={12} color="#16805d" />
+                    <Text style={styles.entryAllowedText}>
+                      Entry permitted if you are away
+                    </Text>
+                  </View>
+                )}
+
+                <View style={styles.progressBar}>
+                  <View
+                    style={[
+                      styles.progressFill,
+                      { width: progressPercent as any, backgroundColor: statusColor },
+                    ]}
+                  />
+                </View>
+                <View style={styles.progressLabels}>
+                  <Text
+                    style={[
+                      styles.progressStepLabel,
+                      !isPartsSourced && !isCompleted && styles.progressStepActive,
+                    ]}
+                  >
+                    Reported
+                  </Text>
+                  <Text
+                    style={[
+                      styles.progressStepLabel,
+                      isPartsSourced && styles.progressStepActive,
+                    ]}
+                  >
+                    Parts Sourced
+                  </Text>
+                  <Text
+                    style={[
+                      styles.progressStepLabel,
+                      isCompleted && styles.progressStepActive,
+                    ]}
+                  >
+                    Completed
+                  </Text>
+                </View>
+
+                <View style={styles.caretakerRow}>
+                  <View style={styles.caretakerAvatar}>
+                    <Text style={styles.caretakerInitials}>KB</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.caretakerName}>Kuya Bert (Caretaker)</Text>
+                    <Text style={styles.muted}>{request.details}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.requestActions}>
+                  <Pressable
+                    style={styles.replyButton}
+                    onPress={() =>
+                      Alert.alert(
+                        "Reply to Caretaker",
+                        `Message sent to Kuya Bert regarding "${request.title}".`,
+                      )
+                    }
+                  >
+                    <Ionicons
+                      name="chatbubble-ellipses-outline"
+                      size={13}
+                      color="#fff"
+                    />
+                    <Text style={styles.replyText}>Reply to Bert</Text>
+                  </Pressable>
+                </View>
               </View>
-            </View>
-            <View style={styles.requestActions}>
-              <Pressable style={styles.replyButton} onPress={() => Alert.alert("Reply", `Replying as ${tenantName}.`)}>
-                <Text style={styles.replyText}>Reply to Bert</Text>
-              </Pressable>
-            </View>
-          </View>
-        ))}
-        {false && <View style={styles.activeRequestCard}>
-          <View style={styles.requestCardTop}>
-            <Text style={styles.requestStatus}>IN PROGRESS</Text>
-            <Text style={styles.requestCode}>#REQ-2026-042</Text>
-          </View>
-          <Text style={styles.requestName}>Bathroom Faucet Leaking</Text>
-          <View style={styles.requestMeta}><Text>🔧 Plumbing · Room 201</Text><Text>Today at 2:00 PM</Text></View>
-          <View style={styles.progressBar}><View style={styles.progressFill} /></View>
-          <View style={styles.progressLabels}><Text>Reported</Text><Text>Parts Sourced</Text><Text>Completion</Text></View>
-          <View style={styles.caretakerRow}>
-            <View style={styles.caretakerAvatar}><Text>KB</Text></View>
-            <View style={{ flex: 1 }}><Text style={styles.caretakerName}>Kuya Bert (Caretaker)</Text><Text style={styles.muted}>Parts purchased, replacing the faucet soon.</Text></View>
-          </View>
-          <View style={styles.requestActions}><Pressable style={styles.secondaryButton} onPress={() => Alert.alert("Reschedule", "Rescheduling will be connected later.")}><Text>Reschedule</Text></Pressable><Pressable style={styles.replyButton} onPress={() => Alert.alert("Reply", `Replying as ${tenantName}.`)}><Text style={styles.replyText}>Reply to Bert</Text></Pressable></View>
-         </View>}
-        <Text style={styles.historyTitle}>Request History</Text>
-        <View style={styles.emptyRequestCard}>
-          <Ionicons name="time-outline" size={20} color="#9aa8ba" />
-          <Text style={styles.muted}>Completed requests will appear here.</Text>
-        </View>
-        {false && <>
-        {["Wi-Fi Router Reset on 2nd Floor", "Window Latch Tightening (Bed A)"].map((item, index) => (
-          <View style={styles.historyCard} key={item}>
-            <View style={styles.historyIcon}><Ionicons name={index === 0 ? "wifi-outline" : "construct-outline"} size={16} color="#16805d" /></View>
-            <View style={{ flex: 1 }}><Text style={styles.historyName}>{item}</Text><Text style={styles.muted}>Ticket #REQ-2026-0{38 + index} · Utility</Text><Text style={styles.completed}>Completed {index === 0 ? "Sep 28, 2025" : "Aug 15, 2025"}</Text></View><Text style={styles.resolved}>RESOLVED</Text>
-          </View>
-        ))}
-        <View style={styles.rulesCard}><Text style={styles.cardTitle}>House Rules & Protocols</Text><Text style={styles.rule}>◷ Same-Day Cutoff: Log requests before 5:00 PM for same-day evaluation.</Text><Text style={styles.rule}>⌂ Quiet Hours: Heavy maintenance is restricted between 10:00 PM and 7:00 AM.</Text><Text style={styles.rule}>✓ Accompanied Entry: Staff will always accompany or provide a signed log when accessing occupied twin rooms.</Text></View>
-        </>}
-        <Pressable style={styles.rulesCard} onPress={() => Alert.alert("House Rules & Protocols", "Same-day requests must be submitted before 5:00 PM. Quiet hours are from 10:00 PM to 7:00 AM. Staff will accompany or log access to occupied rooms.")}>
-          <Text style={styles.cardTitle}>House Rules & Protocols</Text>
-          <Text style={styles.rule}>Tap to view maintenance and room-access rules.</Text>
+            );
+          })
+        )}
+
+        <Text style={styles.historyTitle}>House Rules & Maintenance Protocols</Text>
+        <Pressable
+          style={styles.rulesCard}
+          onPress={() =>
+            Alert.alert(
+              "House Rules & Protocols",
+              "1. Same-day requests must be logged before 5:00 PM.\n2. Quiet hours: 10:00 PM – 7:00 AM (no noisy maintenance).\n3. Accompanied Entry: Staff always logs room visits for occupied rooms.",
+            )
+          }
+        >
+          <Text style={styles.cardTitle}>View Maintenance Guidelines</Text>
+          <Text style={styles.rule}>
+            Tap to view quiet hours, same-day cutoffs, and security protocols.
+          </Text>
         </Pressable>
       </ScrollView>
+
       <AssignedTenantNav active="Requests" />
+
+      {/* Enhanced New Maintenance Request Modal */}
       <Modal
         visible={newRequestOpen}
         transparent
         animationType="slide"
         onRequestClose={() => setNewRequestOpen(false)}
       >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modal}>
+        <KeyboardAvoidingView
+          style={styles.modalBackdrop}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
+          <View style={styles.modalCardEnhanced}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>New Maintenance Request</Text>
-              <Pressable onPress={() => setNewRequestOpen(false)}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalTitle}>New Maintenance Request</Text>
+                <Text style={styles.modalSubtitle}>
+                  Room {roomNumber} · Log an issue for Kuya Bert
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => setNewRequestOpen(false)}
+                hitSlop={8}
+                style={styles.modalCloseButton}
+              >
                 <Ionicons name="close" size={22} color="#526174" />
               </Pressable>
             </View>
-            <Text style={styles.inputLabel}>What needs attention?</Text>
-            <TextInput
-              style={styles.input}
-              value={requestTitle}
-              onChangeText={setRequestTitle}
-              placeholder="e.g. Bathroom faucet leaking"
-            />
-            <Text style={styles.inputLabel}>Details</Text>
-            <TextInput
-              style={[styles.input, styles.multilineInput]}
-              value={requestDetails}
-              onChangeText={setRequestDetails}
-              placeholder="Add details for the caretaker"
-              multiline
-            />
-            <Text style={styles.inputLabel}>Date Needed</Text>
-            <TextInput
-              style={styles.input}
-              value={requestDate}
-              onChangeText={setRequestDate}
-              placeholder="e.g. ASAP, Tomorrow, Specific Date"
-            />
-            <Pressable style={styles.saveButton} onPress={submitRequest}>
-              <Text style={styles.saveButtonText}>Submit Request</Text>
-            </Pressable>
+
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.modalScrollContent}
+              keyboardShouldPersistTaps="handled"
+            >
+              {/* Category Selector */}
+              <Text style={styles.fieldSectionLabel}>ISSUE CATEGORY</Text>
+              <View style={styles.categoryGrid}>
+                {MAINTENANCE_CATEGORIES.map((cat) => {
+                  const isSelected = category === cat.id;
+                  return (
+                    <Pressable
+                      key={cat.id}
+                      style={[
+                        styles.categoryChip,
+                        isSelected && styles.categoryChipSelected,
+                      ]}
+                      onPress={() => setCategory(cat.id)}
+                    >
+                      <Ionicons
+                        name={cat.icon as any}
+                        size={15}
+                        color={isSelected ? "#ffffff" : "#475569"}
+                      />
+                      <Text
+                        style={[
+                          styles.categoryText,
+                          isSelected && styles.categoryTextSelected,
+                        ]}
+                      >
+                        {cat.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              {/* Urgency Level */}
+              <Text style={styles.fieldSectionLabel}>URGENCY LEVEL</Text>
+              <View style={styles.urgencyRow}>
+                <Pressable
+                  style={[
+                    styles.urgencyCard,
+                    priority === "normal" && styles.urgencyCardNormalActive,
+                  ]}
+                  onPress={() => setPriority("normal")}
+                >
+                  <Ionicons
+                    name={
+                      priority === "normal"
+                        ? "checkmark-circle"
+                        : "ellipse-outline"
+                    }
+                    size={18}
+                    color={priority === "normal" ? "#16805d" : "#94a3b8"}
+                  />
+                  <View style={{ flex: 1, marginLeft: 8 }}>
+                    <Text
+                      style={[
+                        styles.urgencyTitle,
+                        priority === "normal" && { color: "#16805d" },
+                      ]}
+                    >
+                      Normal Routine
+                    </Text>
+                    <Text style={styles.urgencySub}>24–48h evaluation</Text>
+                  </View>
+                </Pressable>
+
+                <Pressable
+                  style={[
+                    styles.urgencyCard,
+                    priority === "urgent" && styles.urgencyCardUrgentActive,
+                  ]}
+                  onPress={() => setPriority("urgent")}
+                >
+                  <Ionicons
+                    name={
+                      priority === "urgent"
+                        ? "alert-circle"
+                        : "ellipse-outline"
+                    }
+                    size={18}
+                    color={priority === "urgent" ? "#dc2626" : "#94a3b8"}
+                  />
+                  <View style={{ flex: 1, marginLeft: 8 }}>
+                    <Text
+                      style={[
+                        styles.urgencyTitle,
+                        priority === "urgent" && { color: "#dc2626" },
+                      ]}
+                    >
+                      Urgent / Leak
+                    </Text>
+                    <Text style={styles.urgencySub}>Immediate dispatch</Text>
+                  </View>
+                </Pressable>
+              </View>
+
+              {/* What needs attention */}
+              <Text style={styles.fieldSectionLabel}>WHAT NEEDS ATTENTION? *</Text>
+              <TextInput
+                style={styles.inputEnhanced}
+                value={requestTitle}
+                onChangeText={setRequestTitle}
+                placeholder="e.g. Bathroom sink faucet dripping"
+                placeholderTextColor="#94a3b8"
+              />
+
+              {/* Details & Location */}
+              <Text style={styles.fieldSectionLabel}>DETAILS & EXACT LOCATION</Text>
+              <TextInput
+                style={[styles.inputEnhanced, styles.multilineInputEnhanced]}
+                value={requestDetails}
+                onChangeText={setRequestDetails}
+                placeholder="Describe where it is located and when the issue started..."
+                placeholderTextColor="#94a3b8"
+                multiline
+              />
+
+              {/* Photo Proof */}
+              <Text style={styles.fieldSectionLabel}>PHOTO OF THE ISSUE (OPTIONAL)</Text>
+              {photoUri ? (
+                <View style={styles.photoAttachedBox}>
+                  <Image
+                    source={{ uri: photoUri }}
+                    style={styles.photoAttachedThumb}
+                  />
+                  <View style={{ flex: 1, marginLeft: 10 }}>
+                    <Text style={styles.photoAttachedTitle}>Photo Attached</Text>
+                    <Text style={styles.photoAttachedSub}>
+                      Caretaker can inspect this image
+                    </Text>
+                  </View>
+                  <Pressable
+                    style={styles.removePhotoButton}
+                    onPress={() => setPhotoUri(null)}
+                  >
+                    <Ionicons name="trash-outline" size={15} color="#dc2626" />
+                    <Text style={styles.removePhotoText}>Remove</Text>
+                  </Pressable>
+                </View>
+              ) : (
+                <Pressable
+                  style={styles.addPhotoDashed}
+                  onPress={handlePhotoOption}
+                >
+                  <Ionicons name="camera-outline" size={20} color="#2864e8" />
+                  <Text style={styles.addPhotoDashedText}>
+                    Take Photo or Upload Image Proof
+                  </Text>
+                </Pressable>
+              )}
+
+              {/* Preferred Visit Time */}
+              <Text style={styles.fieldSectionLabel}>PREFERRED VISIT TIME</Text>
+              <View style={styles.timeSlotRow}>
+                {["Anytime", "Morning (8am-12pm)", "Afternoon (1pm-5pm)"].map(
+                  (slot) => {
+                    const isSelected = preferredTime === slot;
+                    return (
+                      <Pressable
+                        key={slot}
+                        style={[
+                          styles.timeChip,
+                          isSelected && styles.timeChipSelected,
+                        ]}
+                        onPress={() => setPreferredTime(slot)}
+                      >
+                        <Text
+                          style={[
+                            styles.timeChipText,
+                            isSelected && styles.timeChipTextSelected,
+                          ]}
+                        >
+                          {slot}
+                        </Text>
+                      </Pressable>
+                    );
+                  },
+                )}
+              </View>
+
+              {/* Permission to enter */}
+              <Pressable
+                style={styles.permissionCard}
+                onPress={() => setAllowEntry(!allowEntry)}
+              >
+                <View style={{ flex: 1, paddingRight: 10 }}>
+                  <Text style={styles.permissionTitle}>
+                    Permission to enter room
+                  </Text>
+                  <Text style={styles.permissionSub}>
+                    Allow Kuya Bert to enter with staff if you are away during repair
+                  </Text>
+                </View>
+                <Switch
+                  value={allowEntry}
+                  onValueChange={setAllowEntry}
+                  trackColor={{ false: "#cbd5e1", true: "#93c5fd" }}
+                  thumbColor={allowEntry ? "#2864e8" : "#f1f5f9"}
+                />
+              </Pressable>
+
+              <Text style={styles.fieldSectionLabel}>DATE NEEDED</Text>
+              <TextInput
+                style={styles.inputEnhanced}
+                value={requestDate}
+                onChangeText={setRequestDate}
+                placeholder="e.g. ASAP, Tomorrow, Specific Date"
+                placeholderTextColor="#94a3b8"
+              />
+
+              {/* Submit Button */}
+              <Pressable
+                style={[
+                  styles.submitButtonEnhanced,
+                  isSubmitting && styles.submitButtonDisabled,
+                ]}
+                onPress={submitRequest}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <>
+                    <Ionicons name="paper-plane" size={16} color="#fff" />
+                    <Text style={styles.submitButtonTextEnhanced}>
+                      Submit Maintenance Request
+                    </Text>
+                  </>
+                )}
+              </Pressable>
+            </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );
@@ -1127,39 +1676,298 @@ const styles = StyleSheet.create({
   modalBackdrop: {
     flex: 1,
     justifyContent: "flex-end",
-    backgroundColor: "rgba(15, 29, 40, 0.35)",
+    backgroundColor: "rgba(15, 29, 40, 0.45)",
   },
-  modal: {
+  modalCardEnhanced: {
     backgroundColor: "#fff",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 18,
-    paddingBottom: 28,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: "88%",
+    shadowColor: "#0f1d28",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.16,
+    shadowRadius: 12,
+    elevation: 10,
   },
   modalHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 14,
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderColor: "#e8edf5",
   },
-  modalTitle: { fontSize: 17, fontWeight: "700", color: "#253149" },
-  inputLabel: { fontSize: 11, fontWeight: "700", color: "#526174", marginTop: 8, marginBottom: 5 },
-  input: {
-    borderWidth: 1,
-    borderColor: "#dce4ea",
-    borderRadius: 8,
-    paddingHorizontal: 11,
-    paddingVertical: 10,
-    fontSize: 12,
-    color: "#253149",
-  },
-  multilineInput: { minHeight: 70, textAlignVertical: "top" },
-  saveButton: {
-    backgroundColor: "#2864e8",
-    borderRadius: 8,
+  modalTitle: { fontSize: 18, fontWeight: "800", color: "#172033" },
+  modalSubtitle: { fontSize: 11, color: "#64748b", marginTop: 2 },
+  modalCloseButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#f1f5f9",
     alignItems: "center",
-    paddingVertical: 12,
-    marginTop: 16,
+    justifyContent: "center",
   },
-  saveButtonText: { color: "#fff", fontSize: 12, fontWeight: "700" },
+  modalScrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 32,
+  },
+  fieldSectionLabel: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#64748b",
+    letterSpacing: 0.8,
+    marginTop: 14,
+    marginBottom: 7,
+  },
+  categoryGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  categoryChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: "#f1f5f9",
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  categoryChipSelected: {
+    backgroundColor: "#2864e8",
+    borderColor: "#2864e8",
+  },
+  categoryText: {
+    fontSize: 12,
+    color: "#334155",
+    fontWeight: "600",
+  },
+  categoryTextSelected: {
+    color: "#ffffff",
+    fontWeight: "700",
+  },
+  urgencyRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  urgencyCard: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 10,
+    borderRadius: 10,
+    backgroundColor: "#f8fafc",
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  urgencyCardNormalActive: {
+    borderColor: "#16805d",
+    backgroundColor: "#f0fdf4",
+  },
+  urgencyCardUrgentActive: {
+    borderColor: "#dc2626",
+    backgroundColor: "#fef2f2",
+  },
+  urgencyTitle: { fontSize: 12, fontWeight: "700", color: "#1e293b" },
+  urgencySub: { fontSize: 10, color: "#64748b", marginTop: 1 },
+  inputEnhanced: {
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 13,
+    color: "#1e293b",
+    backgroundColor: "#fbfcfd",
+  },
+  multilineInputEnhanced: {
+    minHeight: 74,
+    textAlignVertical: "top",
+    paddingTop: 10,
+  },
+  photoAttachedBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f8fafc",
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    borderRadius: 10,
+    padding: 8,
+  },
+  photoAttachedThumb: {
+    width: 48,
+    height: 48,
+    borderRadius: 6,
+    backgroundColor: "#e2e8f0",
+  },
+  photoAttachedTitle: { fontSize: 12, fontWeight: "700", color: "#1e293b" },
+  photoAttachedSub: { fontSize: 10, color: "#64748b", marginTop: 2 },
+  removePhotoButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    backgroundColor: "#fee2e2",
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  removePhotoText: { color: "#dc2626", fontSize: 11, fontWeight: "700" },
+  addPhotoDashed: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderWidth: 1.5,
+    borderStyle: "dashed",
+    borderColor: "#93c5fd",
+    borderRadius: 10,
+    paddingVertical: 14,
+    backgroundColor: "#f8fbff",
+  },
+  addPhotoDashedText: {
+    color: "#2864e8",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  timeSlotRow: {
+    flexDirection: "row",
+    gap: 6,
+    flexWrap: "wrap",
+  },
+  timeChip: {
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: "#f1f5f9",
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  timeChipSelected: {
+    backgroundColor: "#eff6ff",
+    borderColor: "#2864e8",
+  },
+  timeChipText: { fontSize: 11, color: "#475569", fontWeight: "600" },
+  timeChipTextSelected: { color: "#2864e8", fontWeight: "700" },
+  permissionCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#f8fafc",
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    borderRadius: 10,
+    padding: 12,
+    marginTop: 14,
+  },
+  permissionTitle: { fontSize: 12, fontWeight: "700", color: "#1e293b" },
+  permissionSub: { fontSize: 10, color: "#64748b", marginTop: 3 },
+  submitButtonEnhanced: {
+    backgroundColor: "#2864e8",
+    borderRadius: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 14,
+    marginTop: 18,
+    shadowColor: "#173b80",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  submitButtonDisabled: {
+    backgroundColor: "#93c5fd",
+  },
+  submitButtonTextEnhanced: {
+    color: "#ffffff",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  requestTopBadges: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  urgentBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    backgroundColor: "#fee2e2",
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  urgentBadgeText: {
+    color: "#dc2626",
+    fontSize: 9,
+    fontWeight: "800",
+  },
+  requestMetaCategory: {
+    fontSize: 11,
+    color: "#334155",
+    fontWeight: "600",
+  },
+  requestMetaTime: {
+    fontSize: 10,
+    color: "#64748b",
+  },
+  cardPhotoThumbWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#f8fafc",
+    borderRadius: 8,
+    padding: 6,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: "#edf2f7",
+  },
+  cardPhotoThumb: {
+    width: 38,
+    height: 38,
+    borderRadius: 6,
+    backgroundColor: "#e2e8f0",
+  },
+  cardPhotoNote: {
+    fontSize: 11,
+    color: "#475569",
+    fontWeight: "500",
+  },
+  entryAllowedBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#f0fdf4",
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    alignSelf: "flex-start",
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: "#bbf7d0",
+  },
+  entryAllowedText: {
+    color: "#16805d",
+    fontSize: 10,
+    fontWeight: "600",
+  },
+  progressStepLabel: {
+    fontSize: 10,
+    color: "#94a3b8",
+  },
+  progressStepActive: {
+    color: "#1e293b",
+    fontWeight: "700",
+  },
+  caretakerInitials: {
+    color: "#16805d",
+    fontSize: 11,
+    fontWeight: "700",
+  },
 });
