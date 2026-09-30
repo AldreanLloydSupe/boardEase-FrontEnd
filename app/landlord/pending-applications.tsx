@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { collection, doc, getDocs, updateDoc } from "firebase/firestore";
+import { createNotification } from "@/lib/notification-data";
 import { router } from "expo-router";
 import { LandlordNavigation } from "@/components/landlord-navigation";
 import React from "react";
@@ -26,6 +27,7 @@ type Application = {
 };
 type TourRequest = {
   id: string;
+  tenantId?: string;
   tenantName?: string;
   roomNumber?: string;
   requestedDate?: string;
@@ -74,6 +76,14 @@ export default function PendingApplications() {
     if (!db || !selectedTour) return;
     try {
       await updateDoc(doc(db, "tourRequests", selectedTour.id), { status });
+      if (selectedTour.tenantId) {
+        await createNotification(selectedTour.tenantId, {
+          type: "tour_update",
+          title: status === "accepted" ? "Tour accepted" : "Tour declined",
+          body: `Your tour request for Room ${selectedTour.roomNumber || "requested room"} was ${status}.`,
+          route: "/tenant/applications",
+        });
+      }
       setTourRequests((current) =>
         current.filter((tour) => tour.id !== selectedTour.id),
       );

@@ -1,4 +1,5 @@
 import { ProfilePictureButton } from "@/components/profile-picture-button";
+import { NotificationBell } from "@/components/notification-bell";
 import { TenantHeaderMark } from "@/components/tenant-header-mark";
 import {
   ApplicantTenantNav,
@@ -6,12 +7,20 @@ import {
 } from "@/components/tenant-navigation";
 import { useAuth } from "@/lib/auth-context";
 import { db } from "@/lib/firebase";
+import { auth } from "@/lib/firebase";
 import { Ionicons } from "@expo/vector-icons";
+import {
+  EmailAuthProvider,
+  deleteUser,
+  reauthenticateWithCredential,
+  updatePassword,
+} from "firebase/auth";
 import { router } from "expo-router";
-import { doc, onSnapshot } from "firebase/firestore";
+import { doc, onSnapshot, setDoc } from "firebase/firestore";
 import React from "react";
 import {
   Alert,
+  Linking,
   Modal,
   Pressable,
   ScrollView,
@@ -33,10 +42,25 @@ type Profile = {
 };
 
 export default function Account() {
-  const { user, hasRoom, signOut, updateUserProfile } = useAuth();
+  const {
+    user,
+    hasRoom,
+    signOut,
+    resetPassword,
+    updateUserProfile,
+  } = useAuth();
 
   const [notifications, setNotifications] = React.useState(true);
+  const [paymentReminders, setPaymentReminders] = React.useState(true);
+  const [maintenanceUpdates, setMaintenanceUpdates] = React.useState(true);
+  const [applicationUpdates, setApplicationUpdates] = React.useState(true);
+  const [tourUpdates, setTourUpdates] = React.useState(true);
+  const [reminderTiming, setReminderTiming] = React.useState("3 days before");
   const [editOpen, setEditOpen] = React.useState(false);
+  const [passwordOpen, setPasswordOpen] = React.useState(false);
+  const [currentPassword, setCurrentPassword] = React.useState("");
+  const [newPassword, setNewPassword] = React.useState("");
+  const [confirmPassword, setConfirmPassword] = React.useState("");
 
   // Dropdown states
   const [tenancyOpen, setTenancyOpen] = React.useState(false);
@@ -75,8 +99,102 @@ export default function Account() {
         roomType: String(data.roomType || "Room"),
         roomRent: String(data.roomRent || ""),
       }));
+      setNotifications(data.notificationsEnabled !== false);
+      setPaymentReminders(data.paymentReminders !== false);
+      setMaintenanceUpdates(data.maintenanceUpdates !== false);
+      setApplicationUpdates(data.applicationUpdates !== false);
+      setTourUpdates(data.tourUpdates !== false);
+      setReminderTiming(String(data.reminderTiming || "3 days before"));
     });
   }, [user]);
+
+  async function savePreference(field: string, value: boolean | string) {
+    if (!db || !user) return;
+    try {
+      await setDoc(doc(db, "users", user.uid), { [field]: value }, { merge: true });
+    } catch {
+      Alert.alert("Unable to save setting", "Please try again.");
+    }
+  }
+
+  async function sendPasswordReset() {
+    if (!user?.email) return;
+    try {
+      await resetPassword(user.email);
+      Alert.alert("Password reset sent", `Check ${user.email} for the reset link.`);
+    } catch {
+      Alert.alert("Unable to send reset link", "Please try again later.");
+    }
+  }
+
+  async function changePassword() {
+    if (!auth?.currentUser || !user?.email) return;
+    if (newPassword.length < 6) {
+      Alert.alert("Password too short", "Use at least 6 characters.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      Alert.alert("Passwords do not match", "Confirm your new password.");
+      return;
+    }
+    try {
+      const credential = EmailAuthProvider.credential(user.email, currentPassword);
+      await reauthenticateWithCredential(auth.currentUser, credential);
+      await updatePassword(auth.currentUser, newPassword);
+      setPasswordOpen(false);
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      Alert.alert("Password changed", "Your password was updated successfully.");
+    } catch (error) {
+      const code = error && typeof error === "object" && "code" in error
+        ? String((error as { code?: unknown }).code || "")
+        : "";
+      Alert.alert(
+        code === "auth/invalid-credential" ? "Incorrect current password" : "Unable to change password",
+        code === "auth/invalid-credential" ? "Check your current password and try again." : "Please try again.",
+      );
+    }
+  }
+
+  function chooseReminderTiming() {
+    Alert.alert("Payment reminder timing", "When should we remind you?", [
+      ...["7 days before", "3 days before", "1 day before"].map((value) => ({
+        text: value,
+        onPress: () => {
+          setReminderTiming(value);
+          void savePreference("reminderTiming", value);
+        },
+      })),
+      { text: "Cancel", style: "cancel" },
+    ]);
+  }
+
+  function confirmDeleteAccount() {
+    Alert.alert(
+      "Delete account?",
+      "This signs you out and permanently deletes your Firebase account. This cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete account",
+          style: "destructive",
+          onPress: async () => {
+            if (!auth?.currentUser) return;
+            try {
+              await deleteUser(auth.currentUser);
+              router.replace("/login");
+            } catch {
+              Alert.alert(
+                "Recent sign-in required",
+                "For your security, sign in again before deleting your account.",
+              );
+            }
+          },
+        },
+      ],
+    );
+  }
 
   function openEdit() {
     setDraft({
@@ -91,6 +209,10 @@ export default function Account() {
   async function saveProfile() {
     if (!draft.name.trim()) {
       Alert.alert("Missing name", "Enter your full name.");
+      return;
+    }
+    if (draft.phone.trim() && !/^[+\d][\d\s()-]{6,}$/.test(draft.phone.trim())) {
+      Alert.alert("Invalid phone number", "Enter a valid contact number.");
       return;
     }
 
@@ -137,16 +259,7 @@ export default function Account() {
             <Text style={styles.title}>Account</Text>
           </View>
 
-          <Pressable
-            style={styles.notificationButton}
-            accessibilityLabel="Notifications"
-          >
-            <Ionicons
-              name="notifications-outline"
-              size={20}
-              color="#fff"
-            />
-          </Pressable>
+          <NotificationBell />
         </View>
 
         {/* PROFILE HEADER */}
@@ -269,21 +382,24 @@ export default function Account() {
           <Setting
             icon="lock-closed-outline"
             label="Change Password & Security"
-            onPress={() =>
-              Alert.alert(
-                "Change password",
-                "A password reset link will be sent to your email."
-              )
-            }
+            onPress={() => setPasswordOpen(true)}
           />
 
           <Setting
             icon="notifications-outline"
             label="Notification Settings"
+            onPress={() => {
+              const value = !notifications;
+              setNotifications(value);
+              void savePreference("notificationsEnabled", value);
+            }}
           >
             <Switch
               value={notifications}
-              onValueChange={setNotifications}
+              onValueChange={(value) => {
+                setNotifications(value);
+                void savePreference("notificationsEnabled", value);
+              }}
               trackColor={{
                 false: "#d8dee8",
                 true: "#9bb9f5",
@@ -299,10 +415,133 @@ export default function Account() {
             label="Help & House Rules Handbook"
             onPress={() =>
               Alert.alert(
-                "Help",
-                "House rules will be connected later."
+                "House rules and help",
+                "Quiet hours: 10:00 PM–6:00 AM. Keep shared areas clean, report maintenance issues promptly, and contact Kuya Bert for urgent concerns.",
+                [{ text: "OK" }],
               )
             }
+          />
+
+          <Setting
+            icon="cash-outline"
+            label={`Payment Reminders · ${reminderTiming}`}
+            onPress={() => {
+              const value = !paymentReminders;
+              setPaymentReminders(value);
+              void savePreference("paymentReminders", value);
+            }}
+          >
+            <Switch
+              value={paymentReminders}
+              onValueChange={(value) => {
+                setPaymentReminders(value);
+                void savePreference("paymentReminders", value);
+              }}
+              trackColor={{ false: "#d8dee8", true: "#9bb9f5" }}
+              thumbColor={paymentReminders ? "#2864e8" : "#f4f4f4"}
+            />
+          </Setting>
+
+          <Setting
+            icon="calendar-outline"
+            label="Change Reminder Timing"
+            onPress={chooseReminderTiming}
+          />
+
+          <Setting
+            icon="wallet-outline"
+            label="Payment Preferences & History"
+            onPress={() => router.push("/tenant/payments" as any)}
+          />
+
+          <Setting
+            icon="time-outline"
+            label="Notification History"
+            onPress={() => router.push("/tenant/notifications" as any)}
+          />
+
+          <Setting
+            icon="construct-outline"
+            label="Maintenance Updates"
+            onPress={() => {
+              const value = !maintenanceUpdates;
+              setMaintenanceUpdates(value);
+              void savePreference("maintenanceUpdates", value);
+            }}
+          >
+            <Switch
+              value={maintenanceUpdates}
+              onValueChange={(value) => {
+                setMaintenanceUpdates(value);
+                void savePreference("maintenanceUpdates", value);
+              }}
+              trackColor={{ false: "#d8dee8", true: "#9bb9f5" }}
+              thumbColor={maintenanceUpdates ? "#2864e8" : "#f4f4f4"}
+            />
+          </Setting>
+
+          <Setting
+            icon="document-text-outline"
+            label="Application Updates"
+            onPress={() => {
+              const value = !applicationUpdates;
+              setApplicationUpdates(value);
+              void savePreference("applicationUpdates", value);
+            }}
+          >
+            <Switch
+              value={applicationUpdates}
+              onValueChange={(value) => {
+                setApplicationUpdates(value);
+                void savePreference("applicationUpdates", value);
+              }}
+              trackColor={{ false: "#d8dee8", true: "#9bb9f5" }}
+              thumbColor={applicationUpdates ? "#2864e8" : "#f4f4f4"}
+            />
+          </Setting>
+
+          <Setting
+            icon="calendar-outline"
+            label="Tour Request Updates"
+            onPress={() => {
+              const value = !tourUpdates;
+              setTourUpdates(value);
+              void savePreference("tourUpdates", value);
+            }}
+          >
+            <Switch
+              value={tourUpdates}
+              onValueChange={(value) => {
+                setTourUpdates(value);
+                void savePreference("tourUpdates", value);
+              }}
+              trackColor={{ false: "#d8dee8", true: "#9bb9f5" }}
+              thumbColor={tourUpdates ? "#2864e8" : "#f4f4f4"}
+            />
+          </Setting>
+
+          <Setting
+            icon="shield-checkmark-outline"
+            label="Privacy & ID Verification"
+            onPress={() =>
+              Alert.alert(
+                "Privacy & verification",
+                "ID status: Verified Student ID\n\nYour profile is visible to your landlord for tenancy management. Contact support to replace your verification document or request data deletion.",
+                [{ text: "OK" }],
+              )
+            }
+          />
+
+          <Setting
+            icon="call-outline"
+            label="Contact Caretaker"
+            onPress={() => void Linking.openURL("tel:+639175548921")}
+          />
+
+          <Setting
+            icon="trash-outline"
+            label="Delete Account"
+            onPress={confirmDeleteAccount}
           />
         </DropdownSection>
 
@@ -332,9 +571,55 @@ export default function Account() {
 
       {/* EDIT PROFILE MODAL */}
       <Modal
+        visible={passwordOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPasswordOpen(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modal}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Change Password</Text>
+              <Pressable onPress={() => setPasswordOpen(false)} hitSlop={8}>
+                <Ionicons name="close" size={22} color="#526174" />
+              </Pressable>
+            </View>
+            <Text style={styles.modalHint}>Enter your current password, then choose a new one.</Text>
+            <Text style={styles.inputLabel}>Current Password</Text>
+            <TextInput
+              style={styles.input}
+              value={currentPassword}
+              onChangeText={setCurrentPassword}
+              secureTextEntry
+              placeholder="Current password"
+            />
+            <Text style={styles.inputLabel}>New Password</Text>
+            <TextInput
+              style={styles.input}
+              value={newPassword}
+              onChangeText={setNewPassword}
+              secureTextEntry
+              placeholder="At least 6 characters"
+            />
+            <Text style={styles.inputLabel}>Confirm New Password</Text>
+            <TextInput
+              style={styles.input}
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              secureTextEntry
+              placeholder="Repeat new password"
+            />
+            <Pressable style={styles.saveButton} onPress={() => void changePassword()}>
+              <Text style={styles.saveText}>Update Password</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
         visible={editOpen}
         transparent
-        animationType="slide"
+        animationType="fade"
         onRequestClose={() => setEditOpen(false)}
       >
         <View style={styles.modalBackdrop}>
@@ -538,7 +823,6 @@ function Setting({
     <Pressable
       style={styles.setting}
       onPress={onPress}
-      disabled={!onPress && !!children}
     >
       <View style={styles.settingIcon}>
         <Ionicons
@@ -817,15 +1101,16 @@ const styles = StyleSheet.create({
   modalBackdrop: {
     flex: 1,
     backgroundColor: "rgba(15,23,42,.4)",
-    justifyContent: "flex-end",
+    justifyContent: "center",
+    padding: 16,
   },
 
   modal: {
     backgroundColor: "#fff",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    borderRadius: 20,
     padding: 20,
     paddingBottom: 30,
+    maxHeight: "90%",
   },
 
   modalHeader: {
@@ -839,6 +1124,13 @@ const styles = StyleSheet.create({
     fontSize: 19,
     fontWeight: "700",
     color: "#172033",
+  },
+
+  modalHint: {
+    color: "#71809a",
+    fontSize: 12,
+    lineHeight: 18,
+    marginBottom: 4,
   },
 
   inputLabel: {

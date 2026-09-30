@@ -173,6 +173,7 @@ export default function Dashboard() {
   >([]);
   const [maintenanceNotifications, setMaintenanceNotifications] =
     React.useState<DashboardNotification[]>([]);
+  const [tenantReplyCounts, setTenantReplyCounts] = React.useState<Record<string, number>>({});
   const [occupiedRooms, setOccupiedRooms] = React.useState(0);
   const [totalRooms, setTotalRooms] = React.useState(0);
   const [monthlyRevenue, setMonthlyRevenue] = React.useState(0);
@@ -303,6 +304,23 @@ export default function Dashboard() {
       stopOverduePayments();
     };
   }, []);
+  React.useEffect(() => {
+    const firestore = db;
+    if (!firestore) return;
+    const nextCounts: Record<string, number> = {};
+    const stops = maintenanceNotifications.map((request) =>
+      onSnapshot(
+        collection(firestore, "maintenanceRequests", request.id, "messages"),
+        (snapshot) => {
+          nextCounts[request.id] = snapshot.docs.filter((item) => item.data().senderId !== "landlord").length;
+          setTenantReplyCounts({ ...nextCounts });
+        },
+        () => undefined,
+      ),
+    );
+    return () => stops.forEach((stop) => stop());
+  }, [maintenanceNotifications]);
+  const tenantReplyCount = Object.values(tenantReplyCounts).reduce((sum, count) => sum + count, 0);
   const occupancyPercent = totalRooms
     ? Math.round((occupiedRooms / totalRooms) * 100)
     : 0;
@@ -557,6 +575,23 @@ export default function Dashboard() {
             </Pressable>
           ))}
         </View>
+        <SectionTitle
+          title={`Tenant Replies${tenantReplyCount ? ` (${tenantReplyCount})` : ""}`}
+          action="Open requests"
+          onPress={() => router.push("/landlord/requests" as any)}
+        />
+        <Pressable style={styles.replySummary} onPress={() => router.push("/landlord/requests" as any)}>
+          <View style={styles.emptyIcon}>
+            <Ionicons name="chatbubbles-outline" size={19} color="#2864e8" />
+          </View>
+          <View style={styles.emptyCopy}>
+            <Text style={styles.emptyNoticeText}>
+              {tenantReplyCount ? `${tenantReplyCount} message${tenantReplyCount === 1 ? "" : "s"} in maintenance requests` : "No new tenant replies"}
+            </Text>
+            <Text style={styles.emptySubtext}>Open a request to reply to the tenant.</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color="#71809a" />
+        </Pressable>
         <SectionTitle
           title="Immediate Action · Overdue (0)"
           action="Total ₱0"
@@ -1315,6 +1350,16 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.04,
     shadowRadius: 6,
     elevation: 1,
+  },
+  replySummary: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: "#fff",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#e1eafa",
+    padding: 14,
   },
   emptyIcon: {
     width: 38,

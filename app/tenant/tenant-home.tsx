@@ -4,10 +4,10 @@ import { useAuth } from "@/lib/auth-context";
 import { db } from "@/lib/firebase";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
+import { Linking } from "react-native";
 import { doc, onSnapshot } from "firebase/firestore";
 import React from "react";
 import {
-  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -73,7 +73,7 @@ export default function TenantHome() {
               <Text style={styles.cardLabel}>YOUR ROOM</Text>
               <Text style={styles.roomTitle}>{roomLabel}</Text>
               <Text style={styles.muted}>
-                Casa Verde Boarding House · 2nd Floor
+                BoardEase Boarding House · 2nd Floor
               </Text>
             </View>
             <Text style={styles.lease}>● Active Lease</Text>
@@ -98,11 +98,11 @@ export default function TenantHome() {
             <Pressable
               style={styles.action}
               key={label}
-              onPress={() =>
-                label === "Profile"
-                  ? router.push("/tenant/account" as any)
-                  : Alert.alert(label, `${label} will be connected later.`)
-              }
+              onPress={() => {
+                if (label === "Profile") router.push("/tenant/account" as any);
+                if (label === "Maintenance") router.push("/tenant/applications" as any);
+                if (label === "Notifications") router.push("/tenant/applications" as any);
+              }}
             >
               <Ionicons
                 name={icon as keyof typeof Ionicons.glyphMap}
@@ -137,14 +137,12 @@ export default function TenantHome() {
       </ScrollView>
       <View style={styles.bottomBar}>
         <Text style={styles.bottomText}>
-          {user?.displayName || "Tenant"} ·{" "}
+          Kuya Bert ·{" "}
           {tenantRoom.number ? `Room ${tenantRoom.number}` : "No room"}
         </Text>
         <Pressable
           style={styles.call}
-          onPress={() =>
-            Alert.alert("Call caretaker", "Calling the caretaker...")
-          }
+          onPress={() => void Linking.openURL("tel:+639175548921")}
         >
           <Ionicons name="call" size={13} color="#fff" />
           <Text style={styles.callText}>Call</Text>

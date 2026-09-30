@@ -1,5 +1,6 @@
 import { LandlordNavigation } from "@/components/landlord-navigation";
 import { db } from "@/lib/firebase";
+import { createNotification } from "@/lib/notification-data";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import {
@@ -120,6 +121,16 @@ export default function Finance() {
     setIsUpdating(true);
     try {
       await updateDoc(doc(db, "payments", payment.id), { status });
+      if (payment.tenantId) {
+        await createNotification(payment.tenantId, {
+          type: "payment_update",
+          title: status === "approved" ? "Payment approved" : "Payment rejected",
+          body: status === "approved"
+            ? "Your payment proof was verified by the landlord."
+            : "Your payment proof was rejected. Please review and submit it again.",
+          route: "/tenant/payments",
+        });
+      }
       setSelectedPayment(null);
       Alert.alert(
         status === "approved" ? "Payment approved" : "Payment rejected",
@@ -142,7 +153,7 @@ export default function Finance() {
             <Ionicons name="business" size={24} color="#fff" />
           </View>
           <View style={styles.headerCopy}>
-            <Text style={styles.kicker}>BOARDEASE · Casa Verde</Text>
+            <Text style={styles.kicker}>BOARDEASE</Text>
             <Text style={styles.title}>Financial Overview</Text>
           </View>
         </View>

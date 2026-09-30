@@ -1,4 +1,5 @@
 import { db } from "@/lib/firebase";
+import { createNotification } from "@/lib/notification-data";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import {
@@ -91,6 +92,12 @@ export default function ApplicationReview() {
         },
         { merge: true },
       );
+      await createNotification(application.tenantId, {
+        type: "application_update",
+        title: "Application approved",
+        body: `Your application for ${cleanRoomLabel} was approved and assigned to you.`,
+        route: "/tenant/tenant-home",
+      });
       Alert.alert(
         "Application approved",
         `${applicant} was assigned to ${cleanRoomLabel}. The room is now occupied.`,
@@ -120,6 +127,14 @@ export default function ApplicationReview() {
                 status: "rejected",
                 rejectedAt: serverTimestamp(),
               });
+              if (application.tenantId) {
+                await createNotification(application.tenantId, {
+                  type: "application_update",
+                  title: "Application update",
+                  body: `Your application for ${cleanRoomLabel} was not approved.`,
+                  route: "/tenant/applications",
+                });
+              }
               Alert.alert(
                 "Application rejected",
                 "The application was removed from pending review.",

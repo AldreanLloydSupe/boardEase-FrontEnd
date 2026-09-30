@@ -53,7 +53,8 @@
         {
           "cameraPermission": "Allow BoardEase to access your camera to scan QR codes for payments."
         }
-      ]
+      ],
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -1,4 +1,5 @@
 import { TenantHeaderMark } from "@/components/tenant-header-mark";
+import { NotificationBell } from "@/components/notification-bell";
 import { AssignedTenantNav } from "@/components/tenant-navigation";
 import { useAuth } from "@/lib/auth-context";
 import { db } from "@/lib/firebase";
@@ -7,6 +8,8 @@ import DateTimePicker, {
     type DateTimePickerEvent,
 } from "@react-native-community/datetimepicker";
 import * as ImagePicker from "expo-image-picker";
+import * as FileSystem from "expo-file-system/legacy";
+import * as Sharing from "expo-sharing";
 import {
     addDoc,
     collection,
@@ -28,6 +31,12 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+type Receipt = {
+  id: string;
+  date: string;
+  amount: string;
+};
+
 export default function TenantPayments() {
   const { user } = useAuth();
   const [proofOpen, setProofOpen] = React.useState(false);
@@ -39,6 +48,52 @@ export default function TenantPayments() {
     React.useState<ImagePicker.ImagePickerAsset | null>(null);
   const [amount, setAmount] = React.useState("₱3,500.00");
   const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [selectedReceipt, setSelectedReceipt] = React.useState<Receipt | null>(null);
+  const [receiptDetailsOpen, setReceiptDetailsOpen] = React.useState(false);
+
+  const receipts: Receipt[] = [
+    { id: "OR-0892", date: "Sep 04, 2026", amount: "₱3,500.00" },
+    { id: "OR-0741", date: "Aug 05, 2026", amount: "₱3,500.00" },
+    { id: "OR-0610", date: "Jul 04, 2026", amount: "₱3,500.00" },
+  ];
+
+  async function downloadReceipt(receipt: Receipt) {
+    try {
+      const directory = FileSystem.documentDirectory || FileSystem.cacheDirectory;
+      if (!directory) throw new Error("Receipt storage is unavailable.");
+      const fileUri = `${directory}${receipt.id}.txt`;
+      const contents = [
+        "BOARDEASE PAYMENT RECEIPT",
+        "-------------------------",
+        `Official Receipt: ${receipt.id}`,
+        `Tenant: ${user?.displayName || "Tenant"}`,
+        `Amount Paid: ${receipt.amount}`,
+        `Payment Date: ${receipt.date}`,
+        "Description: Rent & Wi-Fi",
+        "Status: PAID",
+      ].join("\\n");
+      await FileSystem.writeAsStringAsync(fileUri, contents);
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(fileUri, {
+          dialogTitle: `Download ${receipt.id}`,
+          mimeType: "text/plain",
+          UTI: "public.plain-text",
+        });
+      } else {
+        Alert.alert("Receipt saved", `Receipt ${receipt.id} was saved on this device.`);
+      }
+    } catch (error) {
+      Alert.alert(
+        "Unable to download receipt",
+        error instanceof Error ? error.message : "Please try again.",
+      );
+    }
+  }
+
+  function viewReceipt(receipt: Receipt) {
+    setSelectedReceipt(receipt);
+    setReceiptDetailsOpen(true);
+  }
 
   function openProof() {
     setSentAt(new Date());
@@ -185,7 +240,7 @@ export default function TenantPayments() {
             <Text style={styles.brand}>BOARDEASE</Text>
             <Text style={styles.title}>Payments</Text>
           </View>
-          <Ionicons name="notifications-outline" size={21} color="#fff" />
+          <NotificationBell />
         </View>
         <View style={styles.propertyRow}>
           <View style={styles.dot} />
@@ -262,7 +317,7 @@ export default function TenantPayments() {
           <View style={styles.gcashReceiver}>
             <View>
               <Text style={styles.gcashName}>Kuya Bert Morales</Text>
-              <Text style={styles.muted}>Casa Verde Management & Admin</Text>
+              <Text style={styles.muted}>BoardEase Management & Admin</Text>
               <Text style={styles.gcashNumber}>0917 554 8921</Text>
             </View>
             <Pressable onPress={() => Alert.alert("GCash number copied", "0917 554 8921") }>
@@ -273,10 +328,6 @@ export default function TenantPayments() {
           <Text style={styles.instruction}>1. Open your GCash app and tap Send Money.</Text>
           <Text style={styles.instruction}>2. Send exactly the amount shown above.</Text>
           <Text style={styles.instruction}>3. Keep your GCash reference number.</Text>
-          <Pressable style={styles.proofButton} onPress={openProof}>
-            <Ionicons name="receipt-outline" size={15} color="#fff" />
-            <Text style={styles.proofButtonText}>Submit GCash Payment Proof</Text>
-          </Pressable>
         </View>
 
         <View style={styles.card}>
@@ -289,7 +340,7 @@ export default function TenantPayments() {
           />
           <Line
             icon="alarm-outline"
-            label="SMS & In-App Reminders"
+            label="In-App Payment Reminders"
             value="ACTIVE"
             detail="3 days prior to due dates"
           />
@@ -301,8 +352,8 @@ export default function TenantPayments() {
             <Ionicons name="refresh-outline" size={16} color="#71809a" />
           </View>
           <Text style={styles.muted}>Verified BIR official receipts</Text>
-          {["OR-0892", "OR-0741", "OR-0610"].map((receipt, index) => (
-            <View style={styles.receipt} key={receipt}>
+          {receipts.map((receipt, index) => (
+            <View style={styles.receipt} key={receipt.id}>
               <View>
                 <Text style={styles.receiptAmount}>
                   ₱3,500.00 <Text style={styles.paid}>PAID</Text>
@@ -316,9 +367,14 @@ export default function TenantPayments() {
                   • Rent & Wi-Fi
                 </Text>
               </View>
-              <View>
-                <Text style={styles.receiptId}>{receipt}</Text>
-                <Text style={styles.download}>
+              <View style={styles.receiptActions}>
+                <Text style={styles.receiptId}>{receipt.id}</Text>
+                <Text
+                  style={styles.download}
+                  onPress={() =>
+                    index === 0 ? downloadReceipt(receipt) : viewReceipt(receipt)
+                  }
+                >
                   {index === 0 ? "⇩ Download Receipt" : "▣ View Details"}
                 </Text>
               </View>
@@ -328,9 +384,37 @@ export default function TenantPayments() {
       </ScrollView>
       <AssignedTenantNav active="Payments" />
       <Modal
+        visible={receiptDetailsOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setReceiptDetailsOpen(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.proofModal}>
+            <View style={styles.rowBetween}>
+              <Text style={styles.modalTitle}>Receipt Details</Text>
+              <Pressable onPress={() => setReceiptDetailsOpen(false)}>
+                <Text style={styles.close}>×</Text>
+              </Pressable>
+            </View>
+            <Text style={styles.modalHint}>BoardEase verified payment receipt</Text>
+            <Text style={styles.inputLabel}>Official receipt</Text>
+            <Text style={styles.detailValue}>{selectedReceipt?.id || "—"}</Text>
+            <Text style={styles.inputLabel}>Tenant</Text>
+            <Text style={styles.detailValue}>{user?.displayName || "Tenant"}</Text>
+            <Text style={styles.inputLabel}>Amount paid</Text>
+            <Text style={styles.detailValue}>{selectedReceipt?.amount || "—"}</Text>
+            <Text style={styles.inputLabel}>Payment date</Text>
+            <Text style={styles.detailValue}>{selectedReceipt?.date || "—"}</Text>
+            <Text style={styles.inputLabel}>Description</Text>
+            <Text style={styles.detailValue}>Rent & Wi-Fi · PAID</Text>
+          </View>
+        </View>
+      </Modal>
+      <Modal
         visible={proofOpen}
         transparent
-        animationType="slide"
+        animationType="fade"
         onRequestClose={() => setProofOpen(false)}
       >
         <View style={styles.modalBackdrop}>
@@ -623,8 +707,15 @@ const styles = StyleSheet.create({
     fontSize: 9,
     padding: 3,
   },
-  receiptId: { fontSize: 9, color: "#526174", textAlign: "right" },
-  download: { fontSize: 9, color: "#2864e8", marginTop: 8 },
+  receiptId: { fontSize: 10, color: "#526174", textAlign: "right" },
+  receiptActions: { alignItems: "flex-end", gap: 2 },
+  download: {
+    fontSize: 11,
+    color: "#2864e8",
+    fontWeight: "700",
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+  },
   gcashCard: {
     backgroundColor: "#fff",
     borderRadius: 8,
@@ -680,14 +771,15 @@ const styles = StyleSheet.create({
   modalBackdrop: {
     flex: 1,
     backgroundColor: "rgba(15,23,42,.45)",
-    justifyContent: "flex-end",
+    justifyContent: "center",
+    padding: 16,
   },
   proofModal: {
     backgroundColor: "#fff",
-    borderTopLeftRadius: 22,
-    borderTopRightRadius: 22,
+    borderRadius: 22,
     padding: 18,
     paddingBottom: 28,
+    maxHeight: "92%",
   },
   modalTitle: { flex: 1, fontSize: 18, fontWeight: "700", color: "#253149" },
   close: { fontSize: 28, color: "#526174" },
@@ -697,6 +789,11 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: 10,
     marginBottom: 5,
+  },
+  detailValue: {
+    color: "#253149",
+    fontSize: 14,
+    fontWeight: "600",
   },
   input: {
     height: 42,

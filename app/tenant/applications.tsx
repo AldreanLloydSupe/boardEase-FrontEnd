@@ -1,4 +1,5 @@
 import { TenantHeaderMark } from "@/components/tenant-header-mark";
+import { NotificationBell } from "@/components/notification-bell";
 import {
   ApplicantTenantNav,
   AssignedTenantNav,
@@ -13,6 +14,7 @@ import {
   collection,
   doc,
   onSnapshot,
+  orderBy,
   query,
   serverTimestamp,
   updateDoc,
@@ -148,17 +150,7 @@ export default function Applications() {
               </View>
             </View>
 
-            <Pressable
-              style={styles.notificationButton}
-              onPress={() => Alert.alert("Notifications", "No new notifications.")}
-            >
-              <Ionicons
-                name="notifications-outline"
-                size={20}
-                color="#ffffff"
-              />
-              <View style={styles.notificationDot} />
-            </Pressable>
+            <NotificationBell />
           </View>
 
           <Text style={styles.subtitle}>
@@ -263,6 +255,13 @@ type MaintenanceTicket = {
   createdAt?: any;
 };
 
+type MaintenanceMessage = {
+  id: string;
+  senderId?: string;
+  senderName?: string;
+  body: string;
+};
+
 function categoryIcon(category?: string) {
   switch (category) {
     case "Plumbing":
@@ -307,6 +306,11 @@ function CareRequests({
   const [allowEntry, setAllowEntry] = React.useState(true);
   const [preferredTime, setPreferredTime] = React.useState("Anytime");
   const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [replyRequest, setReplyRequest] = React.useState<MaintenanceTicket | null>(null);
+  const [replyOpen, setReplyOpen] = React.useState(false);
+  const [replyText, setReplyText] = React.useState("");
+  const [messages, setMessages] = React.useState<MaintenanceMessage[]>([]);
+  const [sendingReply, setSendingReply] = React.useState(false);
 
   React.useEffect(() => {
     if (!db || !tenantId) return;
@@ -336,6 +340,45 @@ function CareRequests({
       );
     });
   }, [tenantId]);
+
+  React.useEffect(() => {
+    if (!db || !replyRequest) return;
+    return onSnapshot(
+      query(
+        collection(db, "maintenanceRequests", replyRequest.id, "messages"),
+        orderBy("createdAt", "asc"),
+      ),
+      (snapshot) =>
+        setMessages(
+          snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as MaintenanceMessage[],
+        ),
+      () => setMessages([]),
+    );
+  }, [replyRequest]);
+
+  function openReply(request: MaintenanceTicket) {
+    setReplyRequest(request);
+    setReplyText("");
+    setReplyOpen(true);
+  }
+
+  async function sendReply() {
+    if (!db || !replyRequest || !replyText.trim()) return;
+    setSendingReply(true);
+    try {
+      await addDoc(collection(db, "maintenanceRequests", replyRequest.id, "messages"), {
+        senderId: tenantId,
+        senderName: tenantName,
+        body: replyText.trim(),
+        createdAt: serverTimestamp(),
+      });
+      setReplyText("");
+    } catch {
+      Alert.alert("Unable to send reply", "Please check your connection and try again.");
+    } finally {
+      setSendingReply(false);
+    }
+  }
 
   async function pickPhoto() {
     try {
@@ -480,17 +523,7 @@ function CareRequests({
             </View>
           </View>
 
-          <Pressable
-            style={styles.notificationButton}
-            onPress={() => Alert.alert("Notifications", "No new notifications.")}
-          >
-            <Ionicons
-              name="notifications-outline"
-              size={20}
-              color="#ffffff"
-            />
-            <View style={styles.notificationDot} />
-          </Pressable>
+          <NotificationBell />
         </View>
 
         <View style={styles.requestTitleRow}>
@@ -714,12 +747,7 @@ function CareRequests({
                 <View style={styles.requestActions}>
                   <Pressable
                     style={styles.replyButton}
-                    onPress={() =>
-                      Alert.alert(
-                        "Reply to Caretaker",
-                        `Message sent to Kuya Bert regarding "${request.title}".`,
-                      )
-                    }
+                    onPress={() => openReply(request)}
                   >
                     <Ionicons
                       name="chatbubble-ellipses-outline"
@@ -757,7 +785,7 @@ function CareRequests({
       <Modal
         visible={newRequestOpen}
         transparent
-        animationType="slide"
+        animationType="fade"
         onRequestClose={() => setNewRequestOpen(false)}
       >
         <KeyboardAvoidingView
@@ -1018,6 +1046,88 @@ function CareRequests({
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      <Modal
+        visible={replyOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setReplyOpen(false)}
+      >
+        <KeyboardAvoidingView
+          style={styles.replyBackdrop}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
+          <View style={styles.replyModal}>
+            <View style={styles.replyHeader}>
+              <View style={styles.caretakerAvatar}>
+                <Text style={styles.caretakerInitials}>KB</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.replyTitle}>Kuya Bert (Caretaker)</Text>
+                <Text style={styles.replySubtitle}>
+                  {replyRequest?.title || "Maintenance request"} · Room {roomNumber}
+                </Text>
+              </View>
+              <Pressable onPress={() => setReplyOpen(false)} hitSlop={8}>
+                <Ionicons name="close" size={22} color="#526174" />
+              </Pressable>
+            </View>
+
+            <Text style={styles.replySafety}>
+              Keep payment details and passwords out of this conversation.
+            </Text>
+
+            <ScrollView
+              style={styles.messageList}
+              contentContainerStyle={styles.messageContent}
+              keyboardShouldPersistTaps="handled"
+            >
+              {messages.length === 0 ? (
+                <View style={styles.emptyMessages}>
+                  <Ionicons name="chatbubbles-outline" size={30} color="#9aa8ba" />
+                  <Text style={styles.emptyMessageText}>No messages yet.</Text>
+                  <Text style={styles.muted}>Send a message to update Kuya Bert.</Text>
+                </View>
+              ) : (
+                messages.map((message) => {
+                  const mine = message.senderId === tenantId;
+                  return (
+                    <View key={message.id} style={[styles.messageBubble, mine ? styles.myMessage : styles.bertMessage]}>
+                      <Text style={styles.messageSender}>{mine ? "You" : "Kuya Bert"}</Text>
+                      <Text style={styles.messageBody}>{message.body}</Text>
+                    </View>
+                  );
+                })
+              )}
+            </ScrollView>
+
+            <View style={styles.quickReplies}>
+              {["When can you come?", "The issue is still happening", "I’m unavailable"].map((quick) => (
+                <Pressable key={quick} style={styles.quickReply} onPress={() => setReplyText(quick)}>
+                  <Text style={styles.quickReplyText}>{quick}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <View style={styles.replyComposer}>
+              <TextInput
+                style={styles.replyInput}
+                value={replyText}
+                onChangeText={setReplyText}
+                placeholder="Write a reply..."
+                placeholderTextColor="#94a3b8"
+                multiline
+              />
+              <Pressable
+                style={[styles.sendReplyButton, sendingReply && styles.submitButtonDisabled]}
+                onPress={() => void sendReply()}
+                disabled={sendingReply || !replyText.trim()}
+              >
+                <Ionicons name="send" size={17} color="#fff" />
+              </Pressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1159,7 +1269,7 @@ function ApplicationCard({
           <Text style={styles.code}>#{code}</Text>
         </View>
         <Text style={styles.room}>{room}</Text>
-        <Text style={styles.house}>Casa Verde Boarding House</Text>
+        <Text style={styles.house}>BoardEase Boarding House</Text>
         <View style={styles.meta}>
           <Text style={styles.metaLabel}>Monthly Rent</Text>
           <Text style={styles.metaValue}>₱{price} /mo</Text>
@@ -1675,13 +1785,13 @@ const styles = StyleSheet.create({
   navActive: { color: "#16805d" },
   modalBackdrop: {
     flex: 1,
-    justifyContent: "flex-end",
+    justifyContent: "center",
+    padding: 16,
     backgroundColor: "rgba(15, 29, 40, 0.45)",
   },
   modalCardEnhanced: {
     backgroundColor: "#fff",
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderRadius: 24,
     maxHeight: "88%",
     shadowColor: "#0f1d28",
     shadowOffset: { width: 0, height: -4 },
@@ -1701,6 +1811,51 @@ const styles = StyleSheet.create({
   },
   modalTitle: { fontSize: 18, fontWeight: "800", color: "#172033" },
   modalSubtitle: { fontSize: 11, color: "#64748b", marginTop: 2 },
+  replyBackdrop: {
+    flex: 1,
+    justifyContent: "center",
+    padding: 16,
+    backgroundColor: "rgba(15, 29, 40, 0.45)",
+  },
+  replyModal: {
+    backgroundColor: "#fff",
+    borderRadius: 22,
+    padding: 16,
+    maxHeight: "84%",
+  },
+  replyHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderColor: "#e8edf5",
+  },
+  replyTitle: { color: "#172033", fontSize: 14, fontWeight: "800" },
+  replySubtitle: { color: "#64748b", fontSize: 11, marginTop: 3 },
+  replySafety: {
+    color: "#9a5b13",
+    backgroundColor: "#fff7df",
+    borderRadius: 8,
+    padding: 9,
+    fontSize: 10,
+    marginTop: 10,
+  },
+  messageList: { maxHeight: 250, marginTop: 10 },
+  messageContent: { gap: 8, paddingVertical: 4 },
+  emptyMessages: { alignItems: "center", paddingVertical: 28 },
+  emptyMessageText: { color: "#42526a", fontSize: 13, fontWeight: "700", marginTop: 7 },
+  messageBubble: { maxWidth: "84%", borderRadius: 12, padding: 10 },
+  myMessage: { alignSelf: "flex-end", backgroundColor: "#eaf1ff" },
+  bertMessage: { alignSelf: "flex-start", backgroundColor: "#f3f7fd" },
+  messageSender: { color: "#526174", fontSize: 10, fontWeight: "700", marginBottom: 3 },
+  messageBody: { color: "#253149", fontSize: 12, lineHeight: 17 },
+  quickReplies: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 },
+  quickReply: { borderWidth: 1, borderColor: "#b9ccef", borderRadius: 14, paddingHorizontal: 9, paddingVertical: 6 },
+  quickReplyText: { color: "#2864e8", fontSize: 10 },
+  replyComposer: { flexDirection: "row", alignItems: "flex-end", gap: 8, marginTop: 10 },
+  replyInput: { flex: 1, minHeight: 42, maxHeight: 85, borderWidth: 1, borderColor: "#d4e0f0", borderRadius: 10, paddingHorizontal: 11, paddingVertical: 9, color: "#253149", fontSize: 12 },
+  sendReplyButton: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", backgroundColor: "#2864e8" },
   modalCloseButton: {
     width: 32,
     height: 32,

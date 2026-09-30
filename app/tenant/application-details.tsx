@@ -59,7 +59,7 @@ export default function ApplicationDetails() {
           <Text style={styles.kicker}>{type.toUpperCase()}</Text>
           <Text style={styles.roomTitle}>Room {room}</Text>
           <Text style={styles.house}>
-            Casa Verde Boarding House · 2nd Floor, East Wing
+            BoardEase Boarding House · 2nd Floor, East Wing
           </Text>
           <View style={styles.row}>
             <Text style={styles.label}>Monthly rent</Text>
