@@ -1,11 +1,11 @@
 import {
   createUserWithEmailAndPassword,
   deleteUser,
+  signOut as firebaseSignOut,
   getIdTokenResult,
   onAuthStateChanged,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
-  signOut as firebaseSignOut,
   updateProfile,
   type User,
 } from "firebase/auth";
@@ -33,6 +33,8 @@ type AuthContextValue = {
     email: string,
     password: string,
     phone: string,
+    emergencyContact: string,
+    emergencyPhone: string,
   ) => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -41,6 +43,7 @@ type AuthContextValue = {
     name: string;
     phone: string;
     emergencyContact: string;
+    emergencyPhone?: string;
   }) => Promise<void>;
 };
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -119,8 +122,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       try {
         const session = await loadSession(nextUser);
+        const safePhotoUrl =
+          typeof nextUser.photoURL === "string" && nextUser.photoURL.trim()
+            ? nextUser.photoURL
+            : null;
         setUser(nextUser);
-        setProfilePhoto(nextUser.photoURL);
+        setProfilePhoto(safePhotoUrl);
         setRole(session.role);
         setHasRoom(session.hasRoom);
         if (session.role === "user" && db) {
@@ -163,8 +170,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             password,
           );
           const session = await loadSession(credential.user);
+          const safePhotoUrl =
+            typeof credential.user.photoURL === "string" && credential.user.photoURL.trim()
+              ? credential.user.photoURL
+              : null;
           setUser(credential.user);
-          setProfilePhoto(credential.user.photoURL);
+          setProfilePhoto(safePhotoUrl);
           setRole(session.role);
           setHasRoom(session.hasRoom);
         } catch (error) {
@@ -177,7 +188,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           throw error;
         }
       },
-      async signUp(name, email, password, phone) {
+      async signUp(name, email, password, phone, emergencyContact, emergencyPhone) {
         if (!auth || !db) throw new Error(firebaseSetupMessage);
         let createdUser: User | null = null;
         try {
@@ -192,12 +203,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             name,
             email: email.trim(),
             phone,
+            emergencyContact,
+            emergencyPhone,
             role: "user",
             hasRoom: false,
             createdAt: new Date().toISOString(),
           });
+          const safePhotoUrl =
+            typeof createdUser.photoURL === "string" && createdUser.photoURL.trim()
+              ? createdUser.photoURL
+              : null;
           setUser(createdUser);
-          setProfilePhoto(createdUser.photoURL);
+          setProfilePhoto(safePhotoUrl);
           setRole("user");
           setHasRoom(false);
         } catch (error) {
@@ -227,13 +244,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!auth || !db || !auth.currentUser) {
           throw new Error(firebaseSetupMessage);
         }
-        await updateProfile(auth.currentUser, { photoURL: uri });
+        const cleanUri = typeof uri === "string" && uri.trim() ? uri : null;
+        if (!cleanUri) {
+          throw new Error("A valid image URL is required.");
+        }
+        await updateProfile(auth.currentUser, { photoURL: cleanUri });
         await setDoc(
           doc(db, "users", auth.currentUser.uid),
-          { photoURL: uri },
+          { photoURL: cleanUri },
           { merge: true },
         );
-        setProfilePhoto(uri);
+        setProfilePhoto(cleanUri);
         setUser(auth.currentUser);
       },
       async updateUserProfile(profile) {

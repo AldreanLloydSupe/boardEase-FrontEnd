@@ -1,15 +1,15 @@
-import { TenantHeaderMark } from "@/components/tenant-header-mark";
+import { TenantPageHeader } from "@/components/tenant-page-header";
 import { useAuth } from "@/lib/auth-context";
 import { Ionicons } from "@expo/vector-icons";
-import { router, useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams } from "expo-router";
 import {
-  Alert,
-  Image,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
+    Alert,
+    Image,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -29,17 +29,8 @@ export default function ApplicationDetails() {
     "https://images.unsplash.com/photo-1616486338812-3dadae4b4ace?w=900";
   return (
     <SafeAreaView style={styles.page}>
+      <TenantPageHeader title="Application Details" backHref="/tenant/applications" />
       <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.top}>
-          <Pressable onPress={() => router.back()}>
-            <Ionicons name="arrow-back" size={21} color="#253149" />
-          </Pressable>
-          <View style={styles.headerTitleGroup}>
-            <TenantHeaderMark />
-            <Text style={styles.topTitle}>Application Details</Text>
-          </View>
-          <Ionicons name="notifications-outline" size={20} color="#253149" />
-        </View>
         <View style={styles.statusRow}>
           <Text style={styles.title}>Application Details</Text>
           <Text style={styles.status}>PENDING REVIEW</Text>
@@ -54,7 +45,7 @@ export default function ApplicationDetails() {
             an update when a decision is made.
           </Text>
         </View>
-        <Image source={{ uri: image }} style={styles.hero} />
+        {image ? <Image source={{ uri: image }} style={styles.hero} /> : null}
         <View style={styles.roomCard}>
           <Text style={styles.kicker}>{type.toUpperCase()}</Text>
           <Text style={styles.roomTitle}>Room {room}</Text>

@@ -1,5 +1,4 @@
-import { TenantHeaderMark } from "@/components/tenant-header-mark";
-import { NotificationBell } from "@/components/notification-bell";
+import { TenantPageHeader } from "@/components/tenant-page-header";
 import { AssignedTenantNav } from "@/components/tenant-navigation";
 import { useAuth } from "@/lib/auth-context";
 import { db } from "@/lib/firebase";
@@ -7,8 +6,8 @@ import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker, {
     type DateTimePickerEvent,
 } from "@react-native-community/datetimepicker";
-import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system/legacy";
+import * as ImagePicker from "expo-image-picker";
 import * as Sharing from "expo-sharing";
 import {
     addDoc,
@@ -233,15 +232,8 @@ export default function TenantPayments() {
   }
   return (
     <SafeAreaView style={styles.page}>
+      <TenantPageHeader title="Payments" />
       <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.header}>
-          <TenantHeaderMark />
-          <View style={styles.headerCopy}>
-            <Text style={styles.brand}>BOARDEASE</Text>
-            <Text style={styles.title}>Payments</Text>
-          </View>
-          <NotificationBell />
-        </View>
         <View style={styles.propertyRow}>
           <View style={styles.dot} />
           <View style={{ flex: 1 }}>
@@ -498,7 +490,7 @@ export default function TenantPayments() {
             >
               {selectedImage ? (
                 <>
-                  <Image source={{ uri: selectedImage.uri }} style={styles.receiptPreview} />
+                  {selectedImage.uri ? <Image source={{ uri: selectedImage.uri }} style={styles.receiptPreview} /> : null}
                   <Text style={styles.uploadTitle}>Receipt selected</Text>
                   <Text style={styles.changeReceipt}>Tap to change</Text>
                 </>

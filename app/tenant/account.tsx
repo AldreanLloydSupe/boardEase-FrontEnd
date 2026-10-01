@@ -1,26 +1,24 @@
 import { ProfilePictureButton } from "@/components/profile-picture-button";
-import { NotificationBell } from "@/components/notification-bell";
-import { TenantHeaderMark } from "@/components/tenant-header-mark";
 import {
   ApplicantTenantNav,
   AssignedTenantNav,
 } from "@/components/tenant-navigation";
+import { TenantPageHeader } from "@/components/tenant-page-header";
 import { useAuth } from "@/lib/auth-context";
-import { db } from "@/lib/firebase";
-import { auth } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
+import { vacateTenantRoom } from "@/lib/room-vacate";
 import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
 import {
   EmailAuthProvider,
   deleteUser,
   reauthenticateWithCredential,
   updatePassword,
 } from "firebase/auth";
-import { router } from "expo-router";
 import { doc, onSnapshot, setDoc } from "firebase/firestore";
 import React from "react";
 import {
   Alert,
-  Linking,
   Modal,
   Pressable,
   ScrollView,
@@ -36,6 +34,7 @@ type Profile = {
   name: string;
   phone: string;
   emergencyContact: string;
+  emergencyPhone: string;
   roomNumber: string;
   roomType: string;
   roomRent: string;
@@ -69,8 +68,9 @@ export default function Account() {
 
   const [profile, setProfile] = React.useState<Profile>({
     name: user?.displayName || "Tenant",
-    phone: "+63 917 555 1234",
-    emergencyContact: "Maria Dela Cruz",
+    phone: "",
+    emergencyContact: "",
+    emergencyPhone: "",
     roomNumber: "",
     roomType: "Room",
     roomRent: "",
@@ -80,6 +80,7 @@ export default function Account() {
     name: "",
     phone: "",
     emergencyContact: "",
+    emergencyPhone: "",
   });
 
   React.useEffect(() => {
@@ -91,10 +92,9 @@ export default function Account() {
       setProfile((current) => ({
         ...current,
         name: String(data.name || user.displayName || current.name),
-        phone: String(data.phone || current.phone),
-        emergencyContact: String(
-          data.emergencyContact || current.emergencyContact
-        ),
+        phone: String(data.phone || ""),
+        emergencyContact: String(data.emergencyContact || ""),
+        emergencyPhone: String(data.emergencyPhone || ""),
         roomNumber: String(data.roomNumber || data.roomId || ""),
         roomType: String(data.roomType || "Room"),
         roomRent: String(data.roomRent || ""),
@@ -201,6 +201,7 @@ export default function Account() {
       name: profile.name,
       phone: profile.phone,
       emergencyContact: profile.emergencyContact,
+      emergencyPhone: profile.emergencyPhone,
     });
 
     setEditOpen(true);
@@ -221,6 +222,7 @@ export default function Account() {
         name: draft.name.trim(),
         phone: draft.phone.trim(),
         emergencyContact: draft.emergencyContact.trim(),
+        emergencyPhone: draft.emergencyPhone.trim(),
       });
 
       setEditOpen(false);
@@ -242,26 +244,47 @@ export default function Account() {
     router.replace("/login");
   }
 
+  async function leaveRoom() {
+    if (!user || !profile.roomNumber) {
+      Alert.alert("No room assigned", "You are not currently assigned to a room.");
+      return;
+    }
+
+    Alert.alert(
+      "Leave room?",
+      `This will remove your assignment from Room ${profile.roomNumber}. The landlord will need to assign you to a new room again if needed.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Leave room",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await vacateTenantRoom(user.uid, profile.roomNumber);
+              Alert.alert("Room removed", "Your room assignment has been cleared.");
+            } catch (error) {
+              Alert.alert(
+                "Unable to leave room",
+                error instanceof Error ? error.message : "Please try again.",
+              );
+            }
+          },
+        },
+      ],
+    );
+  }
+
   const roomLabel = profile.roomNumber
     ? `Room ${profile.roomNumber} - ${profile.roomType}`
     : "No room assigned";
 
   return (
     <SafeAreaView style={styles.page}>
+      <TenantPageHeader title="Account" />
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.content}
       >
-        {/* HEADER */}
-        <View style={styles.heading}>
-          <View style={styles.headerIdentity}>
-            <TenantHeaderMark />
-            <Text style={styles.title}>Account</Text>
-          </View>
-
-          <NotificationBell />
-        </View>
-
         {/* PROFILE HEADER */}
         <View style={styles.profile}>
           <ProfilePictureButton
@@ -327,6 +350,14 @@ export default function Account() {
             label="Rent Due Date"
             value="5th of every month"
           />
+
+          <Setting
+            icon="exit-outline"
+            label="Leave Room"
+            onPress={() => {
+              void leaveRoom();
+            }}
+          />
         </DropdownSection>
 
         {/* PERSONAL & CONTACT INFO DROPDOWN */}
@@ -362,7 +393,12 @@ export default function Account() {
 
           <Info
             label="Emergency Contact"
-            value={profile.emergencyContact}
+            value={profile.emergencyContact || "Not provided"}
+          />
+
+          <Info
+            label="Emergency Contact Number"
+            value={profile.emergencyPhone || "Not provided"}
           />
 
           <Info
@@ -451,7 +487,16 @@ export default function Account() {
           <Setting
             icon="wallet-outline"
             label="Payment Preferences & History"
-            onPress={() => router.push("/tenant/payments" as any)}
+            onPress={() => {
+              if (!hasRoom) {
+                Alert.alert(
+                  "Room assignment required",
+                  "Payment preferences and history are available after you are assigned a room.",
+                );
+                return;
+              }
+              router.push("/tenant/payments" as any);
+            }}
           />
 
           <Setting
@@ -530,12 +575,6 @@ export default function Account() {
                 [{ text: "OK" }],
               )
             }
-          />
-
-          <Setting
-            icon="call-outline"
-            label="Contact Caretaker"
-            onPress={() => void Linking.openURL("tel:+639175548921")}
           />
 
           <Setting
@@ -687,6 +726,16 @@ export default function Account() {
               }
             />
 
+            <Text style={styles.inputLabel}>Emergency Contact Number</Text>
+            <TextInput
+              style={styles.input}
+              value={draft.emergencyPhone}
+              onChangeText={(emergencyPhone) =>
+                setDraft((current) => ({ ...current, emergencyPhone }))
+              }
+              keyboardType="phone-pad"
+            />
+
             <Pressable
               style={styles.saveButton}
               onPress={saveProfile}
@@ -780,10 +829,6 @@ function DropdownSection({
   );
 }
 
-/* =========================================================
-   INFORMATION ROW
-========================================================= */
-
 function Info({
   label,
   value,
@@ -803,10 +848,6 @@ function Info({
     </View>
   );
 }
-
-/* =========================================================
-   SETTINGS ROW
-========================================================= */
 
 function Setting({
   icon,
@@ -846,10 +887,6 @@ function Setting({
     </Pressable>
   );
 }
-
-/* =========================================================
-   STYLES
-========================================================= */
 
 const styles = StyleSheet.create({
   page: {
@@ -902,7 +939,6 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.14)",
   },
 
-  /* PROFILE */
   profile: {
     backgroundColor: "#fff",
     borderRadius: 12,
@@ -948,7 +984,6 @@ const styles = StyleSheet.create({
     padding: 5,
   },
 
-  /* DROPDOWN CARD */
   dropdownCard: {
     backgroundColor: "#fff",
     borderRadius: 12,
@@ -1021,7 +1056,6 @@ const styles = StyleSheet.create({
     borderTopColor: "#edf1f7",
   },
 
-  /* INFO ROW */
   info: {
     minHeight: 43,
     flexDirection: "row",

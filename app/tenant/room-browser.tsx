@@ -1,4 +1,4 @@
-import { TenantHeaderMark } from "@/components/tenant-header-mark";
+import { TenantPageHeader } from "@/components/tenant-page-header";
 import { ApplicantTenantNav } from "@/components/tenant-navigation";
 import { useAuth } from "@/lib/auth-context";
 import { getFavoriteRooms, setFavoriteRooms } from "@/lib/favorite-rooms";
@@ -6,7 +6,7 @@ import { db } from "@/lib/firebase";
 import { roomFromFirestore, roomKey, type TenantRoom } from "@/lib/room-data";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { collection, onSnapshot } from "firebase/firestore";
 import React from "react";
 import {
   Animated,
@@ -62,12 +62,11 @@ const SkeletonCard = () => {
 };
 
 export default function RoomBrowser() {
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
   const [search, setSearch] = React.useState("");
   const [selectedFilter, setSelectedFilter] = React.useState(filters[0]);
   const [favorites, setFavorites] = React.useState<string[]>([]);
   const [rooms, setRooms] = React.useState<TenantRoom[]>([]);
-  const [applications, setApplications] = React.useState<any[]>([]);
   const [loadingRoom, setLoadingRoom] = React.useState<string | null>(null);
   const [isLoadingRooms, setIsLoadingRooms] = React.useState(true);
 
@@ -117,21 +116,6 @@ export default function RoomBrowser() {
     }
   }, [user?.uid]);
 
-  React.useEffect(() => {
-    if (!db || !user) return;
-    const q = query(
-      collection(db, "applications"),
-      where("tenantId", "==", user.uid)
-    );
-    return onSnapshot(
-      q,
-      (snapshot) => {
-        const apps = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-        setApplications(apps);
-      }
-    );
-  }, [user]);
-
   async function toggleFavorite(number: string) {
     if (!user?.uid) return;
     const next = favorites.includes(number)
@@ -139,11 +123,6 @@ export default function RoomBrowser() {
       : [...favorites, number];
     setFavorites(next);
     await setFavoriteRooms(user.uid, next);
-  }
-
-  async function logout() {
-    await signOut();
-    router.replace("/login");
   }
 
   const visibleRooms = rooms.filter((room) => {
@@ -156,19 +135,8 @@ export default function RoomBrowser() {
 
   return (
     <SafeAreaView style={styles.page}>
-      <View style={styles.header}>
-        <View style={styles.headerTop}>
-          <View style={styles.headerIdentity}>
-            <TenantHeaderMark />
-            <View style={styles.headerCopy}>
-              <Text style={styles.kicker}>BOARDEASE</Text>
-              <Text style={styles.title}>Find your next room</Text>
-            </View>
-          </View>
-          <Pressable onPress={logout} style={styles.logoutButton}>
-            <Ionicons name="log-out-outline" size={24} color="#fff" />
-          </Pressable>
-        </View>
+      <TenantPageHeader title="Find your next room" backHref="/tenant/account" />
+      <View style={styles.searchContainer}>
         <View style={styles.search}>
           <Ionicons name="search-outline" size={20} color="#8ea4c7" />
           <TextInput
@@ -184,9 +152,6 @@ export default function RoomBrowser() {
       
       <View style={styles.mainContainer}>
         <ScrollView contentContainerStyle={styles.content}>
-          <Text style={styles.caption}>
-            24/7 CCTV & Biometrics · Free Water Dispenser · Study Area
-          </Text>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -215,11 +180,11 @@ export default function RoomBrowser() {
           </ScrollView>
 
           {isLoadingRooms ? (
-            <>
+            <View style={styles.roomsGrid}>
               <SkeletonCard />
               <SkeletonCard />
               <SkeletonCard />
-            </>
+            </View>
           ) : visibleRooms.length === 0 ? (
             <View style={styles.empty}>
               <View style={styles.emptyIconContainer}>
@@ -229,12 +194,21 @@ export default function RoomBrowser() {
               <Text style={styles.emptyText}>We couldn't find any rooms matching your search criteria. Try adjusting your filters.</Text>
             </View>
           ) : (
-            visibleRooms.map((room) => {
-              const hasApplied = applications.some((app) => app.roomNumber === room.number && (!app.status || app.status === "pending"));
+            <View style={styles.roomsGrid}>
+            {visibleRooms.map((room) => {
               return (
-              <View style={styles.card} key={roomKey(room)}>
+              <Pressable
+                style={styles.card}
+                key={roomKey(room)}
+                onPress={() => handleViewRoom(room)}
+                disabled={loadingRoom !== null}
+                accessibilityRole="button"
+                accessibilityLabel={`View details for Room ${room.number}`}
+              >
                 <View style={styles.imageWrap}>
-                  <Image source={{ uri: room.image }} style={styles.roomImage} />
+                  {room.image ? (
+                    <Image source={{ uri: room.image }} style={styles.roomImage} />
+                  ) : null}
                   <Pressable
                     accessibilityLabel={`Save Room ${room.number}`}
                     style={styles.heartButton}
@@ -277,24 +251,10 @@ export default function RoomBrowser() {
                     ))}
                   </View>
                   
-                  <Pressable
-                    style={[
-                      styles.viewButton,
-                      (loadingRoom === room.number || hasApplied) && styles.viewButtonDisabled
-                    ]}
-                    onPress={() => handleViewRoom(room)}
-                    disabled={loadingRoom !== null}
-                  >
-                    <Text style={[
-                      styles.viewText,
-                      (loadingRoom === room.number || hasApplied) && styles.viewTextDisabled
-                    ]}>
-                      {loadingRoom === room.number ? "Loading..." : hasApplied ? "View Details (Applied) →" : "View Details & Apply →"}
-                    </Text>
-                  </Pressable>
                 </View>
-              </View>
-            )})
+              </Pressable>
+            )})}
+            </View>
           )}
         </ScrollView>
       </View>
@@ -305,40 +265,12 @@ export default function RoomBrowser() {
 
 const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: "#f4f7fb" },
-  header: {
-    backgroundColor: "#2864e8",
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 24,
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 8,
-    zIndex: 10,
-  },
-  kicker: { color: "#d9e5ff", fontSize: 13, fontWeight: "700", letterSpacing: 1.5, marginBottom: 4 },
-  headerTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 10 },
-  headerIdentity: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 11 },
-  headerCopy: { flex: 1, minWidth: 0 },
-  headerRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  title: { fontSize: 26, fontWeight: "800", color: "#fff" },
-  logoutButton: {
-    padding: 6,
-    backgroundColor: "rgba(255,255,255,0.15)",
-    borderRadius: 12,
-  },
+  searchContainer: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 },
   search: {
     height: 50,
     backgroundColor: "#fff",
     borderRadius: 14,
-    marginTop: 20,
+    marginTop: 0,
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
@@ -352,7 +284,11 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, color: "#172033", fontSize: 15, paddingVertical: 0 },
   mainContainer: { flex: 1 },
   content: { padding: 16, paddingBottom: 30 },
-  caption: { fontSize: 13, color: "#78879b", marginBottom: 12, fontWeight: "500" },
+  roomsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+  },
   filters: { flexDirection: "row", gap: 10, paddingVertical: 6, marginBottom: 16 },
   activeFilter: {
     backgroundColor: "#2864e8",
@@ -376,9 +312,10 @@ const styles = StyleSheet.create({
   activeFilterText: { color: "#fff", fontSize: 14, fontWeight: "600" },
   filterText: { color: "#71809a", fontSize: 14, fontWeight: "500" },
   card: {
+    width: "48.5%",
     backgroundColor: "#fff",
     borderRadius: 18,
-    marginBottom: 16,
+    marginBottom: 12,
     borderWidth: 1,
     borderColor: "#e6ebf2",
     shadowColor: "#000",
@@ -389,7 +326,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   imageWrap: { position: "relative" },
-  roomImage: { width: "100%", height: 180 },
+  roomImage: { width: "100%", height: 120 },
   heartButton: {
     position: "absolute",
     top: 12,
@@ -406,58 +343,36 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
-  roomContent: { padding: 16 },
+  roomContent: { padding: 10 },
   roomHead: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
-  roomTitle: { fontSize: 16, fontWeight: "700", color: "#172033" },
+  roomTitle: { flex: 1, minWidth: 0, fontSize: 13, fontWeight: "700", color: "#172033" },
   availableBadge: {
     backgroundColor: "#e6f8ef",
     borderRadius: 12,
-    paddingHorizontal: 10,
+    paddingHorizontal: 6,
     paddingVertical: 4,
   },
   available: {
     color: "#109968",
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: "600",
   },
-  price: { color: "#2864e8", fontSize: 22, fontWeight: "800", marginTop: 8 },
-  month: { fontSize: 14, fontWeight: "500", color: "#8390a2" },
-  tags: { flexDirection: "row", gap: 8, marginVertical: 12, flexWrap: "wrap" },
-  tag: { 
-    fontSize: 12, 
-    color: "#526174", 
-    backgroundColor: "#f4f7fb", 
-    paddingHorizontal: 10, 
-    paddingVertical: 6, 
+  price: { color: "#2864e8", fontSize: 19, fontWeight: "800", marginTop: 8 },
+  month: { fontSize: 11, fontWeight: "500", color: "#8390a2" },
+  tags: { flexDirection: "row", gap: 5, marginVertical: 10, flexWrap: "wrap" },
+  tag: {
+    fontSize: 10,
+    color: "#526174",
+    backgroundColor: "#f4f7fb",
+    paddingHorizontal: 7,
+    paddingVertical: 5,
     borderRadius: 8,
     overflow: "hidden",
-    fontWeight: "500" 
-  },
-  viewButton: {
-    height: 46,
-    borderRadius: 12,
-    backgroundColor: "#2864e8",
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 8,
-    shadowColor: "#2864e8",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    elevation: 4,
-  },
-  viewText: { color: "#fff", fontSize: 15, fontWeight: "700" },
-  viewButtonDisabled: {
-    backgroundColor: "#cbd5e1",
-    shadowOpacity: 0,
-    elevation: 0,
-  },
-  viewTextDisabled: {
-    color: "#64748b",
+    fontWeight: "500"
   },
   empty: {
     backgroundColor: "#fff",

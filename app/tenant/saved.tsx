@@ -1,4 +1,4 @@
-import { TenantHeaderMark } from "@/components/tenant-header-mark";
+import { TenantPageHeader } from "@/components/tenant-page-header";
 import {
     ApplicantTenantNav,
     AssignedTenantNav,
@@ -58,17 +58,8 @@ export default function SavedRooms() {
   const saved = rooms.filter((room) => favorites.includes(room.number));
   return (
     <SafeAreaView style={styles.page}>
+      <TenantPageHeader title="Saved Rooms" backHref="/tenant/room-browser" />
       <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.header}>
-          <Pressable onPress={() => router.back()}>
-            <Ionicons name="arrow-back" size={21} color="#fff" />
-          </Pressable>
-          <View style={styles.headerTitleGroup}>
-            <TenantHeaderMark />
-            <Text style={styles.title}>Saved Rooms</Text>
-          </View>
-          <View style={{ width: 21 }} />
-        </View>
         {saved.length === 0 ? (
           <View style={styles.empty}>
             <Ionicons name="heart-outline" size={38} color="#8ea4c7" />
@@ -94,7 +85,7 @@ export default function SavedRooms() {
         ) : (
           saved.map((room) => (
             <View style={styles.card} key={roomKey(room)}>
-              <Image source={{ uri: room.image }} style={styles.image} />
+              {room.image ? <Image source={{ uri: room.image }} style={styles.image} /> : null}
               <Pressable
                 style={styles.remove}
                 onPress={() => removeFavorite(room.number)}

@@ -4,24 +4,24 @@ import { createNotification } from "@/lib/notification-data";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import {
-    collection,
-    doc,
-    onSnapshot,
-    updateDoc,
-    type DocumentData,
+  collection,
+  doc,
+  onSnapshot,
+  updateDoc,
+  type DocumentData,
 } from "firebase/firestore";
 import React from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Image,
-    Modal,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Image,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -368,7 +368,7 @@ export default function Finance() {
             <Text style={styles.detailLabel}>Amount</Text>
             <Text style={styles.detailValue}>{selectedPayment ? formatCurrency(amountValue(selectedPayment.amount)) : ""}</Text>
             {selectedPayment?.receiptUrl ? (
-              <Image source={{ uri: selectedPayment.receiptUrl }} style={styles.detailReceipt} resizeMode="contain" />
+              <Image source={selectedPayment.receiptUrl ? { uri: selectedPayment.receiptUrl } : undefined} style={styles.detailReceipt} resizeMode="contain" />
             ) : (
               <Text style={styles.emptyReceipt}>No receipt image attached.</Text>
             )}
