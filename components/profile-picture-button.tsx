@@ -1,7 +1,6 @@
-import * as ImagePicker from "expo-image-picker";
-import React from "react";
-import { Alert, Image, Pressable, StyleSheet, Text } from "react-native";
 import { useAuth } from "@/lib/auth-context";
+import * as ImagePicker from "expo-image-picker";
+import { Alert, Image, Pressable, StyleSheet, Text } from "react-native";
 
 type Props = {
   fallback: string;
@@ -54,7 +53,7 @@ export function ProfilePictureButton({
     >
       {profilePhoto ? (
         <Image
-          source={{ uri: profilePhoto }}
+          source={profilePhoto ? { uri: profilePhoto } : undefined}
           style={{ width: size, height: size, borderRadius: size / 2 }}
         />
       ) : (

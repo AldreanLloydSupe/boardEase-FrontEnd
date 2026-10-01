@@ -1,4 +1,4 @@
-import { TenantHeaderMark } from "@/components/tenant-header-mark";
+import { TenantPageHeader } from "@/components/tenant-page-header";
 import { AssignedTenantNav, ApplicantTenantNav } from "@/components/tenant-navigation";
 import { useAuth } from "@/lib/auth-context";
 import { db } from "@/lib/firebase";
@@ -38,13 +38,11 @@ export default function TenantNotifications() {
 
   return (
     <SafeAreaView style={styles.page}>
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()} hitSlop={8}><Ionicons name="arrow-back" size={22} color="#fff" /></Pressable>
-        <TenantHeaderMark />
-        <Text style={styles.title}>Notifications</Text>
-        <Pressable onPress={() => void markAllRead()}><Text style={styles.mark}>Mark all read</Text></Pressable>
-      </View>
+      <TenantPageHeader title="Notifications" />
       <ScrollView contentContainerStyle={styles.content}>
+        <Pressable style={styles.markAll} onPress={() => void markAllRead()}>
+          <Text style={styles.mark}>Mark all read</Text>
+        </Pressable>
         {notices.length === 0 ? (
           <View style={styles.empty}><Ionicons name="notifications-off-outline" size={38} color="#9aa8ba" /><Text style={styles.emptyTitle}>No notifications yet</Text><Text style={styles.emptyText}>Updates about your applications, payments, tours, and maintenance will appear here.</Text></View>
         ) : notices.map((notice) => (
@@ -64,7 +62,8 @@ const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: "#f3f7fd" },
   header: { backgroundColor: "#2864e8", padding: 16, gap: 10, flexDirection: "row", alignItems: "center" },
   title: { color: "#fff", fontSize: 19, fontWeight: "800", flex: 1 },
-  mark: { color: "#fff", fontSize: 11, fontWeight: "700" },
+  markAll: { alignSelf: "flex-end", paddingVertical: 4, paddingHorizontal: 2 },
+  mark: { color: "#2864e8", fontSize: 11, fontWeight: "700" },
   content: { padding: 14, gap: 10 },
   card: { backgroundColor: "#fff", borderRadius: 12, padding: 14, flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderColor: "#e1eafa" },
   unread: { borderColor: "#9bb9f5", backgroundColor: "#f8fbff" },

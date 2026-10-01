@@ -96,7 +96,14 @@ export default function Signup() {
     }
     try {
       setBusy(true);
-      await signUp(form.name, form.email, form.password, form.phone);
+      await signUp(
+        form.name,
+        form.email,
+        form.password,
+        form.phone,
+        form.emergencyName,
+        form.emergencyPhone,
+      );
       router.replace("/");
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Please try again.";

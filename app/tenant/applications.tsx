@@ -1,9 +1,10 @@
-import { TenantHeaderMark } from "@/components/tenant-header-mark";
 import { NotificationBell } from "@/components/notification-bell";
+import { TenantHeaderMark } from "@/components/tenant-header-mark";
 import {
   ApplicantTenantNav,
   AssignedTenantNav,
 } from "@/components/tenant-navigation";
+import { TenantPageHeader } from "@/components/tenant-page-header";
 import { useAuth } from "@/lib/auth-context";
 import { db } from "@/lib/firebase";
 import { Ionicons } from "@expo/vector-icons";
@@ -44,6 +45,7 @@ type ApplicationRecord = {
   roomType: string;
   price: string;
   image?: string;
+  status?: string;
 };
 
 type TourRequestRecord = {
@@ -91,6 +93,7 @@ export default function Applications() {
         roomType: data.roomType,
         price: data.price,
         image: data.image,
+        status: data.status ? String(data.status) : "Under Review",
       });
     });
     const unsubscribeTours = onSnapshot(tourQuery, (snapshot) => {
@@ -136,29 +139,11 @@ export default function Applications() {
       />
     );
   }
-  const pageTitle = hasRoom ? "Requests & Care" : "My Applications";
+  const pageTitle = "My Applications";
   return (
     <SafeAreaView style={styles.page}>
+      <TenantPageHeader title={pageTitle} backHref={hasRoom ? "/tenant/tenant-home" : "/tenant/room-browser"} />
       <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.heroHeader}>
-          <View style={styles.topBar}>
-            <View style={styles.headerIdentity}>
-              <TenantHeaderMark />
-              <View>
-                <Text style={styles.brand}>BOARDEASE</Text>
-                <Text style={styles.headerPageTitle}>{pageTitle}</Text>
-              </View>
-            </View>
-
-            <NotificationBell />
-          </View>
-
-          <Text style={styles.subtitle}>
-            {hasRoom
-              ? "Report issues, request help, and track maintenance."
-              : "Track your room applications and review status."}
-          </Text>
-        </View>
         {hasApplication ? (
           <>
             <View style={styles.filters}>
@@ -169,7 +154,7 @@ export default function Applications() {
               image={image}
               room={`Room ${room} - ${type}`}
               price={price}
-              status="Under Review"
+              status={storedApplication?.status || "Under Review"}
               code={`APP-${storedApplication?.id.slice(0, 4).toUpperCase() || "8492"}`}
               onPress={() =>
                 router.push({
@@ -185,7 +170,7 @@ export default function Applications() {
               <Ionicons
                 name="document-text-outline"
                 size={32}
-                color="#16805d"
+                color="#2864e8"
               />
             </View>
             <Text style={styles.emptyTitle}>No applications yet</Text>
@@ -210,7 +195,7 @@ export default function Applications() {
           </View>
         )}
         <View style={styles.helpCard}>
-          <Ionicons name="chatbubbles-outline" size={25} color="#16805d" />
+          <Ionicons name="chatbubbles-outline" size={25} color="#2864e8" />
           <View style={{ flex: 1 }}>
             <Text style={styles.helpTitle}>Looking for another unit?</Text>
             <Text style={styles.helpText}>
@@ -251,6 +236,7 @@ type MaintenanceTicket = {
   photoUri?: string | null;
   allowEntry?: boolean;
   preferredTime?: string;
+  dateNeeded?: string;
   status?: "in_progress" | "parts_sourced" | "completed";
   createdAt?: any;
 };
@@ -333,6 +319,7 @@ function CareRequests({
             preferredTime: data.preferredTime
               ? String(data.preferredTime)
               : "Anytime",
+            dateNeeded: data.dateNeeded ? String(data.dateNeeded) : "",
             status: (data.status as any) || "in_progress",
             createdAt: data.createdAt,
           };
@@ -444,7 +431,6 @@ function CareRequests({
     }
     setIsSubmitting(true);
     const requestData = {
-      id: `local-${Date.now()}`,
       tenantId,
       tenantName,
       roomNumber,
@@ -461,13 +447,15 @@ function CareRequests({
     };
     try {
       if (db && tenantId) {
-        const saved = await addDoc(collection(db, "maintenanceRequests"), {
+        await addDoc(collection(db, "maintenanceRequests"), {
           ...requestData,
           createdAt: serverTimestamp(),
         });
-        requestData.id = saved.id;
       } else {
-        setRequests((current) => [requestData, ...current]);
+        setRequests((current) => [
+          { ...requestData, id: `local-${Date.now()}` },
+          ...current,
+        ]);
       }
       // Reset form
       setRequestTitle("");
@@ -510,22 +498,24 @@ function CareRequests({
 
   return (
     <SafeAreaView style={styles.page}>
-      <ScrollView contentContainerStyle={styles.requestContent}>
-        <View style={styles.requestHeader}>
-          <View style={styles.headerIdentity}>
-            <TenantHeaderMark />
-            <View>
-              <Text style={styles.brand}>BOARDEASE</Text>
-              <Text style={styles.headerPageTitle}>Requests & Care</Text>
-              <Text style={styles.requestSubtitle}>
-                Room {roomNumber} · {roomType}
-              </Text>
-            </View>
+      <View style={styles.requestHeader}>
+        <Pressable onPress={() => router.replace("/tenant/tenant-home" as any)} hitSlop={8}>
+          <Ionicons name="arrow-back" size={21} color="#fff" />
+        </Pressable>
+        <View style={styles.headerIdentity}>
+          <TenantHeaderMark />
+          <View>
+            <Text style={styles.brand}>BOARDEASE</Text>
+            <Text style={styles.headerPageTitle}>Requests & Care</Text>
+            <Text style={styles.requestSubtitle}>
+              Room {roomNumber} · {roomType}
+            </Text>
           </View>
-
-          <NotificationBell />
         </View>
+        <NotificationBell />
+      </View>
 
+      <ScrollView contentContainerStyle={styles.requestContent}>
         <View style={styles.requestTitleRow}>
           <Text style={styles.sectionHeading}>Requests</Text>
           <Pressable
@@ -674,18 +664,20 @@ function CareRequests({
                     {categoryIcon(request.category)} {request.category || "General"} · Room {roomNumber}
                   </Text>
                   <Text style={styles.requestMetaTime}>
-                    {request.preferredTime && request.preferredTime !== "Anytime"
-                      ? request.preferredTime
-                      : "Anytime"}
+                    {request.dateNeeded
+                      ? `${request.dateNeeded} · ${request.preferredTime || "Anytime"}`
+                      : request.preferredTime || "Anytime"}
                   </Text>
                 </View>
 
                 {request.photoUri && (
                   <View style={styles.cardPhotoThumbWrap}>
-                    <Image
-                      source={{ uri: request.photoUri }}
-                      style={styles.cardPhotoThumb}
-                    />
+                    {request.photoUri ? (
+                      <Image
+                        source={{ uri: request.photoUri }}
+                        style={styles.cardPhotoThumb}
+                      />
+                    ) : null}
                     <Text style={styles.cardPhotoNote}>Photo attached for caretaker</Text>
                   </View>
                 )}
@@ -933,10 +925,12 @@ function CareRequests({
               <Text style={styles.fieldSectionLabel}>PHOTO OF THE ISSUE (OPTIONAL)</Text>
               {photoUri ? (
                 <View style={styles.photoAttachedBox}>
-                  <Image
-                    source={{ uri: photoUri }}
-                    style={styles.photoAttachedThumb}
-                  />
+                  {photoUri ? (
+                    <Image
+                      source={{ uri: photoUri }}
+                      style={styles.photoAttachedThumb}
+                    />
+                  ) : null}
                   <View style={{ flex: 1, marginLeft: 10 }}>
                     <Text style={styles.photoAttachedTitle}>Photo Attached</Text>
                     <Text style={styles.photoAttachedSub}>
@@ -1251,7 +1245,7 @@ function ApplicationCard({
   const approved = status === "Approved";
   return (
     <Pressable style={styles.card} onPress={onPress}>
-      <Image source={{ uri: image }} style={styles.image} />
+      {image ? <Image source={{ uri: image }} style={styles.image} /> : null}
       <View style={styles.cardMain}>
         <View style={styles.cardTop}>
           <Text
@@ -1284,8 +1278,10 @@ function ApplicationCard({
           </Text>
         )}
         <View style={styles.cardAction}>
-          <Text>{approved ? "View Reservation" : "View Details"} →</Text>
-          <Ionicons name="chevron-forward" size={15} color="#253149" />
+          <Text style={styles.cardActionText}>
+            {approved ? "View Reservation" : "View Details"} →
+          </Text>
+          <Ionicons name="chevron-forward" size={17} color="#fff" />
         </View>
       </View>
     </Pressable>
@@ -1382,66 +1378,70 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: "#fff",
-    borderRadius: 8,
-    marginBottom: 12,
+    borderRadius: 16,
+    marginBottom: 16,
     overflow: "hidden",
     borderWidth: 1,
-    borderColor: "#e1eafa",
+    borderColor: "#dce7f8",
     shadowColor: "#173b80",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.05,
-    shadowRadius: 7,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
   },
-  image: { width: "100%", height: 130 },
-  cardMain: { padding: 11 },
+  image: { width: "100%", height: 165, backgroundColor: "#eaf1ff" },
+  cardMain: { padding: 15 },
   cardTop: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
   status: {
-    borderRadius: 10,
-    paddingHorizontal: 7,
-    paddingVertical: 4,
-    fontSize: 12,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    fontSize: 11,
     fontWeight: "700",
   },
-  review: { backgroundColor: "#fff0c9", color: "#9b6700" },
-  approved: { backgroundColor: "#d9f7e8", color: "#16805d" },
+  review: { backgroundColor: "#eaf1ff", color: "#2864e8" },
+  approved: { backgroundColor: "#dce9ff", color: "#2458c7" },
   waitlisted: { backgroundColor: "#edf0f4", color: "#68768a" },
   code: { color: "#9aa8ba", fontSize: 11 },
-  room: { fontSize: 14, fontWeight: "700", color: "#253149", marginTop: 8 },
-  house: { color: "#78879b", fontSize: 11, marginTop: 3 },
+  room: { fontSize: 17, fontWeight: "800", color: "#172033", marginTop: 12 },
+  house: { color: "#78879b", fontSize: 12, marginTop: 4 },
   meta: {
-    backgroundColor: "#f3f7fd",
-    borderRadius: 7,
-    padding: 8,
-    marginTop: 10,
+    backgroundColor: "#f4f8ff",
+    borderColor: "#e4ecfb",
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 11,
+    marginTop: 14,
     flexDirection: "row",
     justifyContent: "space-between",
   },
-  metaLabel: { fontSize: 11, color: "#71809a" },
-  metaValue: { fontSize: 11, fontWeight: "700", color: "#253149" },
-  small: { fontSize: 11, color: "#78879b", marginTop: 9 },
+  metaLabel: { fontSize: 12, color: "#71809a" },
+  metaValue: { fontSize: 13, fontWeight: "800", color: "#2864e8" },
+  small: { fontSize: 12, color: "#66758a", lineHeight: 18, marginTop: 12 },
   approvedNote: {
-    fontSize: 11,
-    color: "#a05632",
-    backgroundColor: "#fff2e8",
-    padding: 8,
-    borderRadius: 7,
-    marginTop: 9,
+    fontSize: 12,
+    color: "#2458c7",
+    backgroundColor: "#edf4ff",
+    padding: 11,
+    borderRadius: 10,
+    marginTop: 12,
   },
   cardAction: {
     flexDirection: "row",
-    justifyContent: "center",
+    justifyContent: "space-between",
     alignItems: "center",
-    gap: 5,
-    marginTop: 10,
-    paddingVertical: 9,
-    borderRadius: 7,
-    backgroundColor: "#eaf1ff",
+    gap: 8,
+    marginTop: 14,
+    paddingHorizontal: 13,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: "#2864e8",
   },
+  cardActionText: { color: "#fff", fontSize: 13, fontWeight: "700" },
   helpCard: {
     backgroundColor: "#eaf1ff",
     borderRadius: 8,
@@ -1525,9 +1525,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginTop: -14,
-    marginHorizontal: -14,
-    marginBottom: 14,
     paddingHorizontal: 18,
     paddingTop: 14,
     paddingBottom: 16,

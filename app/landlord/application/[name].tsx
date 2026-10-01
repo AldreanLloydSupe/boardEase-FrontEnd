@@ -29,15 +29,29 @@ export default function ApplicationReview() {
   const [application, setApplication] = React.useState<Record<string, string>>(
     {},
   );
+  const [tenantProfile, setTenantProfile] = React.useState<Record<string, unknown>>({});
   React.useEffect(() => {
     if (!db || !applicationId) return;
-    getDoc(doc(db, "applications", applicationId))
+    const firestore = db;
+    getDoc(doc(firestore, "applications", applicationId))
       .then((snapshot) => {
-        if (snapshot.exists())
-          setApplication(snapshot.data() as Record<string, string>);
+        if (snapshot.exists()) {
+          const data = snapshot.data();
+          setApplication(data as Record<string, string>);
+          if (data.tenantId) {
+            return getDoc(doc(firestore, "users", String(data.tenantId))).then((profile) => {
+              if (profile.exists()) setTenantProfile(profile.data());
+            });
+          }
+        }
       })
       .catch(() => undefined);
   }, [applicationId]);
+  const tenantName = String(tenantProfile.name || application.tenantName || applicant);
+  const tenantEmail = String(application.tenantEmail || "Not provided");
+  const tenantPhone = String(tenantProfile.phone || "Not provided");
+  const emergencyContact = String(tenantProfile.emergencyContact || "Not provided");
+  const status = String(application.status || "pending");
   const roomLabel = application.roomNumber
     ? `Room ${application.roomNumber} ï¿½ ${application.roomType || "Room"}`
     : "Room details pending";
@@ -162,31 +176,26 @@ export default function ApplicationReview() {
         </View>
         <View style={styles.headerText}>
           <Text style={styles.title}>Review Applicant</Text>
-          <Text style={styles.subtitle}>BoardEase Ref: #APP-2026-89</Text>
         </View>
-        <Text style={styles.pending}>● Pending Review</Text>
+        <Text style={styles.pending}>{status.toUpperCase()}</Text>
       </View>
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.profile}>
           <View style={styles.initials}>
             <Text style={styles.initialsText}>
-              {applicant.slice(0, 2).toUpperCase()}
+              {tenantName.slice(0, 2).toUpperCase()}
             </Text>
             <View style={styles.verified}>
               <Ionicons name="checkmark" size={11} color="#fff" />
             </View>
           </View>
           <View style={styles.profileInfo}>
-            <Text style={styles.name}>{applicant}</Text>
-            <Text style={styles.role}>Student</Text>
+            <Text style={styles.name}>{tenantName}</Text>
+            <Text style={styles.role}>Tenant applicant</Text>
             <Text style={styles.applied}>Applied for {cleanRoomLabel}</Text>
-            <Text style={styles.muted}>
-              DLSU Dasmariñas · 3rd Year Eng&apos;g
-            </Text>
           </View>
         </View>
         <View style={styles.contactRow}>
-          <Action icon="call-outline" label="Call" />
           <Action icon="chatbubble-outline" label="Chat" />
           <Action icon="mail-outline" label="Email" />
         </View>
@@ -199,21 +208,14 @@ export default function ApplicationReview() {
             <InfoBox label="Requested Room" value={cleanRoomLabel} />
             <InfoBox label="Monthly Rent" value={displayPrice} />
           </View>
-          <View style={styles.dueBox}>
-            <Text style={styles.boxLabel}>Rent Due Date</Text>
-            <Text style={styles.boxValue}>
-              5th of every month{" "}
-              <Text style={styles.muted}>(Next due: Dec 5, 2026)</Text>
-            </Text>
-          </View>
         </Card>
         <Card title="Personal & Contact Info" icon="person-outline" tag="Edit">
-          <InfoLine label="Full Name" value={applicant} />
-          <InfoLine label="Contact Number" value="+63 917 555 1234" />
-          <InfoLine label="Email" value="juan.delacruz@email.com" />
+          <InfoLine label="Full Name" value={tenantName} />
+          <InfoLine label="Contact Number" value={tenantPhone} />
+          <InfoLine label="Email" value={tenantEmail} />
           <InfoLine
             label="Emergency Contact"
-            value="Maria Dela Cruz\n(Mother) 0918 222 3344"
+            value={emergencyContact}
           />
         </Card>
       </ScrollView>

@@ -1,4 +1,4 @@
-import { TenantHeaderMark } from "@/components/tenant-header-mark";
+import { TenantPageHeader } from "@/components/tenant-page-header";
 import { AssignedTenantNav } from "@/components/tenant-navigation";
 import { useAuth } from "@/lib/auth-context";
 import { db } from "@/lib/firebase";
@@ -41,20 +41,7 @@ export default function TenantHome() {
     : "No room assigned";
   return (
     <SafeAreaView style={styles.page}>
-      <View style={styles.header}>
-        <View style={styles.headerBrand}>
-          <TenantHeaderMark />
-          <View style={styles.headerCopy}>
-            <Text style={styles.kicker}>BOARDEASE</Text>
-            <View style={styles.headerRow}>
-              <Pressable onPress={() => router.push("/tenant/account" as any)}>
-                <Text style={styles.welcome}>Welcome back,</Text>
-                <Text style={styles.name}>{user?.displayName || "Tenant"}</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </View>
+      <TenantPageHeader title="Home" backHref="/tenant/account" />
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.due}>
           <View>

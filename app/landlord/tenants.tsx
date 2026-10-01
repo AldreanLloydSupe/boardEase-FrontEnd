@@ -1,5 +1,7 @@
 import { LandlordNavigation } from "@/components/landlord-navigation";
 import { db } from "@/lib/firebase";
+import { createNotification } from "@/lib/notification-data";
+import { vacateTenantRoom } from "@/lib/room-vacate";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { collection, getDocs } from "firebase/firestore";
@@ -194,7 +196,7 @@ export default function Tenants() {
           <Pressable key={`${tenant.name}-${tenant.room}-${index}`} style={styles.card} onPress={() => setSelectedTenant(tenant)}>
             <View style={styles.cardTop}>
               {tenant.photoURL ? (
-                <Image source={{ uri: tenant.photoURL }} style={styles.avatarImage} />
+                <Image source={tenant.photoURL ? { uri: tenant.photoURL } : undefined} style={styles.avatarImage} />
               ) : (
                 <View style={styles.avatarInitials}>
                   <Text style={styles.avatarInitialsText}>{String(tenant.name).slice(0, 2).toUpperCase()}</Text>
@@ -261,7 +263,7 @@ export default function Tenants() {
                 
                 <View style={styles.tenantProfile}>
                   {selectedTenant.photoURL ? (
-                    <Image source={{ uri: selectedTenant.photoURL }} style={styles.modalAvatar} />
+                    <Image source={selectedTenant.photoURL ? { uri: selectedTenant.photoURL } : undefined} style={styles.modalAvatar} />
                   ) : (
                     <View style={styles.modalAvatarPlaceholder}>
                       <Text style={styles.modalAvatarInitials}>{String(selectedTenant.name).slice(0, 2).toUpperCase()}</Text>
@@ -320,7 +322,53 @@ export default function Tenants() {
                 {!selectedTenant.isPending && (
                   <View style={styles.dangerZone}>
                     <Text style={styles.dangerTitle}>Landlord Actions</Text>
-                    <Pressable 
+
+                    <Pressable
+                      style={[styles.evictBtn, { marginBottom: 12 }]}
+                      onPress={() => {
+                        Alert.alert(
+                          "Remove tenant from room?",
+                          `This will immediately remove ${selectedTenant.name} from their rented room. Continue?`,
+                          [
+                            { text: "Cancel", style: "cancel" },
+                            {
+                              text: "Remove Tenant",
+                              style: "destructive",
+                              onPress: async () => {
+                                try {
+                                  const tenantId = selectedTenant.id || selectedTenant.raw?.id;
+                                  const roomNumber = selectedTenant.raw?.roomNumber || selectedTenant.raw?.roomId || "";
+                                  if (!tenantId) {
+                                    throw new Error("This tenant record is missing a user id.");
+                                  }
+                                  await vacateTenantRoom(tenantId, roomNumber);
+                                  await createNotification(tenantId, {
+                                    type: "room_update",
+                                    title: "Room assignment removed",
+                                    body: roomNumber
+                                      ? `Your room assignment for Room ${roomNumber} was removed by the landlord.`
+                                      : "Your room assignment was removed by the landlord.",
+                                    route: "/tenant/account",
+                                  });
+                                  Alert.alert("Tenant removed", "The tenant was successfully removed from the room.");
+                                  setSelectedTenant(null);
+                                } catch (error) {
+                                  Alert.alert(
+                                    "Unable to remove tenant",
+                                    error instanceof Error ? error.message : "Please try again.",
+                                  );
+                                }
+                              },
+                            },
+                          ],
+                        );
+                      }}
+                    >
+                      <Ionicons name="log-out-outline" size={18} color="#c62828" />
+                      <Text style={styles.evictBtnText}>Remove Tenant from Room</Text>
+                    </Pressable>
+
+                    <Pressable
                       style={styles.evictBtn}
                       onPress={() => {
                         Alert.alert(
@@ -328,16 +376,37 @@ export default function Tenants() {
                           `Are you sure you want to issue a 30-day notice to remove ${selectedTenant.name}?`,
                           [
                             { text: "Cancel", style: "cancel" },
-                            { 
-                              text: "Issue Notice", 
+                            {
+                              text: "Issue Notice",
                               style: "destructive",
-                              onPress: () => {
-                                Alert.alert("Notice Issued", "The tenant has been notified.");
-                                setSelectedTenant(null);
-                              }
-                            }
-                          ]
-                        )
+                              onPress: async () => {
+                                try {
+                                  const tenantId = selectedTenant.id || selectedTenant.raw?.id;
+                                  const roomNumber = selectedTenant.raw?.roomNumber || selectedTenant.raw?.roomId || "";
+                                  if (!tenantId) {
+                                    throw new Error("This tenant record is missing a user id.");
+                                  }
+                                  await vacateTenantRoom(tenantId, roomNumber);
+                                  await createNotification(tenantId, {
+                                    type: "room_update",
+                                    title: "Room assignment removed",
+                                    body: roomNumber
+                                      ? `Your room assignment for Room ${roomNumber} was removed by the landlord.`
+                                      : "Your room assignment was removed by the landlord.",
+                                    route: "/tenant/account",
+                                  });
+                                  Alert.alert("Notice Issued", "The tenant was removed from the room assignment and notified.");
+                                  setSelectedTenant(null);
+                                } catch (error) {
+                                  Alert.alert(
+                                    "Unable to remove tenant",
+                                    error instanceof Error ? error.message : "Please try again.",
+                                  );
+                                }
+                              },
+                            },
+                          ],
+                        );
                       }}
                     >
                       <Ionicons name="warning-outline" size={18} color="#c62828" />

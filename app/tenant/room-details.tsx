@@ -1,4 +1,4 @@
-import { TenantHeaderMark } from "@/components/tenant-header-mark";
+import { TenantPageHeader } from "@/components/tenant-page-header";
 import { useAuth } from "@/lib/auth-context";
 import { getFavoriteRooms, setFavoriteRooms } from "@/lib/favorite-rooms";
 import { db } from "@/lib/firebase";
@@ -9,17 +9,17 @@ import { router, useLocalSearchParams } from "expo-router";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import React from "react";
 import {
-  Alert,
-  Image,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
+    Alert,
+    Image,
+    KeyboardAvoidingView,
+    Modal,
+    Platform,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -151,26 +151,22 @@ export default function RoomDetails() {
 
   return (
     <SafeAreaView style={styles.page}>
-      <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.topBar}>
-          <Pressable style={styles.back} onPress={() => router.back()}>
-            <Ionicons name="chevron-back" size={21} color="#253149" />
-          </Pressable>
-          <View style={styles.headerTitleGroup}>
-            <TenantHeaderMark />
-            <Text style={styles.topTitle}>Room Details</Text>
-          </View>
+      <TenantPageHeader
+        title="Room Details"
+        backHref="/tenant/room-browser"
+        rightAction={
           <Pressable onPress={toggleFavorite}>
             <Ionicons
               name={isFavorite ? "heart" : "heart-outline"}
               size={22}
-              color={isFavorite ? "#e45862" : "#253149"}
+              color={isFavorite ? "#e45862" : "#fff"}
             />
           </Pressable>
-        </View>
-
+        }
+      />
+      <ScrollView contentContainerStyle={styles.content}>
         {params.image ? (
-          <Image source={{ uri: params.image }} style={styles.hero} />
+          <Image source={params.image ? { uri: params.image } : undefined} style={styles.hero} />
         ) : null}
         <View style={styles.headingRow}>
           <View style={styles.headingText}>

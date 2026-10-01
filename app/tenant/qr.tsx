@@ -1,4 +1,5 @@
-import { TenantHeaderMark } from '@/components/tenant-header-mark';
+import { TenantPageHeader } from '@/components/tenant-page-header';
+import { useAuth } from '@/lib/auth-context';
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { router } from 'expo-router';
@@ -7,6 +8,8 @@ import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function QRScanner() {
+  const { hasRoom } = useAuth();
+  const safeBackHref = hasRoom ? "/tenant/tenant-home" : "/tenant/room-browser";
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = React.useState(false);
 
@@ -17,6 +20,7 @@ export default function QRScanner() {
   if (!permission.granted) {
     return (
       <SafeAreaView style={styles.permissionPage}>
+        <TenantPageHeader title="Scan QR Code" backHref={safeBackHref} />
         <View style={styles.permissionContainer}>
           <Ionicons name="camera-outline" size={48} color="#2864e8" />
           <Text style={styles.permissionTitle}>Camera Access Required</Text>
@@ -24,7 +28,7 @@ export default function QRScanner() {
           <Pressable style={styles.permissionBtn} onPress={requestPermission}>
             <Text style={styles.permissionBtnText}>Allow Camera Access</Text>
           </Pressable>
-          <Pressable style={styles.permissionCancelBtn} onPress={() => router.back()}>
+          <Pressable style={styles.permissionCancelBtn} onPress={() => router.replace(safeBackHref as any)}>
             <Text style={styles.permissionCancelText}>Go Back</Text>
           </Pressable>
         </View>
@@ -36,7 +40,7 @@ export default function QRScanner() {
     setScanned(true);
     Alert.alert("QR Code Scanned!", `Type: ${type}\nData: ${data}`, [
       { text: "Scan Again", onPress: () => setScanned(false) },
-      { text: "Close", onPress: () => router.back() }
+      { text: "Close", onPress: () => router.replace(safeBackHref as any) }
     ]);
   };
 
@@ -63,16 +67,7 @@ export default function QRScanner() {
       </View>
 
       <SafeAreaView style={styles.uiWrapper} edges={['top', 'bottom']} pointerEvents="box-none">
-        <View style={styles.header}>
-          <Pressable onPress={() => router.back()} style={styles.backButton}>
-            <Ionicons name="close" size={28} color="#fff" />
-          </Pressable>
-          <View style={styles.titleGroup}>
-            <TenantHeaderMark />
-            <Text style={styles.title}>Scan QR Code</Text>
-          </View>
-          <View style={{ width: 44 }} />
-        </View>
+        <TenantPageHeader title="Scan QR Code" backHref={safeBackHref} />
 
         <View style={styles.footer}>
           <Text style={styles.footerText}>
