@@ -2,6 +2,9 @@ import { LandlordNavigation } from "@/components/landlord-navigation";
 import { db } from "@/lib/firebase";
 import { createNotification } from "@/lib/notification-data";
 import { Ionicons } from "@expo/vector-icons";
+import DateTimePicker, {
+  type DateTimePickerEvent,
+} from "@react-native-community/datetimepicker";
 import { router } from "expo-router";
 import {
   collection,
@@ -16,6 +19,7 @@ import {
   Alert,
   Image,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -47,6 +51,13 @@ function amountValue(amount: Payment["amount"]) {
 }
 
 function paymentTime(payment: Payment) {
+  if (payment.dateSent) {
+    const match = payment.dateSent.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    const sentAt = match
+      ? new Date(Number(match[3]), Number(match[1]) - 1, Number(match[2])).getTime()
+      : Date.parse(payment.dateSent);
+    if (!Number.isNaN(sentAt) && sentAt > 0) return sentAt;
+  }
   const createdAt = payment.createdAt;
   if (createdAt && typeof createdAt === "object" && "toMillis" in createdAt) {
     return createdAt.toMillis();
@@ -64,6 +75,10 @@ function formatCurrency(amount: number) {
   });
 }
 
+function formatMonth(value: Date) {
+  return value.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+}
+
 function paymentDate(payment: Payment) {
   if (payment.dateSent) return payment.dateSent;
   const timestamp = paymentTime(payment);
@@ -71,14 +86,14 @@ function paymentDate(payment: Payment) {
 }
 
 export default function Finance() {
-  const [pendingPayments, setPendingPayments] = React.useState<Payment[]>([]);
-  const [approvedPayments, setApprovedPayments] = React.useState<Payment[]>([]);
   const [allPayments, setAllPayments] = React.useState<Payment[]>([]);
   const [selectedPayment, setSelectedPayment] = React.useState<Payment | null>(null);
   const [showAllPayments, setShowAllPayments] = React.useState(false);
   const [isLoading, setIsLoading] = React.useState(Boolean(db));
   const [isUpdating, setIsUpdating] = React.useState(false);
   const [loadError, setLoadError] = React.useState(!db);
+  const [selectedMonth, setSelectedMonth] = React.useState(() => new Date());
+  const [isDatePickerOpen, setIsDatePickerOpen] = React.useState(false);
 
   React.useEffect(() => {
     if (!db) {
@@ -94,8 +109,6 @@ export default function Finance() {
         })) as Payment[];
         allPayments.sort((left, right) => paymentTime(right) - paymentTime(left));
         setAllPayments(allPayments);
-        setPendingPayments(allPayments.filter((payment) => payment.status === "pending"));
-        setApprovedPayments(allPayments.filter((payment) => payment.status === "approved"));
         setLoadError(false);
         setIsLoading(false);
       },
@@ -106,15 +119,32 @@ export default function Finance() {
     );
   }, []);
 
-  const pendingTotal = pendingPayments.reduce(
+  const selectedMonthPayments = allPayments.filter((payment) => {
+    const timestamp = paymentTime(payment);
+    if (!timestamp) return false;
+    const date = new Date(timestamp);
+    return (
+      date.getFullYear() === selectedMonth.getFullYear() &&
+      date.getMonth() === selectedMonth.getMonth()
+    );
+  });
+  const selectedPendingPayments = selectedMonthPayments.filter((payment) => payment.status === "pending");
+  const selectedApprovedPayments = selectedMonthPayments.filter((payment) => payment.status === "approved");
+  const pendingTotal = selectedPendingPayments.reduce(
     (total, payment) => total + amountValue(payment.amount),
     0,
   );
-  const approvedTotal = approvedPayments.reduce(
+  const approvedTotal = selectedApprovedPayments.reduce(
     (total, payment) => total + amountValue(payment.amount),
     0,
   );
-  const recentPayments = allPayments.slice(0, 8);
+  const projectedRevenue = approvedTotal + pendingTotal;
+  const recentPayments = selectedMonthPayments.slice(0, 8);
+
+  function handleMonthChange(event: DateTimePickerEvent, date?: Date) {
+    setIsDatePickerOpen(false);
+    if (event.type === "set" && date) setSelectedMonth(date);
+  }
 
   async function updatePaymentStatus(payment: Payment, status: "approved" | "rejected") {
     if (!db) return;
@@ -159,62 +189,67 @@ export default function Finance() {
         </View>
       </View>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
-        <View style={styles.period}>
-          <Text>October 2026</Text>
+        <Pressable
+          style={styles.period}
+          onPress={() => setIsDatePickerOpen(true)}
+          accessibilityRole="button"
+          accessibilityLabel={`Select finance month, ${formatMonth(selectedMonth)}`}
+        >
+          <Text>{formatMonth(selectedMonth)}</Text>
           <Ionicons name="calendar-outline" size={16} color="#66768a" />
-        </View>
+        </Pressable>
+        {isDatePickerOpen && (
+          <DateTimePicker
+            value={selectedMonth}
+            mode="date"
+            display={Platform.OS === "ios" ? "compact" : "default"}
+            onChange={handleMonthChange}
+          />
+        )}
         <Text style={styles.sectionLabel}>COLLECTED REVENUE</Text>
         <View style={styles.revenue}>
           <View>
             <Text style={styles.revenueValue}>{formatCurrency(approvedTotal)}</Text>
-            <Text style={styles.muted}>{approvedPayments.length} approved payments</Text>
+            <Text style={styles.muted}>{selectedApprovedPayments.length} approved payments</Text>
           </View>
-          <Text style={styles.growth}>+12.4%</Text>
-          <Text style={styles.revenuePercent}>66.2% Goal</Text>
         </View>
         <View style={styles.smallGrid}>
           <Metric
             label="PENDING/OVERDUE"
             value={formatCurrency(pendingTotal)}
-            sub={`${pendingPayments.length} pending payments`}
+            sub={`${selectedPendingPayments.length} pending payments`}
             color="#d9634b"
           />
           <Metric
-            label="PROJECTED NET"
-            value="₱0"
-            sub="No payment data"
+            label="PROJECTED REVENUE"
+            value={formatCurrency(projectedRevenue)}
+            sub={`${selectedMonthPayments.length} submitted payments`}
             color="#536783"
           />
         </View>
-        <Section title="Inflow Composition" action="Total: ₱0" />
+        <Section title="Inflow Composition" action={`Total: ${formatCurrency(approvedTotal)}`} />
         <View style={styles.composition}>
           <View
-            style={[styles.bar, { width: "86%", backgroundColor: "#2864e8" }]}
+            style={[
+              styles.bar,
+              {
+                width: approvedTotal > 0 ? "100%" : "0%",
+                backgroundColor: "#2864e8",
+              },
+            ]}
           />
-          <View
-            style={[styles.bar, { width: "9%", backgroundColor: "#f0aa41" }]}
-          />
-          <View
-            style={[styles.bar, { width: "5%", backgroundColor: "#e97e68" }]}
-          />
-          {[
-            ["Base Room Rent", "₱72,500"],
-            ["Utilities & Wi-Fi", "₱8,700"],
-            ["Fines & Fees", "₱3,000"],
-          ].map(([label, value]) => (
-            <View style={styles.line} key={label}>
-              <Text style={styles.lineLabel}>{label}</Text>
-              <Text style={styles.lineValue}>{value}</Text>
-            </View>
-          ))}
+          <View style={styles.line}>
+            <Text style={styles.lineLabel}>Approved payments</Text>
+            <Text style={styles.lineValue}>{formatCurrency(approvedTotal)}</Text>
+          </View>
         </View>
-        <Section title="Overdue Watchlist" action={`${pendingPayments.length} Payments`} />
+        <Section title="Overdue Watchlist" action={`${selectedPendingPayments.length} Payments`} />
         {isLoading ? (
           <ActivityIndicator color="#2864e8" />
-        ) : pendingPayments.length === 0 ? (
-          <Text style={styles.emptyText}>No pending tenant payments.</Text>
+        ) : selectedPendingPayments.length === 0 ? (
+          <Text style={styles.emptyText}>No pending tenant payments for {formatMonth(selectedMonth)}.</Text>
         ) : (
-          pendingPayments.slice(0, 4).map((payment) => (
+          selectedPendingPayments.slice(0, 4).map((payment) => (
             <Pressable
               style={styles.overdue}
               key={payment.id}
@@ -235,7 +270,7 @@ export default function Finance() {
         )}
         <Section
           title="Recent Payments"
-          action={`See all (${allPayments.length})`}
+          action={`See all (${selectedMonthPayments.length})`}
           onPress={() => setShowAllPayments(true)}
         />
         {loadError ? (
@@ -243,7 +278,7 @@ export default function Finance() {
         ) : isLoading ? (
           <ActivityIndicator color="#2864e8" />
         ) : recentPayments.length === 0 ? (
-          <Text style={styles.emptyText}>No tenant payments recorded yet.</Text>
+          <Text style={styles.emptyText}>No tenant payments recorded for {formatMonth(selectedMonth)}.</Text>
         ) : (
           recentPayments.map((payment) => {
             const row = (
@@ -302,7 +337,7 @@ export default function Finance() {
             <View style={styles.detailHeader}>
               <View style={styles.flex}>
                 <Text style={styles.detailTitle}>Payment History</Text>
-                <Text style={styles.muted}>{allPayments.length} submissions</Text>
+                <Text style={styles.muted}>{selectedMonthPayments.length} submissions · {formatMonth(selectedMonth)}</Text>
               </View>
               <TouchableOpacity
                 onPress={() => setShowAllPayments(false)}
@@ -314,10 +349,10 @@ export default function Finance() {
               </TouchableOpacity>
             </View>
             <ScrollView contentContainerStyle={styles.historyList}>
-              {allPayments.length === 0 ? (
-                <Text style={styles.emptyText}>No tenant payments recorded yet.</Text>
+              {selectedMonthPayments.length === 0 ? (
+                <Text style={styles.emptyText}>No tenant payments recorded for {formatMonth(selectedMonth)}.</Text>
               ) : (
-                allPayments.map((payment) => (
+                selectedMonthPayments.map((payment) => (
                   <TouchableOpacity
                     key={payment.id}
                     style={styles.historyItem}

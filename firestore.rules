@@ -58,6 +58,66 @@ service cloud.firestore {
       allow write: if request.auth != null && request.auth.token.admin == true;
     }
 
+    match /maintenanceRequests/{requestId} {
+      allow create: if request.auth != null &&
+        request.resource.data.tenantId == request.auth.uid &&
+        request.resource.data.title is string &&
+        request.resource.data.details is string &&
+        request.resource.data.status == 'in_progress' &&
+        request.resource.data.createdAt == request.time;
+      allow read: if isLandlord() ||
+        (request.auth != null && resource.data.tenantId == request.auth.uid);
+      allow update: if isLandlord() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']) &&
+        request.resource.data.status in ['in_progress', 'parts_sourced', 'completed'] &&
+        request.resource.data.updatedAt is string;
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        function ownsRequest() {
+          return request.auth != null &&
+            get(/databases/$(database)/documents/maintenanceRequests/$(requestId)).data.tenantId == request.auth.uid;
+        }
+
+        allow read: if isLandlord() || ownsRequest();
+        allow create: if request.auth != null &&
+          (isLandlord()
+            ? request.resource.data.senderId == 'landlord'
+            : ownsRequest() && request.resource.data.senderId == request.auth.uid) &&
+          request.resource.data.keys().hasOnly(['senderId', 'senderName', 'body', 'createdAt']) &&
+          request.resource.data.keys().hasAll(['senderId', 'senderName', 'body', 'createdAt']) &&
+          request.resource.data.senderName is string &&
+          request.resource.data.body is string &&
+          request.resource.data.body.size() > 0 &&
+          request.resource.data.body.size() <= 2000 &&
+          request.resource.data.createdAt == request.time;
+        allow update, delete: if false;
+      }
+    }
+
+    match /notifications/{notificationId} {
+      allow create: if request.auth != null &&
+        (isLandlord() || request.resource.data.recipientId == request.auth.uid) &&
+        request.resource.data.keys().hasOnly([
+          'recipientId', 'title', 'body', 'route', 'type', 'read', 'createdAt'
+        ]) &&
+        request.resource.data.keys().hasAll([
+          'recipientId', 'title', 'body', 'read', 'createdAt'
+        ]) &&
+        request.resource.data.recipientId is string &&
+        request.resource.data.title is string &&
+        request.resource.data.body is string &&
+        request.resource.data.read == false &&
+        request.resource.data.createdAt == request.time;
+      allow read: if isLandlord() ||
+        (request.auth != null && resource.data.recipientId == request.auth.uid);
+      allow update: if request.auth != null &&
+        resource.data.recipientId == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']) &&
+        request.resource.data.read is bool;
+      allow delete: if false;
+    }
+
     match /messages/{messageId} {
       allow create: if isLandlord() &&
         request.resource.data.keys().hasOnly([

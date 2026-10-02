@@ -9,11 +9,13 @@ import { useEffect, useState } from "react";
 import {
     Alert,
     Image,
+    Linking,
     Modal,
     Pressable,
     ScrollView,
     StyleSheet,
     Text,
+    TextInput,
     View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -21,6 +23,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 export default function Tenants() {
   const [allTenants, setAllTenants] = useState<any[]>([]);
   const [selectedTenant, setSelectedTenant] = useState<any | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(Boolean(db));
   const [filter, setFilter] = useState<
     "all" | "overdue" | "ending" | "pending"
@@ -35,17 +38,29 @@ export default function Tenants() {
         const assignedTenants = usersSnapshot.docs
           .map((item) => ({ id: item.id, ...item.data() }))
           .filter((item: any) => item.role !== "admin" && item.hasRoom === true)
-          .map((item: any) => ({
+          .map((item: any) => {
+            const leaseEndValue = item.leaseEndDate || item.leaseEnd || item.endDate;
+            const leaseEndDate = leaseEndValue?.toDate?.() || (leaseEndValue ? new Date(leaseEndValue) : null);
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const daysUntilLeaseEnd = leaseEndDate && !Number.isNaN(leaseEndDate.getTime())
+              ? Math.ceil((leaseEndDate.getTime() - today.getTime()) / 86400000)
+              : null;
+            const isOverdue = item.paymentStatus === "overdue" || item.isOverdue === true;
+            const isEndingSoon = daysUntilLeaseEnd !== null && daysUntilLeaseEnd >= 0 && daysUntilLeaseEnd <= 30;
+            return {
             id: item.id,
             name: item.name || item.email || "Tenant",
             room: `Room ${item.roomNumber || item.roomId || "Assigned"} · ${item.roomType || "Room"}`,
             rent: `₱${item.roomRent || "—"}`,
-            status: item.paymentStatus === "overdue" || item.isOverdue === true ? "OVERDUE" : "ACTIVE LEASE",
-            color: "#d9f7e8",
+            status: isOverdue ? "OVERDUE" : isEndingSoon ? "ENDING SOON" : "ACTIVE LEASE",
+            color: isOverdue ? "#fff0c2" : isEndingSoon ? "#fff0c2" : "#d9f7e8",
             photoURL: item.photoURL,
+            phone: item.phone,
             isPending: false,
             raw: item
-          }));
+            };
+          });
         const pendingTenants = applicationsSnapshot.docs
           .map((item) => ({ id: item.id, ...item.data() }))
           .filter((item: any) => !item.status || item.status === "pending")
@@ -57,6 +72,7 @@ export default function Tenants() {
             status: "PENDING REVIEW",
             color: "#fff0c2",
             photoURL: item.tenantPhotoURL,
+            phone: item.phone,
             isPending: true,
             raw: item
           }));
@@ -65,18 +81,42 @@ export default function Tenants() {
       .catch(() => setAllTenants([]))
       .finally(() => setLoading(false));
   }, []);
-  const filteredTenants = allTenants.filter(
-    (tenant) =>
-      filter === "all" ||
-      (filter === "overdue"
-        ? tenant.status.includes("OVERDUE")
-        : filter === "ending"
-          ? tenant.status.includes("ENDING")
-          : tenant.status.includes("PENDING")),
-  );
+  const normalizedQuery = searchQuery.trim().toLocaleLowerCase();
+  const filteredTenants = allTenants.filter((tenant) => {
+    const matchesFilter = filter === "all"
+      || (filter === "overdue" && tenant.status.includes("OVERDUE"))
+      || (filter === "ending" && tenant.status.includes("ENDING"))
+      || (filter === "pending" && tenant.status.includes("PENDING"));
+    const searchableText = [tenant.name, tenant.room, tenant.phone, tenant.raw?.email, tenant.raw?.tenantEmail]
+      .filter(Boolean)
+      .join(" ")
+      .toLocaleLowerCase();
+    return matchesFilter && (!normalizedQuery || searchableText.includes(normalizedQuery));
+  });
   const overdueCount = allTenants.filter((tenant) =>
     tenant.status.includes("OVERDUE"),
   ).length;
+  const endingSoonCount = allTenants.filter((tenant) =>
+    tenant.status.includes("ENDING"),
+  ).length;
+  const pendingCount = allTenants.filter((tenant) =>
+    tenant.status.includes("PENDING"),
+  ).length;
+
+  async function callTenant(tenant: any) {
+    const phone = String(tenant.phone || "").trim();
+    const dialablePhone = phone.replace(/[^\d+]/g, "");
+    if (!dialablePhone) {
+      Alert.alert("Phone number unavailable", `${tenant.name} does not have a phone number on file.`);
+      return;
+    }
+
+    try {
+      await Linking.openURL(`tel:${dialablePhone}`);
+    } catch {
+      Alert.alert("Unable to open phone app", "This device cannot place calls from BoardEase.");
+    }
+  }
   return (
     <SafeAreaView style={styles.page}>
       <View style={styles.header}>
@@ -89,7 +129,7 @@ export default function Tenants() {
             <Text style={styles.title}>Tenants</Text>
             <Text style={styles.subtitle}>
               {allTenants.filter((tenant) => tenant.status === "ACTIVE LEASE").length}{" "}
-              Active Tenants · 0 Overdue ·{" "}
+              Active Tenants · {overdueCount} Overdue ·{" "}
               {
                 allTenants.filter((tenant) => tenant.status.includes("PENDING"))
                   .length
@@ -102,19 +142,30 @@ export default function Tenants() {
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.search}>
           <Ionicons name="search-outline" size={16} color="#8997a6" />
-          <Text style={styles.searchText}>
-            Search by name, room #, or phone...
-          </Text>
+          <TextInput
+            style={styles.searchInput}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Search by name, room #, or phone..."
+            placeholderTextColor="#8997a6"
+            returnKeyType="search"
+            accessibilityLabel="Search tenants by name, room, phone, or email"
+          />
+          {searchQuery.length > 0 && (
+            <Pressable onPress={() => setSearchQuery("")} accessibilityRole="button" accessibilityLabel="Clear tenant search">
+              <Ionicons name="close-circle" size={18} color="#8997a6" />
+            </Pressable>
+          )}
         </View>
         <View style={styles.filters}>
-          <Pressable onPress={() => setFilter("all")}>
+          <Pressable onPress={() => setFilter("all")} accessibilityRole="button" accessibilityState={{ selected: filter === "all" }}>
             <Text
               style={[styles.filter, filter === "all" && styles.filterActive]}
             >
               All Tenants ({allTenants.length})
             </Text>
           </Pressable>
-          <Pressable onPress={() => setFilter("overdue")}>
+          <Pressable onPress={() => setFilter("overdue")} accessibilityRole="button" accessibilityState={{ selected: filter === "overdue" }}>
             <Text
               style={[
                 styles.filter,
@@ -124,17 +175,17 @@ export default function Tenants() {
               Overdue ({overdueCount})
             </Text>
           </Pressable>
-          <Pressable onPress={() => setFilter("ending")}>
+          <Pressable onPress={() => setFilter("ending")} accessibilityRole="button" accessibilityState={{ selected: filter === "ending" }}>
             <Text
               style={[
                 styles.filter,
                 filter === "ending" && styles.filterActive,
               ]}
             >
-              Lease Ending Soon (0)
+              Lease Ending Soon ({endingSoonCount})
             </Text>
           </Pressable>
-          <Pressable onPress={() => setFilter("pending")}>
+          <Pressable onPress={() => setFilter("pending")} accessibilityRole="button" accessibilityState={{ selected: filter === "pending" }}>
             <Text
               style={[
                 styles.filter,
@@ -142,10 +193,7 @@ export default function Tenants() {
               ]}
             >
               Pending (
-              {
-                allTenants.filter((tenant) => tenant.status.includes("PENDING"))
-                  .length
-              }
+              {pendingCount}
               )
             </Text>
           </Pressable>
@@ -184,10 +232,13 @@ export default function Tenants() {
         ) : (
           filteredTenants.length === 0 && (
             <View style={styles.empty}>
-              <Text style={styles.emptyTitle}>No tenants yet</Text>
+              <Text style={styles.emptyTitle}>
+                {searchQuery || filter !== "all" ? "No matching tenants" : "No tenants yet"}
+              </Text>
               <Text style={styles.emptyText}>
-                Tenants will appear here after an application is approved and a
-                room is assigned.
+                {searchQuery || filter !== "all"
+                  ? "Try a different search or filter."
+                  : "Tenants will appear here after an application is approved and a room is assigned."}
               </Text>
             </View>
           )
@@ -205,7 +256,7 @@ export default function Tenants() {
               <View style={styles.person}>
                 <Text style={styles.name}>{tenant.name}</Text>
                 <Text style={styles.room}>{tenant.room}</Text>
-                <Text style={styles.phone}>+63 917 555 1234</Text>
+                <Text style={styles.phone}>{tenant.phone || "Phone not provided"}</Text>
               </View>
               <Text style={[styles.badge, { backgroundColor: tenant.color }]}>
                 {tenant.status}
@@ -218,7 +269,7 @@ export default function Tenants() {
               </Text>
               <Pressable
                 style={styles.smallButton}
-                onPress={(e) => { e.stopPropagation(); Alert.alert("Call tenant", `Call ${tenant.name}?`); }}
+                onPress={(e) => { e.stopPropagation(); void callTenant(tenant); }}
               >
                 <Ionicons name="call-outline" size={12} color="#173b36" />
                 <Text>Call</Text>
@@ -505,7 +556,7 @@ const styles = StyleSheet.create({
   registerText: { color: "#fff", fontSize: 12, fontWeight: "600" },
   content: { padding: 16, paddingBottom: 24 },
   search: {
-    height: 44,
+    minHeight: 44,
     backgroundColor: "#fff",
     borderWidth: 1,
     borderColor: "#dce7f5",
@@ -515,7 +566,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 7,
   },
-  searchText: { fontSize: 12, color: "#8997a6" },
+  searchInput: { flex: 1, minWidth: 0, height: 42, fontSize: 12, color: "#253149", paddingVertical: 0 },
   filters: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginVertical: 12 },
   filterActive: {
     fontSize: 11,

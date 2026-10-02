@@ -71,15 +71,19 @@ export default function LandlordRequests() {
         body: replyText.trim(),
         createdAt: serverTimestamp(),
       });
-      if (selectedRequest.tenantId) {
-        await createNotification(selectedRequest.tenantId, {
-          type: "maintenance_message",
-          title: "New message from Kuya Bert",
-          body: replyText.trim(),
-          route: "/tenant/applications",
-        });
-      }
       setReplyText("");
+      if (selectedRequest.tenantId) {
+        try {
+          await createNotification(selectedRequest.tenantId, {
+            type: "maintenance_message",
+            title: "New message from Kuya Bert",
+            body: replyText.trim(),
+            route: "/tenant/applications",
+          });
+        } catch {
+          Alert.alert("Reply sent", "The message was saved, but the tenant notification could not be delivered.");
+        }
+      }
     } catch {
       Alert.alert("Unable to send reply", "Please try again.");
     }
@@ -94,15 +98,18 @@ export default function LandlordRequests() {
         status: next,
         updatedAt: new Date().toISOString(),
       });
-      // The tenant's bell updates immediately through Firestore.
       const tenantId = request.tenantId;
       if (tenantId) {
-        await createNotification(tenantId, {
-          type: "maintenance_update",
-          title: "Maintenance request updated",
-          body: `${request.title || "Your maintenance request"} is now ${next.replace("_", " ")}.`,
-          route: "/tenant/applications",
-        });
+        try {
+          await createNotification(tenantId, {
+            type: "maintenance_update",
+            title: "Maintenance request updated",
+            body: `${request.title || "Your maintenance request"} is now ${next.replace("_", " ")}.`,
+            route: "/tenant/applications",
+          });
+        } catch {
+          Alert.alert("Status updated", "The request status was saved, but the tenant notification could not be delivered.");
+        }
       }
     } catch {
       Alert.alert("Unable to update request", "Please try again.");
