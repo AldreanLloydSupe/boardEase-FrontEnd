@@ -1,22 +1,24 @@
+import { RevenueChart } from "@/components/revenue-chart";
+import { paymentAmount as amountValue, paymentTime } from "@/lib/finance-chart";
+import { AppAlert as Alert } from "@/components/app-alert";
 import { LandlordNavigation } from "@/components/landlord-navigation";
 import { db } from "@/lib/firebase";
 import { createNotification } from "@/lib/notification-data";
 import { Ionicons } from "@expo/vector-icons";
-import DateTimePicker, {
-  type DateTimePickerEvent,
-} from "@react-native-community/datetimepicker";
+import DateTimePicker from "@/components/date-time-picker";
+import type { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { router } from "expo-router";
 import {
   collection,
   doc,
   onSnapshot,
   updateDoc,
+  serverTimestamp,
   type DocumentData,
 } from "firebase/firestore";
 import React from "react";
 import {
   ActivityIndicator,
-  Alert,
   Image,
   Modal,
   Platform,
@@ -43,30 +45,6 @@ type Payment = {
   createdAt?: { toMillis: () => number } | Date | string | null;
 };
 
-function amountValue(amount: Payment["amount"]) {
-  if (typeof amount === "number") return Number.isFinite(amount) ? amount : 0;
-  if (typeof amount !== "string") return 0;
-  const parsed = Number(amount.replace(/[^\d.-]/g, ""));
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function paymentTime(payment: Payment) {
-  if (payment.dateSent) {
-    const match = payment.dateSent.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    const sentAt = match
-      ? new Date(Number(match[3]), Number(match[1]) - 1, Number(match[2])).getTime()
-      : Date.parse(payment.dateSent);
-    if (!Number.isNaN(sentAt) && sentAt > 0) return sentAt;
-  }
-  const createdAt = payment.createdAt;
-  if (createdAt && typeof createdAt === "object" && "toMillis" in createdAt) {
-    return createdAt.toMillis();
-  }
-  if (createdAt instanceof Date) return createdAt.getTime();
-  if (typeof createdAt === "string") return Date.parse(createdAt) || 0;
-  return 0;
-}
-
 function formatCurrency(amount: number) {
   return amount.toLocaleString("en-PH", {
     style: "currency",
@@ -82,12 +60,16 @@ function formatMonth(value: Date) {
 function paymentDate(payment: Payment) {
   if (payment.dateSent) return payment.dateSent;
   const timestamp = paymentTime(payment);
-  return timestamp ? new Date(timestamp).toLocaleDateString("en-PH") : "Date unavailable";
+  return timestamp
+    ? new Date(timestamp).toLocaleDateString("en-PH")
+    : "Date unavailable";
 }
 
 export default function Finance() {
   const [allPayments, setAllPayments] = React.useState<Payment[]>([]);
-  const [selectedPayment, setSelectedPayment] = React.useState<Payment | null>(null);
+  const [selectedPayment, setSelectedPayment] = React.useState<Payment | null>(
+    null,
+  );
   const [showAllPayments, setShowAllPayments] = React.useState(false);
   const [isLoading, setIsLoading] = React.useState(Boolean(db));
   const [isUpdating, setIsUpdating] = React.useState(false);
@@ -107,7 +89,9 @@ export default function Finance() {
           id: paymentDoc.id,
           ...(paymentDoc.data() as DocumentData),
         })) as Payment[];
-        allPayments.sort((left, right) => paymentTime(right) - paymentTime(left));
+        allPayments.sort(
+          (left, right) => paymentTime(right) - paymentTime(left),
+        );
         setAllPayments(allPayments);
         setLoadError(false);
         setIsLoading(false);
@@ -128,8 +112,12 @@ export default function Finance() {
       date.getMonth() === selectedMonth.getMonth()
     );
   });
-  const selectedPendingPayments = selectedMonthPayments.filter((payment) => payment.status === "pending");
-  const selectedApprovedPayments = selectedMonthPayments.filter((payment) => payment.status === "approved");
+  const selectedPendingPayments = selectedMonthPayments.filter(
+    (payment) => payment.status === "pending",
+  );
+  const selectedApprovedPayments = selectedMonthPayments.filter(
+    (payment) => payment.status === "approved",
+  );
   const pendingTotal = selectedPendingPayments.reduce(
     (total, payment) => total + amountValue(payment.amount),
     0,
@@ -146,20 +134,35 @@ export default function Finance() {
     if (event.type === "set" && date) setSelectedMonth(date);
   }
 
-  async function updatePaymentStatus(payment: Payment, status: "approved" | "rejected") {
-    if (!db) return;
+  async function updatePaymentStatus(
+    payment: Payment,
+    status: "approved" | "rejected",
+  ) {
+    if (!db || isUpdating) return;
     setIsUpdating(true);
     try {
-      await updateDoc(doc(db, "payments", payment.id), { status });
+      await updateDoc(doc(db, "payments", payment.id), {
+        status,
+        updatedAt: serverTimestamp(),
+        [status === "approved" ? "approvedAt" : "rejectedAt"]:
+          serverTimestamp(),
+      });
       if (payment.tenantId) {
         await createNotification(payment.tenantId, {
           type: "payment_update",
-          title: status === "approved" ? "Payment approved" : "Payment rejected",
-          body: status === "approved"
-            ? "Your payment proof was verified by the landlord."
-            : "Your payment proof was rejected. Please review and submit it again.",
+          title:
+            status === "approved" ? "Payment approved" : "Payment rejected",
+          body:
+            status === "approved"
+              ? "Your payment proof was verified by the landlord."
+              : "Your payment proof was rejected. Please review and submit it again.",
           route: "/tenant/payments",
-        });
+        }).catch(() =>
+          Alert.alert(
+            "Payment saved",
+            "The notification could not be sent. The updated payment is still visible to the tenant.",
+          ),
+        );
       }
       setSelectedPayment(null);
       Alert.alert(
@@ -169,7 +172,10 @@ export default function Finance() {
           : "The payment submission has been rejected.",
       );
     } catch {
-      Alert.alert("Unable to update payment", "Check your connection and try again.");
+      Alert.alert(
+        "Unable to update payment",
+        "Check your connection and try again.",
+      );
     } finally {
       setIsUpdating(false);
     }
@@ -206,11 +212,23 @@ export default function Finance() {
             onChange={handleMonthChange}
           />
         )}
-        <Text style={styles.sectionLabel}>COLLECTED REVENUE</Text>
+        <RevenueChart
+          payments={allPayments}
+          anchor={selectedMonth}
+          loading={isLoading}
+          error={loadError}
+        />
+        <Text style={styles.sectionLabel}>
+          COLLECTED REVENUE · {formatMonth(selectedMonth)}
+        </Text>
         <View style={styles.revenue}>
           <View>
-            <Text style={styles.revenueValue}>{formatCurrency(approvedTotal)}</Text>
-            <Text style={styles.muted}>{selectedApprovedPayments.length} approved payments</Text>
+            <Text style={styles.revenueValue}>
+              {formatCurrency(approvedTotal)}
+            </Text>
+            <Text style={styles.muted}>
+              {selectedApprovedPayments.length} approved payments
+            </Text>
           </View>
         </View>
         <View style={styles.smallGrid}>
@@ -227,7 +245,10 @@ export default function Finance() {
             color="#536783"
           />
         </View>
-        <Section title="Inflow Composition" action={`Total: ${formatCurrency(approvedTotal)}`} />
+        <Section
+          title="Inflow Composition"
+          action={`Total: ${formatCurrency(approvedTotal)}`}
+        />
         <View style={styles.composition}>
           <View
             style={[
@@ -240,14 +261,21 @@ export default function Finance() {
           />
           <View style={styles.line}>
             <Text style={styles.lineLabel}>Approved payments</Text>
-            <Text style={styles.lineValue}>{formatCurrency(approvedTotal)}</Text>
+            <Text style={styles.lineValue}>
+              {formatCurrency(approvedTotal)}
+            </Text>
           </View>
         </View>
-        <Section title="Overdue Watchlist" action={`${selectedPendingPayments.length} Payments`} />
+        <Section
+          title="Overdue Watchlist"
+          action={`${selectedPendingPayments.length} Payments`}
+        />
         {isLoading ? (
           <ActivityIndicator color="#2864e8" />
         ) : selectedPendingPayments.length === 0 ? (
-          <Text style={styles.emptyText}>No pending tenant payments for {formatMonth(selectedMonth)}.</Text>
+          <Text style={styles.emptyText}>
+            No pending tenant payments for {formatMonth(selectedMonth)}.
+          </Text>
         ) : (
           selectedPendingPayments.slice(0, 4).map((payment) => (
             <Pressable
@@ -258,13 +286,21 @@ export default function Finance() {
               accessibilityLabel={`Review pending payment from ${payment.tenantName || "Tenant"}`}
             >
               <View style={styles.round}>
-                <Text>{(payment.tenantName || "Tenant").slice(0, 2).toUpperCase()}</Text>
+                <Text>
+                  {(payment.tenantName || "Tenant").slice(0, 2).toUpperCase()}
+                </Text>
               </View>
               <View style={styles.flex}>
-                <Text style={styles.person}>{payment.tenantName || "Tenant"}</Text>
-                <Text style={styles.muted}>{paymentDate(payment)} · Pending review</Text>
+                <Text style={styles.person}>
+                  {payment.tenantName || "Tenant"}
+                </Text>
+                <Text style={styles.muted}>
+                  {paymentDate(payment)} · Pending review
+                </Text>
               </View>
-              <Text style={styles.overdueAmount}>{formatCurrency(amountValue(payment.amount))}</Text>
+              <Text style={styles.overdueAmount}>
+                {formatCurrency(amountValue(payment.amount))}
+              </Text>
             </Pressable>
           ))
         )}
@@ -274,34 +310,72 @@ export default function Finance() {
           onPress={() => setShowAllPayments(true)}
         />
         {loadError ? (
-          <Text style={styles.emptyText}>Unable to load payments. Check your Firebase connection and permissions.</Text>
+          <Text style={styles.emptyText}>
+            Unable to load payments. Check your Firebase connection and
+            permissions.
+          </Text>
         ) : isLoading ? (
           <ActivityIndicator color="#2864e8" />
         ) : recentPayments.length === 0 ? (
-          <Text style={styles.emptyText}>No tenant payments recorded for {formatMonth(selectedMonth)}.</Text>
+          <Text style={styles.emptyText}>
+            No tenant payments recorded for {formatMonth(selectedMonth)}.
+          </Text>
         ) : (
           recentPayments.map((payment) => {
             const row = (
               <View style={styles.payment}>
                 <Ionicons
-                  name={payment.status === "approved" ? "checkmark-circle-outline" : payment.status === "pending" ? "time-outline" : "close-circle-outline"}
+                  name={
+                    payment.status === "approved"
+                      ? "checkmark-circle-outline"
+                      : payment.status === "pending"
+                        ? "time-outline"
+                        : "close-circle-outline"
+                  }
                   size={22}
-                  color={payment.status === "approved" ? "#168866" : payment.status === "pending" ? "#d9634b" : "#71809a"}
+                  color={
+                    payment.status === "approved"
+                      ? "#168866"
+                      : payment.status === "pending"
+                        ? "#d9634b"
+                        : "#71809a"
+                  }
                 />
                 <View style={styles.flex}>
-                  <Text style={styles.person}>{payment.tenantName || "Tenant"}</Text>
+                  <Text style={styles.person}>
+                    {payment.tenantName || "Tenant"}
+                  </Text>
                   <Text style={styles.muted}>{paymentDate(payment)}</Text>
                 </View>
                 <View style={styles.paymentTrailing}>
-                  <Text style={styles.paymentAmount}>{formatCurrency(amountValue(payment.amount))}</Text>
-                  <Text style={[styles.statusBadge, payment.status === "approved" ? styles.approvedBadge : payment.status === "pending" ? styles.pendingBadge : styles.rejectedBadge]}>
-                    {payment.status === "approved" ? "Approved" : payment.status === "pending" ? "Pending" : "Rejected"}
+                  <Text style={styles.paymentAmount}>
+                    {formatCurrency(amountValue(payment.amount))}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.statusBadge,
+                      payment.status === "approved"
+                        ? styles.approvedBadge
+                        : payment.status === "pending"
+                          ? styles.pendingBadge
+                          : styles.rejectedBadge,
+                    ]}
+                  >
+                    {payment.status === "approved"
+                      ? "Approved"
+                      : payment.status === "pending"
+                        ? "Pending"
+                        : "Rejected"}
                   </Text>
                 </View>
               </View>
             );
             return payment.status === "pending" ? (
-              <Pressable key={payment.id} onPress={() => setSelectedPayment(payment)} accessibilityRole="button">
+              <Pressable
+                key={payment.id}
+                onPress={() => setSelectedPayment(payment)}
+                accessibilityRole="button"
+              >
                 {row}
               </Pressable>
             ) : (
@@ -309,21 +383,6 @@ export default function Finance() {
             );
           })
         )}
-        <Section title="Payables & Remittances" action="Due Early Nov" />
-        {[
-          ["Devon Light & Power", "Due Nov 03", "₱4,210"],
-          ["Joshua Water Utility", "Due Nov 05", "₱2,140"],
-          ["Caretaker Stipend", "Scheduled", "₱12,000"],
-        ].map(([name, detail, amount]) => (
-          <View style={styles.payment} key={name}>
-            <Ionicons name="receipt-outline" size={21} color="#2864e8" />
-            <View style={styles.flex}>
-              <Text style={styles.person}>{name}</Text>
-              <Text style={styles.muted}>{detail}</Text>
-            </View>
-            <Text style={styles.paymentAmount}>{amount}</Text>
-          </View>
-        ))}
       </ScrollView>
       <LandlordNavigation active="Finance" />
       <Modal
@@ -337,7 +396,10 @@ export default function Finance() {
             <View style={styles.detailHeader}>
               <View style={styles.flex}>
                 <Text style={styles.detailTitle}>Payment History</Text>
-                <Text style={styles.muted}>{selectedMonthPayments.length} submissions · {formatMonth(selectedMonth)}</Text>
+                <Text style={styles.muted}>
+                  {selectedMonthPayments.length} submissions ·{" "}
+                  {formatMonth(selectedMonth)}
+                </Text>
               </View>
               <TouchableOpacity
                 onPress={() => setShowAllPayments(false)}
@@ -350,7 +412,9 @@ export default function Finance() {
             </View>
             <ScrollView contentContainerStyle={styles.historyList}>
               {selectedMonthPayments.length === 0 ? (
-                <Text style={styles.emptyText}>No tenant payments recorded for {formatMonth(selectedMonth)}.</Text>
+                <Text style={styles.emptyText}>
+                  No tenant payments recorded for {formatMonth(selectedMonth)}.
+                </Text>
               ) : (
                 selectedMonthPayments.map((payment) => (
                   <TouchableOpacity
@@ -359,19 +423,37 @@ export default function Finance() {
                     activeOpacity={0.7}
                     onPress={() => {
                       setShowAllPayments(false);
-                      if (payment.status === "pending") setSelectedPayment(payment);
+                      if (payment.status === "pending")
+                        setSelectedPayment(payment);
                     }}
                     accessibilityRole="button"
                     accessibilityLabel={`${payment.tenantName || "Tenant"}, ${formatCurrency(amountValue(payment.amount))}, ${payment.status || "unknown"}`}
                   >
                     <View style={styles.flex}>
-                      <Text style={styles.person}>{payment.tenantName || "Tenant"}</Text>
+                      <Text style={styles.person}>
+                        {payment.tenantName || "Tenant"}
+                      </Text>
                       <Text style={styles.muted}>{paymentDate(payment)}</Text>
                     </View>
                     <View style={styles.paymentTrailing}>
-                      <Text style={styles.paymentAmount}>{formatCurrency(amountValue(payment.amount))}</Text>
-                      <Text style={[styles.statusBadge, payment.status === "approved" ? styles.approvedBadge : payment.status === "pending" ? styles.pendingBadge : styles.rejectedBadge]}>
-                        {payment.status === "approved" ? "Approved" : payment.status === "pending" ? "Pending" : "Rejected"}
+                      <Text style={styles.paymentAmount}>
+                        {formatCurrency(amountValue(payment.amount))}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.statusBadge,
+                          payment.status === "approved"
+                            ? styles.approvedBadge
+                            : payment.status === "pending"
+                              ? styles.pendingBadge
+                              : styles.rejectedBadge,
+                        ]}
+                      >
+                        {payment.status === "approved"
+                          ? "Approved"
+                          : payment.status === "pending"
+                            ? "Pending"
+                            : "Rejected"}
                       </Text>
                     </View>
                   </TouchableOpacity>
@@ -392,35 +474,78 @@ export default function Finance() {
             <View style={styles.detailHeader}>
               <View style={styles.flex}>
                 <Text style={styles.detailTitle}>Payment Review</Text>
-                <Text style={styles.muted}>{selectedPayment?.tenantName || "Tenant"} · {selectedPayment ? paymentDate(selectedPayment) : ""}</Text>
+                <Text style={styles.muted}>
+                  {selectedPayment?.tenantName || "Tenant"} ·{" "}
+                  {selectedPayment ? paymentDate(selectedPayment) : ""}
+                </Text>
               </View>
-              <Pressable onPress={() => setSelectedPayment(null)} disabled={isUpdating} accessibilityLabel="Close payment details">
+              <Pressable
+                onPress={() => setSelectedPayment(null)}
+                disabled={isUpdating}
+                accessibilityLabel="Close payment details"
+              >
                 <Ionicons name="close" size={22} color="#526174" />
               </Pressable>
             </View>
             <Text style={styles.detailLabel}>GCash Reference Number</Text>
-            <Text style={styles.detailValue}>{selectedPayment?.referenceNumber || selectedPayment?.reference || "Not provided"}</Text>
+            <Text style={styles.detailValue}>
+              {selectedPayment?.referenceNumber ||
+                selectedPayment?.reference ||
+                "Not provided"}
+            </Text>
             <Text style={styles.detailLabel}>Amount</Text>
-            <Text style={styles.detailValue}>{selectedPayment ? formatCurrency(amountValue(selectedPayment.amount)) : ""}</Text>
+            <Text style={styles.detailValue}>
+              {selectedPayment
+                ? formatCurrency(amountValue(selectedPayment.amount))
+                : ""}
+            </Text>
             {selectedPayment?.receiptUrl ? (
-              <Image source={selectedPayment.receiptUrl ? { uri: selectedPayment.receiptUrl } : undefined} style={styles.detailReceipt} resizeMode="contain" />
+              <Image
+                source={
+                  selectedPayment.receiptUrl
+                    ? { uri: selectedPayment.receiptUrl }
+                    : undefined
+                }
+                style={styles.detailReceipt}
+                resizeMode="contain"
+              />
             ) : (
-              <Text style={styles.emptyReceipt}>No receipt image attached.</Text>
+              <Text style={styles.emptyReceipt}>
+                No receipt image attached.
+              </Text>
             )}
             <View style={styles.reviewActions}>
               <Pressable
-                style={[styles.rejectButton, isUpdating && styles.disabledButton]}
-                onPress={() => selectedPayment && updatePaymentStatus(selectedPayment, "rejected")}
+                style={[
+                  styles.rejectButton,
+                  isUpdating && styles.disabledButton,
+                ]}
+                onPress={() =>
+                  selectedPayment &&
+                  updatePaymentStatus(selectedPayment, "rejected")
+                }
                 disabled={isUpdating}
               >
-                <Text style={styles.rejectText}>{isUpdating ? "Updating..." : "Reject"}</Text>
+                <Text style={styles.rejectText}>
+                  {isUpdating ? "Updating..." : "Reject"}
+                </Text>
               </Pressable>
               <Pressable
-                style={[styles.approveButton, isUpdating && styles.disabledButton]}
-                onPress={() => selectedPayment && updatePaymentStatus(selectedPayment, "approved")}
+                style={[
+                  styles.approveButton,
+                  isUpdating && styles.disabledButton,
+                ]}
+                onPress={() =>
+                  selectedPayment &&
+                  updatePaymentStatus(selectedPayment, "approved")
+                }
                 disabled={isUpdating}
               >
-                {isUpdating ? <ActivityIndicator color="#fff" /> : <Text style={styles.approveText}>Approve</Text>}
+                {isUpdating ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.approveText}>Approve</Text>
+                )}
               </Pressable>
             </View>
           </View>
@@ -530,7 +655,13 @@ const styles = StyleSheet.create({
     elevation: 0,
     marginBottom: 8,
   },
-  headerBrand: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 12 },
+  headerBrand: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
   headerLogo: {
     width: 44,
     height: 44,
@@ -541,7 +672,12 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   headerCopy: { flex: 1, minWidth: 0 },
-  kicker: { fontSize: 11, color: "#d9e5ff", fontWeight: "700", letterSpacing: 1.4 },
+  kicker: {
+    fontSize: 11,
+    color: "#d9e5ff",
+    fontWeight: "700",
+    letterSpacing: 1.4,
+  },
   title: { fontSize: 24, fontWeight: "800", color: "#fff", marginTop: 3 },
   paymentButton: {
     backgroundColor: "#173b36",
@@ -571,7 +707,12 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 1,
   },
-  sectionLabel: { fontSize: 11, color: "#64748b", letterSpacing: 1, fontWeight: "700" },
+  sectionLabel: {
+    fontSize: 11,
+    color: "#64748b",
+    letterSpacing: 1,
+    fontWeight: "700",
+  },
   revenue: {
     backgroundColor: "#eaf1ff",
     borderColor: "#ccdcff",
@@ -639,7 +780,12 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 1,
   },
-  metricLabel: { fontSize: 10, color: "#64748b", fontWeight: "700", letterSpacing: 0.5 },
+  metricLabel: {
+    fontSize: 10,
+    color: "#64748b",
+    fontWeight: "700",
+    letterSpacing: 0.5,
+  },
   metricValue: { fontSize: 19, fontWeight: "800", marginTop: 8 },
   section: {
     flexDirection: "row",
@@ -771,7 +917,12 @@ const styles = StyleSheet.create({
   },
   detailTitle: { color: "#253149", fontSize: 18, fontWeight: "700" },
   detailLabel: { color: "#64748b", fontSize: 11, marginTop: 10 },
-  detailValue: { color: "#253149", fontSize: 14, fontWeight: "600", marginTop: 3 },
+  detailValue: {
+    color: "#253149",
+    fontSize: 14,
+    fontWeight: "600",
+    marginTop: 3,
+  },
   detailReceipt: {
     width: "100%",
     height: 240,

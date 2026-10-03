@@ -1,12 +1,19 @@
+import { backOrReplace } from "@/lib/navigation";
+import { AppAlert as Alert } from "@/components/app-alert";
 import { Ionicons } from "@expo/vector-icons";
-import { collection, doc, getDocs, updateDoc } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  onSnapshot,
+  serverTimestamp,
+  updateDoc,
+} from "firebase/firestore";
 import { createNotification } from "@/lib/notification-data";
 import { router } from "expo-router";
 import { LandlordNavigation } from "@/components/landlord-navigation";
 import React from "react";
 import {
   ActivityIndicator,
-  Alert,
   Modal,
   Pressable,
   ScrollView,
@@ -40,49 +47,74 @@ export default function PendingApplications() {
   const [selectedTour, setSelectedTour] = React.useState<TourRequest | null>(
     null,
   );
+  const [error, setError] = React.useState("");
+  const [updating, setUpdating] = React.useState(false);
   const [loading, setLoading] = React.useState(Boolean(db));
   React.useEffect(() => {
     if (!db) return;
-    Promise.all([
-      getDocs(collection(db, "applications")),
-      getDocs(collection(db, "tourRequests")),
-    ])
-      .then(([snapshot, tours]) => {
+    let appsReady = false,
+      toursReady = false;
+    const failed = () => {
+      setError(
+        "Unable to load pending requests. Check your connection and permissions.",
+      );
+      setLoading(false);
+    };
+    const stopApps = onSnapshot(
+      collection(db, "applications"),
+      (snapshot) => {
         setApplications(
           snapshot.docs
-            .map((item) => ({
-              id: item.id,
-              ...item.data(),
-            }))
+            .map((d) => ({ ...d.data(), id: d.id }))
             .filter(
-              (item: any) => !item.status || item.status === "pending",
+              (d: any) => !d.status || d.status === "pending",
             ) as Application[],
         );
+        appsReady = true;
+        setLoading(!(appsReady && toursReady));
+      },
+      failed,
+    );
+    const stopTours = onSnapshot(
+      collection(db, "tourRequests"),
+      (snapshot) => {
         setTourRequests(
-          tours.docs
-            .map((item) => ({ id: item.id, ...item.data() }))
+          snapshot.docs
+            .map((d) => ({ ...d.data(), id: d.id }))
             .filter(
-              (item: any) => !item.status || item.status === "pending",
+              (d: any) => !d.status || d.status === "pending",
             ) as TourRequest[],
         );
-      })
-      .catch(() => {
-        setApplications([]);
-        setTourRequests([]);
-      })
-      .finally(() => setLoading(false));
+        toursReady = true;
+        setLoading(!(appsReady && toursReady));
+      },
+      failed,
+    );
+    return () => {
+      stopApps();
+      stopTours();
+    };
   }, []);
   async function respondToTour(status: "accepted" | "declined") {
-    if (!db || !selectedTour) return;
+    if (!db || !selectedTour || updating) return;
+    setUpdating(true);
     try {
-      await updateDoc(doc(db, "tourRequests", selectedTour.id), { status });
+      await updateDoc(doc(db, "tourRequests", selectedTour.id), {
+        status,
+        updatedAt: serverTimestamp(),
+      });
       if (selectedTour.tenantId) {
         await createNotification(selectedTour.tenantId, {
           type: "tour_update",
           title: status === "accepted" ? "Tour accepted" : "Tour declined",
           body: `Your tour request for Room ${selectedTour.roomNumber || "requested room"} was ${status}.`,
           route: "/tenant/applications",
-        });
+        }).catch(() =>
+          Alert.alert(
+            "Tour updated",
+            "The notification could not be delivered.",
+          ),
+        );
       }
       setTourRequests((current) =>
         current.filter((tour) => tour.id !== selectedTour.id),
@@ -97,18 +129,21 @@ export default function PendingApplications() {
         "Unable to update tour",
         "Check your Firebase connection and try again.",
       );
+    } finally {
+      setUpdating(false);
     }
   }
   return (
     <SafeAreaView style={styles.page}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()}>
+        <Pressable onPress={() => backOrReplace(router, "/landlord/dashboard")}>
           <Ionicons name="arrow-back" size={22} color="#172033" />
         </Pressable>
         <Text style={styles.title}>Pending Applications</Text>
         <Ionicons name="notifications-outline" size={21} color="#536783" />
       </View>
       <ScrollView contentContainerStyle={styles.content}>
+        {!!error && <Text accessibilityRole="alert">{error}</Text>}
         <View style={styles.summary}>
           <Metric label="Total Pending" value={String(applications.length)} />
           <Metric

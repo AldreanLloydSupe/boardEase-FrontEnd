@@ -1,158 +1,207 @@
 rules_version = '2';
-
 service cloud.firestore {
   match /databases/{database}/documents {
-    function isLandlord() {
-      return request.auth != null && (
-        request.auth.token.admin == true ||
-        request.auth.token.role == 'landlord' ||
-        request.auth.token.email == 'admin@boardease.com'
-      );
+    function signedIn() { return request.auth != null && !exists(/databases/$(database)/documents/deactivatedAccounts/$(request.auth.uid)); }
+    function isLandlord() { return signedIn() && (request.auth.token.get('admin', false) == true || request.auth.token.get('role', '') == 'landlord'); }
+    function owns(data) { return signedIn() && data.tenantId == request.auth.uid; }
+    function ownMissingDocument(kind, id) {
+      return signedIn() && id.matches('^' + request.auth.uid + '__.*$') && !exists(/databases/$(database)/documents/$(kind)/$(id));
     }
-
-    match /users/{userId} {
-      allow read: if (request.auth != null && request.auth.uid == userId) || isLandlord();
-      allow write: if request.auth != null && request.auth.uid == userId;
+    function ownsRequest(id) { return signedIn() && get(/databases/$(database)/documents/maintenanceRequests/$(id)).data.tenantId == request.auth.uid; }
+    function availableRequest(id) {
+      let data = request.resource.data;
+      let room = get(/databases/$(database)/documents/rooms/$(data.roomId)).data;
+      return owns(data) && id == request.auth.uid + '__' + data.roomId &&
+        data.status == 'pending' && data.createdAt == request.time &&
+        room.status in ['Available','available'] && data.roomNumber == room.number &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.hasRoom == false;
     }
-
-    match /payments/{paymentId} {
-      allow create: if request.auth != null &&
-        request.resource.data.tenantId == request.auth.uid &&
-        request.resource.data.keys().hasOnly([
-          'tenantId',
-          'tenantName',
-          'referenceNumber',
-          'dateSent',
-          'timeSent',
-          'amount',
-          'receiptUrl',
-          'status',
-          'createdAt'
-        ]) &&
-        request.resource.data.keys().hasAll([
-          'tenantId',
-          'tenantName',
-          'referenceNumber',
-          'dateSent',
-          'timeSent',
-          'amount',
-          'receiptUrl',
-          'status',
-          'createdAt'
-        ]) &&
-        request.resource.data.tenantName is string &&
-        request.resource.data.referenceNumber is string &&
-        request.resource.data.dateSent is string &&
-        request.resource.data.timeSent is string &&
-        request.resource.data.amount is number &&
-        request.resource.data.receiptUrl is string &&
-        request.resource.data.status == 'pending' &&
-        request.resource.data.createdAt == request.time;
-      allow read: if request.auth != null &&
-        (resource.data.tenantId == request.auth.uid || isLandlord());
-      allow update, delete: if isLandlord();
+    function pendingPayment(id) {
+      let data = request.resource.data;
+      let profile = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return owns(data) && id == request.auth.uid + '__' + data.referenceNumber &&
+        data.keys().hasOnly(['tenantId','tenantName','roomId','roomNumber','billingPeriod','referenceNumber','dateSent','timeSent','amount','receiptUrl','status','createdAt']) &&
+        data.status == 'pending' && data.createdAt == request.time &&
+        profile.hasRoom == true && data.roomId == profile.roomId && data.roomNumber == profile.roomNumber &&
+        data.billingPeriod is string && data.billingPeriod.matches('^[0-9]{4}-(0[1-9]|1[0-2])$') &&
+        data.amount is number && data.amount > 0 &&
+        data.referenceNumber is string && data.referenceNumber.matches('^[0-9]{13}$') &&
+        data.receiptUrl is string && data.receiptUrl.size() > 0 && data.receiptUrl.size() <= 510000;
     }
-
-    match /rooms/{roomId} {
-      allow read: if isLandlord();
-      allow write: if request.auth != null && request.auth.token.admin == true;
+    function profileEdits() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        'name','phone','emergencyContact','emergencyPhone','photoURL','notificationsEnabled',
+        'paymentReminders','maintenanceUpdates','applicationUpdates','tourUpdates',
+        'reminderTiming','gcashNumber','preferredPaymentMethod'
+      ]);
     }
-
-    match /maintenanceRequests/{requestId} {
-      allow create: if request.auth != null &&
-        request.resource.data.tenantId == request.auth.uid &&
-        request.resource.data.title is string &&
-        request.resource.data.details is string &&
-        request.resource.data.status == 'in_progress' &&
-        request.resource.data.createdAt == request.time;
-      allow read: if isLandlord() ||
-        (request.auth != null && resource.data.tenantId == request.auth.uid);
-      allow update: if isLandlord() &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']) &&
-        request.resource.data.status in ['in_progress', 'parts_sourced', 'completed'] &&
-        request.resource.data.updatedAt is string;
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isLandlord());
+      allow create: if signedIn() && request.auth.uid == uid &&
+        request.resource.data.keys().hasOnly(['name','email','phone','emergencyContact','emergencyPhone','role','hasRoom','createdAt']) &&
+        request.resource.data.role == 'user' && request.resource.data.hasRoom == false;
+      allow update: if isLandlord() || (signedIn() && request.auth.uid == uid && profileEdits());
       allow delete: if false;
+      match /notificationReads/{id} {
+        allow read, delete: if signedIn() && request.auth.uid == uid;
+        allow create, update: if signedIn() && request.auth.uid == uid &&
+          request.resource.data.keys().hasOnly(['readAt']) && request.resource.data.readAt == request.time;
+      }
+    }
+    match /rooms/{id} { allow read: if signedIn(); allow write: if isLandlord(); }
 
-      match /messages/{messageId} {
-        function ownsRequest() {
-          return request.auth != null &&
-            get(/databases/$(database)/documents/maintenanceRequests/$(requestId)).data.tenantId == request.auth.uid;
-        }
-
-        allow read: if isLandlord() || ownsRequest();
-        allow create: if request.auth != null &&
-          (isLandlord()
-            ? request.resource.data.senderId == 'landlord'
-            : ownsRequest() && request.resource.data.senderId == request.auth.uid) &&
-          request.resource.data.keys().hasOnly(['senderId', 'senderName', 'body', 'createdAt']) &&
-          request.resource.data.keys().hasAll(['senderId', 'senderName', 'body', 'createdAt']) &&
-          request.resource.data.senderName is string &&
-          request.resource.data.body is string &&
-          request.resource.data.body.size() > 0 &&
-          request.resource.data.body.size() <= 2000 &&
-          request.resource.data.createdAt == request.time;
+    function canReadRoomMeters(roomId) {
+      return isLandlord() || (signedIn() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('hasRoom', false) == true &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('roomId', '') == roomId);
+    }
+    function validMeterReading(roomId, period) {
+      let d = request.resource.data;
+      return exists(/databases/$(database)/documents/rooms/$(roomId)) &&
+        d.keys().hasOnly(['period','readingDate','electricityPrevious','electricityCurrent','waterPrevious','waterCurrent','notes','createdAt','createdBy','updatedAt','updatedBy','revisionNumber','revisionId']) &&
+        d.period == period && period.matches('[0-9]{4}-(0[1-9]|1[0-2])') &&
+        d.readingDate is string && d.readingDate.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}') &&
+        d.electricityPrevious is number && d.electricityPrevious >= 0 &&
+        d.electricityCurrent is number && d.electricityCurrent >= d.electricityPrevious && d.electricityCurrent <= 1000000000 &&
+        d.waterPrevious is number && d.waterPrevious >= 0 &&
+        d.waterCurrent is number && d.waterCurrent >= d.waterPrevious && d.waterCurrent <= 1000000000 &&
+        d.notes is string && d.notes.size() <= 500 &&
+        d.updatedBy == request.auth.uid && d.updatedAt == request.time &&
+        d.revisionNumber is int && d.revisionId is string &&
+        getAfter(/databases/$(database)/documents/rooms/$(roomId)/meterReadings/$(period)/revisions/$(d.revisionId)).data == d;
+    }
+    match /rooms/{roomId}/meterReadings/{period} {
+      allow read: if canReadRoomMeters(roomId);
+      allow create: if isLandlord() && validMeterReading(roomId, period) &&
+        request.resource.data.revisionNumber == 1 &&
+        request.resource.data.createdAt == request.time && request.resource.data.createdBy == request.auth.uid;
+      allow update: if isLandlord() && validMeterReading(roomId, period) &&
+        request.resource.data.revisionNumber == resource.data.revisionNumber + 1 &&
+        request.resource.data.revisionId != resource.data.revisionId &&
+        request.resource.data.createdAt == resource.data.createdAt && request.resource.data.createdBy == resource.data.createdBy;
+      allow delete: if false;
+      match /revisions/{revisionId} {
+        allow read: if isLandlord();
+        allow create: if isLandlord() && request.resource.data.revisionId == revisionId &&
+          getAfter(/databases/$(database)/documents/rooms/$(roomId)/meterReadings/$(period)).data == request.resource.data;
         allow update, delete: if false;
       }
     }
 
-    match /notifications/{notificationId} {
-      allow create: if request.auth != null &&
-        (isLandlord() || request.resource.data.recipientId == request.auth.uid) &&
-        request.resource.data.keys().hasOnly([
-          'recipientId', 'title', 'body', 'route', 'type', 'read', 'createdAt'
-        ]) &&
-        request.resource.data.keys().hasAll([
-          'recipientId', 'title', 'body', 'read', 'createdAt'
-        ]) &&
-        request.resource.data.recipientId is string &&
-        request.resource.data.title is string &&
-        request.resource.data.body is string &&
-        request.resource.data.read == false &&
-        request.resource.data.createdAt == request.time;
-      allow read: if isLandlord() ||
-        (request.auth != null && resource.data.recipientId == request.auth.uid);
-      allow update: if request.auth != null &&
-        resource.data.recipientId == request.auth.uid &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']) &&
-        request.resource.data.read is bool;
-      allow delete: if false;
+    match /applications/{id} {
+      allow get: if ownMissingDocument('applications', id);
+      allow read: if isLandlord() || owns(resource.data);
+      allow create: if signedIn() && availableRequest(id) &&
+        request.resource.data.keys().hasOnly(['tenantId','tenantName','tenantEmail','roomId','roomNumber','roomType','price','image','status','createdAt']);
+      allow update: if isLandlord() || (owns(resource.data) && resource.data.status == 'pending' &&
+        request.resource.data.status == 'cancelled' && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','updatedAt'])) || (owns(resource.data) &&
+        resource.data.status in ['rejected','cancelled','vacated'] &&
+        request.resource.data.roomId == resource.data.roomId && availableRequest(id) &&
+        request.resource.data.keys().hasOnly(['tenantId','tenantName','tenantEmail','roomId','roomNumber','roomType','price','image','status','createdAt']));
+      allow delete: if isLandlord();
     }
-
-    match /messages/{messageId} {
-      allow create: if isLandlord() &&
-        request.resource.data.keys().hasOnly([
-          'body',
-          'audience',
-          'recipientIds',
-          'senderId',
-          'senderName',
-          'createdAt'
-        ]) &&
-        request.resource.data.keys().hasAll([
-          'body',
-          'audience',
-          'recipientIds',
-          'senderId',
-          'senderName',
-          'createdAt'
-        ]) &&
-        request.resource.data.body is string &&
-        request.resource.data.body.size() > 0 &&
-        request.resource.data.body.size() <= 2000 &&
-        request.resource.data.audience in ['all', 'selected'] &&
-        request.resource.data.recipientIds is list &&
-        request.resource.data.recipientIds.size() > 0 &&
-        request.resource.data.recipientIds.size() <= 500 &&
-        request.resource.data.senderId == request.auth.uid &&
-        request.resource.data.senderName is string &&
-        request.resource.data.createdAt == request.time;
-
-      allow read: if isLandlord() ||
-        (request.auth != null && request.auth.uid in resource.data.recipientIds);
+    match /tourRequests/{id} {
+      allow get: if ownMissingDocument('tourRequests', id);
+      allow read: if isLandlord() || owns(resource.data);
+      allow create: if signedIn() && availableRequest(id) &&
+        request.resource.data.keys().hasOnly(['tenantId','tenantName','tenantEmail','roomId','roomNumber','roomType','price','image','requestedDate','note','status','createdAt']);
+      allow update: if isLandlord() || (owns(resource.data) &&
+        ((resource.data.status in ['pending','accepted'] &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','updatedAt']) &&
+          request.resource.data.status == 'cancelled') ||
+        (resource.data.status in ['declined','cancelled'] && request.resource.data.roomId == resource.data.roomId &&
+          availableRequest(id) && request.resource.data.keys().hasOnly(['tenantId','tenantName','tenantEmail','roomId','roomNumber','roomType','price','image','requestedDate','note','status','createdAt']))));
+      allow delete: if isLandlord();
     }
-
-    match /{document=**} {
-      allow read, write: if false;
+    match /payments/{id} {
+      allow get: if ownMissingDocument('payments', id);
+      allow read: if isLandlord() || owns(resource.data);
+      allow create: if signedIn() && pendingPayment(id);
+      allow update: if (isLandlord() &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','updatedAt','approvedAt','rejectedAt','billingPeriod']) &&
+          request.resource.data.status in ['approved','rejected','pending']) ||
+        (owns(resource.data) && resource.data.status == 'rejected' &&
+          request.resource.data.referenceNumber == resource.data.referenceNumber && pendingPayment(id));
+      allow delete: if isLandlord();
     }
+    match /maintenanceRequests/{id} {
+      allow read: if isLandlord() || owns(resource.data);
+      allow create: if signedIn() && owns(request.resource.data) &&
+        request.resource.data.status == 'in_progress' && request.resource.data.createdAt == request.time &&
+        request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 200 &&
+        request.resource.data.roomNumber == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.roomNumber &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.hasRoom == true;
+      allow update: if isLandlord() || (ownsRequest(id) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','updatedAt']) && request.resource.data.status == 'cancelled');
+      allow delete: if isLandlord();
+      match /messages/{messageId} {
+        allow read: if isLandlord() || ownsRequest(id);
+        allow create: if (isLandlord() || ownsRequest(id)) &&
+          request.resource.data.keys().hasOnly(['senderId','senderName','body','createdAt']) &&
+          request.resource.data.senderId == request.auth.uid && request.resource.data.senderName is string &&
+          request.resource.data.body is string && request.resource.data.body.size() > 0 &&
+          request.resource.data.body.size() <= 2000 && request.resource.data.createdAt == request.time;
+        allow update, delete: if false;
+      }
+      match /readReceipts/{uid} {
+        allow read: if (isLandlord() || ownsRequest(id)) && request.auth.uid == uid;
+        allow create, update: if (isLandlord() || ownsRequest(id)) && request.auth.uid == uid &&
+          request.resource.data.keys().hasOnly(['readAt']) && request.resource.data.readAt == request.time;
+        allow delete: if false;
+      }
+    }
+    match /notifications/{id} {
+      allow read: if isLandlord() || (signedIn() && resource.data.recipientId == request.auth.uid);
+      allow create: if isLandlord() && request.resource.data.recipientId is string &&
+        request.resource.data.read == false && request.resource.data.createdAt == request.time;
+      allow update: if signedIn() && resource.data.recipientId == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']) && request.resource.data.read is bool;
+      allow delete: if isLandlord();
+    }
+    match /messages/{id} {
+      allow read: if isLandlord() || (signedIn() && request.auth.uid in resource.data.recipientIds);
+      allow create: if isLandlord() && request.resource.data.senderId == request.auth.uid &&
+        request.resource.data.body is string && request.resource.data.body.size() > 0 &&
+        request.resource.data.body.size() <= 2000 && request.resource.data.createdAt == request.time &&
+        request.resource.data.recipientIds is list && request.resource.data.recipientIds.size() <= 500;
+      allow update, delete: if isLandlord();
+    }
+    match /conversations/{tenantId} {
+      allow read: if isLandlord() || (signedIn() && request.auth.uid == tenantId);
+      allow create: if (isLandlord() || (signedIn() && request.auth.uid == tenantId)) &&
+        request.resource.data.keys().hasOnly(['tenantId','tenantName','roomNumber','createdAt']) &&
+        request.resource.data.tenantId == tenantId && request.resource.data.createdAt == request.time &&
+        request.resource.data.tenantName == get(/databases/$(database)/documents/users/$(tenantId)).data.name &&
+        request.resource.data.roomNumber is string &&
+        request.resource.data.roomNumber == get(/databases/$(database)/documents/users/$(tenantId)).data.get('roomNumber', '');
+      allow update, delete: if false;
+      match /messages/{messageId} {
+        allow read: if isLandlord() || (signedIn() && request.auth.uid == tenantId);
+        allow create: if (isLandlord() || (signedIn() && request.auth.uid == tenantId)) &&
+          existsAfter(/databases/$(database)/documents/conversations/$(tenantId)) &&
+          request.resource.data.keys().hasOnly(['senderId','senderName','body','createdAt']) &&
+          request.resource.data.senderId == request.auth.uid && request.resource.data.senderName is string &&
+          request.resource.data.body is string && request.resource.data.body.size() > 0 &&
+          request.resource.data.body.size() <= 2000 && request.resource.data.createdAt == request.time;
+        allow update, delete: if false;
+      }
+      match /readReceipts/{uid} {
+        allow read: if (isLandlord() || (signedIn() && request.auth.uid == tenantId)) && request.auth.uid == uid;
+        allow create, update: if (isLandlord() || (signedIn() && request.auth.uid == tenantId)) && request.auth.uid == uid &&
+          request.resource.data.keys().hasOnly(['readAt']) && request.resource.data.readAt == request.time;
+        allow delete: if false;
+      }
+    }
+    match /accountRequests/{uid} {
+      allow read: if isLandlord() || (signedIn() && request.auth.uid == uid);
+      allow create, update: if signedIn() && request.auth.uid == uid &&
+        request.resource.data.keys().hasOnly(['tenantId','kind','status','createdAt']) &&
+        request.resource.data.tenantId == uid && request.resource.data.kind in ['deletion','vacate'] &&
+        request.resource.data.status == 'pending' && request.resource.data.createdAt == request.time;
+      allow delete: if isLandlord();
+    }
+    match /propertySettings/{id} { allow read: if signedIn(); allow write: if isLandlord(); }
+    match /auditLogs/{id} { allow read: if isLandlord(); allow write: if false; }
+    match /{document=**} { allow read, write: if false; }
   }
 }

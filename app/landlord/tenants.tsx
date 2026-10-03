@@ -1,97 +1,175 @@
+import { cycleDetails, peso, timestampMillis } from "@/lib/billing";
+import { AppAlert as Alert } from "@/components/app-alert";
 import { LandlordNavigation } from "@/components/landlord-navigation";
 import { db } from "@/lib/firebase";
 import { createNotification } from "@/lib/notification-data";
 import { vacateTenantRoom } from "@/lib/room-vacate";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, doc, onSnapshot, deleteDoc } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import {
-    Alert,
-    Image,
-    Linking,
-    Modal,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function Tenants() {
-  const [allTenants, setAllTenants] = useState<any[]>([]);
-  const [selectedTenant, setSelectedTenant] = useState<any | null>(null);
+  const [users, setUsers] = useState<any[]>([]);
+  const [applications, setApplications] = useState<any[]>([]);
+  const [payments, setPayments] = useState<any[]>([]);
+  const [accountRequests, setAccountRequests] = useState<any[]>([]);
+  const [loadError, setLoadError] = useState("");
+  const [sort, setSort] = useState("room");
+  function openTenant(tenant: any) {
+    router.push(
+      tenant.isPending
+        ? "/landlord/pending-applications"
+        : {
+            pathname: "./tenant-details",
+            params: { tenantId: tenant.id },
+          },
+    );
+  }
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(Boolean(db));
   const [filter, setFilter] = useState<
     "all" | "overdue" | "ending" | "pending"
   >("all");
   useEffect(() => {
-    if (!db) return;
-    Promise.all([
-      getDocs(collection(db, "users")),
-      getDocs(collection(db, "applications")),
-    ])
-      .then(([usersSnapshot, applicationsSnapshot]) => {
-        const assignedTenants = usersSnapshot.docs
-          .map((item) => ({ id: item.id, ...item.data() }))
-          .filter((item: any) => item.role !== "admin" && item.hasRoom === true)
-          .map((item: any) => {
-            const leaseEndValue = item.leaseEndDate || item.leaseEnd || item.endDate;
-            const leaseEndDate = leaseEndValue?.toDate?.() || (leaseEndValue ? new Date(leaseEndValue) : null);
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            const daysUntilLeaseEnd = leaseEndDate && !Number.isNaN(leaseEndDate.getTime())
-              ? Math.ceil((leaseEndDate.getTime() - today.getTime()) / 86400000)
-              : null;
-            const isOverdue = item.paymentStatus === "overdue" || item.isOverdue === true;
-            const isEndingSoon = daysUntilLeaseEnd !== null && daysUntilLeaseEnd >= 0 && daysUntilLeaseEnd <= 30;
-            return {
-            id: item.id,
-            name: item.name || item.email || "Tenant",
-            room: `Room ${item.roomNumber || item.roomId || "Assigned"} · ${item.roomType || "Room"}`,
-            rent: `₱${item.roomRent || "—"}`,
-            status: isOverdue ? "OVERDUE" : isEndingSoon ? "ENDING SOON" : "ACTIVE LEASE",
-            color: isOverdue ? "#fff0c2" : isEndingSoon ? "#fff0c2" : "#d9f7e8",
-            photoURL: item.photoURL,
-            phone: item.phone,
-            isPending: false,
-            raw: item
-            };
-          });
-        const pendingTenants = applicationsSnapshot.docs
-          .map((item) => ({ id: item.id, ...item.data() }))
-          .filter((item: any) => !item.status || item.status === "pending")
-          .map((item: any) => ({
-            id: item.id,
-            name: item.tenantName || item.tenantEmail || "Tenant",
-            room: `Applied for Room ${item.roomNumber || "requested room"}`,
-            rent: `₱${item.price || "—"}`,
-            status: "PENDING REVIEW",
-            color: "#fff0c2",
-            photoURL: item.tenantPhotoURL,
-            phone: item.phone,
-            isPending: true,
-            raw: item
-          }));
-        setAllTenants([...assignedTenants, ...pendingTenants]);
-      })
-      .catch(() => setAllTenants([]))
-      .finally(() => setLoading(false));
+    const firestore = db;
+    if (!firestore) return;
+    const ready = new Set<string>();
+    const failed = () => {
+      setLoadError(
+        "Unable to load tenant records. Check your connection and permissions.",
+      );
+      setLoading(false);
+    };
+    const subscribe = (name: string, save: (records: any[]) => void) =>
+      onSnapshot(
+        collection(firestore, name),
+        (snapshot) => {
+          save(snapshot.docs.map((d) => ({ ...d.data(), id: d.id })));
+          ready.add(name);
+          setLoading(ready.size < 4);
+        },
+        failed,
+      );
+    const stops = [
+      subscribe("users", setUsers),
+      subscribe("applications", setApplications),
+      subscribe("payments", setPayments),
+      subscribe("accountRequests", setAccountRequests),
+    ];
+    return () => stops.forEach((stop) => stop());
   }, []);
+  const assignedTenants = users
+    .filter((item: any) => item.role !== "admin" && item.hasRoom === true)
+    .map((item: any) => {
+      const leaseEndValue =
+        item.noticeEndsAt || item.leaseEndDate || item.leaseEnd || item.endDate;
+      const leaseEndDate =
+        leaseEndValue?.toDate?.() ||
+        (leaseEndValue ? new Date(leaseEndValue) : null);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const daysUntilLeaseEnd =
+        leaseEndDate && !Number.isNaN(leaseEndDate.getTime())
+          ? Math.ceil((leaseEndDate.getTime() - today.getTime()) / 86400000)
+          : null;
+      const cycle = cycleDetails(
+        item,
+        payments.filter((p) => p.tenantId === item.id),
+      );
+      const isOverdue =
+        cycle.balance > 0 &&
+        cycle.daysUntilDue < 0 &&
+        (!item.leaseStartedAt ||
+          timestampMillis(item.leaseStartedAt) <= cycle.due.getTime());
+      const isEndingSoon =
+        daysUntilLeaseEnd !== null &&
+        daysUntilLeaseEnd >= 0 &&
+        daysUntilLeaseEnd <= 30;
+      return {
+        id: item.id,
+        name: item.name || item.email || "Tenant",
+        room: `Room ${item.roomNumber || item.roomId || "Assigned"} · ${item.roomType || "Room"}`,
+        rent: peso(item.roomRent),
+        status: isOverdue
+          ? "OVERDUE"
+          : isEndingSoon
+            ? "ENDING SOON"
+            : "ACTIVE LEASE",
+        color: isOverdue ? "#fff0c2" : isEndingSoon ? "#fff0c2" : "#d9f7e8",
+        photoURL: item.photoURL,
+        phone: item.phone,
+        isPending: false,
+        raw: item,
+      };
+    });
+  const pendingTenants = applications
+    .filter((item: any) => !item.status || item.status === "pending")
+    .map((item: any) => ({
+      id: item.id,
+      name: item.tenantName || item.tenantEmail || "Tenant",
+      room: `Applied for Room ${item.roomNumber || "requested room"}`,
+      rent: `₱${item.price || "—"}`,
+      status: "PENDING REVIEW",
+      color: "#fff0c2",
+      photoURL: users.find((u) => u.id === item.tenantId)?.photoURL,
+      phone: users.find((u) => u.id === item.tenantId)?.phone,
+      isPending: true,
+      raw: item,
+    }));
+
+  const allTenants = [...assignedTenants, ...pendingTenants];
   const normalizedQuery = searchQuery.trim().toLocaleLowerCase();
   const filteredTenants = allTenants.filter((tenant) => {
-    const matchesFilter = filter === "all"
-      || (filter === "overdue" && tenant.status.includes("OVERDUE"))
-      || (filter === "ending" && tenant.status.includes("ENDING"))
-      || (filter === "pending" && tenant.status.includes("PENDING"));
-    const searchableText = [tenant.name, tenant.room, tenant.phone, tenant.raw?.email, tenant.raw?.tenantEmail]
+    const matchesFilter =
+      (filter === "all" && !tenant.isPending) ||
+      (filter === "overdue" && tenant.status.includes("OVERDUE")) ||
+      (filter === "ending" && tenant.status.includes("ENDING")) ||
+      (filter === "pending" && tenant.status.includes("PENDING"));
+    const searchableText = [
+      tenant.name,
+      tenant.room,
+      tenant.phone,
+      tenant.raw?.email,
+      tenant.raw?.tenantEmail,
+    ]
       .filter(Boolean)
       .join(" ")
       .toLocaleLowerCase();
-    return matchesFilter && (!normalizedQuery || searchableText.includes(normalizedQuery));
+    return (
+      matchesFilter &&
+      (!normalizedQuery || searchableText.includes(normalizedQuery))
+    );
+  });
+  filteredTenants.sort((a, b) => {
+    if (sort === "name") return a.name.localeCompare(b.name);
+    if (sort === "balance")
+      return (
+        cycleDetails(
+          b.raw,
+          payments.filter((p) => p.tenantId === b.id),
+        ).balance -
+        cycleDetails(
+          a.raw,
+          payments.filter((p) => p.tenantId === a.id),
+        ).balance
+      );
+    if (sort === "newest")
+      return (
+        timestampMillis(b.raw.leaseStartedAt || b.raw.createdAt) -
+        timestampMillis(a.raw.leaseStartedAt || a.raw.createdAt)
+      );
+    return a.room.localeCompare(b.room, undefined, { numeric: true });
   });
   const overdueCount = allTenants.filter((tenant) =>
     tenant.status.includes("OVERDUE"),
@@ -103,19 +181,69 @@ export default function Tenants() {
     tenant.status.includes("PENDING"),
   ).length;
 
-  async function callTenant(tenant: any) {
-    const phone = String(tenant.phone || "").trim();
-    const dialablePhone = phone.replace(/[^\d+]/g, "");
-    if (!dialablePhone) {
-      Alert.alert("Phone number unavailable", `${tenant.name} does not have a phone number on file.`);
-      return;
-    }
-
-    try {
-      await Linking.openURL(`tel:${dialablePhone}`);
-    } catch {
-      Alert.alert("Unable to open phone app", "This device cannot place calls from BoardEase.");
-    }
+  function reviewAccountRequest(request: any) {
+    const tenant = users.find((u) => u.id === request.tenantId);
+    if (request.kind === "vacate") {
+      Alert.alert(
+        "Confirm move-out?",
+        `Release ${tenant?.name || "this tenant"}'s room after completing your move-out review?`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Confirm move-out",
+            onPress: async () => {
+              try {
+                await vacateTenantRoom(request.tenantId);
+                if (db) await deleteDoc(doc(db, "accountRequests", request.id));
+                await createNotification(request.tenantId, {
+                  type: "room_update",
+                  title: "Move-out confirmed",
+                  body: "Management has released your room.",
+                  route: "/tenant/account",
+                }).catch(() =>
+                  Alert.alert(
+                    "Move-out saved",
+                    "The notification could not be sent.",
+                  ),
+                );
+              } catch (error) {
+                Alert.alert(
+                  "Could not confirm",
+                  error instanceof Error ? error.message : "Please try again.",
+                );
+              }
+            },
+          },
+        ],
+      );
+    } else
+      Alert.alert(
+        "Account deletion review",
+        `Tenant: ${tenant?.name || request.tenantId}\nEmail: ${tenant?.email || "Not recorded"}\nUser ID: ${request.tenantId}\n\nAfter reviewing the tenant's records and releasing any room, use the backend delete-account command. The account remains available until that review is complete.`,
+      );
+  }
+  async function remindTenant(tenant: any) {
+    const balance = cycleDetails(
+      tenant.raw,
+      payments.filter((p) => p.tenantId === tenant.id),
+    ).balance;
+    await createNotification(tenant.id, {
+      type: "rent_reminder",
+      title: "Payment reminder",
+      body: `Your current rent balance is ${peso(balance)}. Please review Payments.`,
+      route: "/tenant/payments",
+    });
+  }
+  async function remindAll() {
+    const overdue = allTenants.filter((t) => t.status === "OVERDUE");
+    const result = await Promise.allSettled(overdue.map(remindTenant));
+    const failures = result.filter((r) => r.status === "rejected").length;
+    Alert.alert(
+      failures ? "Some reminders failed" : "Reminders saved",
+      failures
+        ? `${failures} reminders could not be saved. Please try again.`
+        : "Reminders were saved for tenants with payment notifications enabled.",
+    );
   }
   return (
     <SafeAreaView style={styles.page}>
@@ -128,7 +256,10 @@ export default function Tenants() {
             <Text style={styles.kicker}>BOARDEASE</Text>
             <Text style={styles.title}>Tenants</Text>
             <Text style={styles.subtitle}>
-              {allTenants.filter((tenant) => tenant.status === "ACTIVE LEASE").length}{" "}
+              {
+                allTenants.filter((tenant) => tenant.status === "ACTIVE LEASE")
+                  .length
+              }{" "}
               Active Tenants · {overdueCount} Overdue ·{" "}
               {
                 allTenants.filter((tenant) => tenant.status.includes("PENDING"))
@@ -140,6 +271,26 @@ export default function Tenants() {
         </View>
       </View>
       <ScrollView contentContainerStyle={styles.content}>
+        {!!loadError && <Text accessibilityRole="alert">{loadError}</Text>}
+        {accountRequests.map((request) => (
+          <View key={request.id} style={styles.card}>
+            <Text style={styles.name}>
+              {users.find((u) => u.id === request.tenantId)?.name ||
+                request.tenantId}
+            </Text>
+            <Text>
+              {request.kind === "vacate"
+                ? "Move-out requested"
+                : "Account deletion requested"}
+            </Text>
+            <Pressable
+              style={styles.smallButton}
+              onPress={() => reviewAccountRequest(request)}
+            >
+              <Text>Review request</Text>
+            </Pressable>
+          </View>
+        ))}
         <View style={styles.search}>
           <Ionicons name="search-outline" size={16} color="#8997a6" />
           <TextInput
@@ -152,20 +303,32 @@ export default function Tenants() {
             accessibilityLabel="Search tenants by name, room, phone, or email"
           />
           {searchQuery.length > 0 && (
-            <Pressable onPress={() => setSearchQuery("")} accessibilityRole="button" accessibilityLabel="Clear tenant search">
+            <Pressable
+              onPress={() => setSearchQuery("")}
+              accessibilityRole="button"
+              accessibilityLabel="Clear tenant search"
+            >
               <Ionicons name="close-circle" size={18} color="#8997a6" />
             </Pressable>
           )}
         </View>
         <View style={styles.filters}>
-          <Pressable onPress={() => setFilter("all")} accessibilityRole="button" accessibilityState={{ selected: filter === "all" }}>
+          <Pressable
+            onPress={() => setFilter("all")}
+            accessibilityRole="button"
+            accessibilityState={{ selected: filter === "all" }}
+          >
             <Text
               style={[styles.filter, filter === "all" && styles.filterActive]}
             >
-              All Tenants ({allTenants.length})
+              Current Tenants ({assignedTenants.length})
             </Text>
           </Pressable>
-          <Pressable onPress={() => setFilter("overdue")} accessibilityRole="button" accessibilityState={{ selected: filter === "overdue" }}>
+          <Pressable
+            onPress={() => setFilter("overdue")}
+            accessibilityRole="button"
+            accessibilityState={{ selected: filter === "overdue" }}
+          >
             <Text
               style={[
                 styles.filter,
@@ -175,7 +338,11 @@ export default function Tenants() {
               Overdue ({overdueCount})
             </Text>
           </Pressable>
-          <Pressable onPress={() => setFilter("ending")} accessibilityRole="button" accessibilityState={{ selected: filter === "ending" }}>
+          <Pressable
+            onPress={() => setFilter("ending")}
+            accessibilityRole="button"
+            accessibilityState={{ selected: filter === "ending" }}
+          >
             <Text
               style={[
                 styles.filter,
@@ -185,18 +352,37 @@ export default function Tenants() {
               Lease Ending Soon ({endingSoonCount})
             </Text>
           </Pressable>
-          <Pressable onPress={() => setFilter("pending")} accessibilityRole="button" accessibilityState={{ selected: filter === "pending" }}>
+          <Pressable
+            onPress={() => setFilter("pending")}
+            accessibilityRole="button"
+            accessibilityState={{ selected: filter === "pending" }}
+          >
             <Text
               style={[
                 styles.filter,
                 filter === "pending" && styles.filterActive,
               ]}
             >
-              Pending (
-              {pendingCount}
-              )
+              Applicants ({pendingCount})
             </Text>
           </Pressable>
+        </View>
+        <View style={[styles.filters, { flexWrap: "wrap" }]}>
+          {["room", "name", "balance", "newest"].map((value) => (
+            <Pressable
+              key={value}
+              onPress={() => setSort(value)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: sort === value }}
+              style={{ minHeight: 44, justifyContent: "center" }}
+            >
+              <Text
+                style={[styles.filter, sort === value && styles.filterActive]}
+              >
+                Sort: {value}
+              </Text>
+            </Pressable>
+          ))}
         </View>
         {overdueCount > 0 && (
           <View style={styles.alert}>
@@ -205,21 +391,30 @@ export default function Tenants() {
               <Text style={styles.alertTitle}>ATTENTION REQUIRED</Text>
               <Text style={styles.alertValue}>
                 {overdueCount} Overdue Collection{overdueCount === 1 ? "" : "s"}{" "}
-                <Text style={styles.alertAmount}>₱11,200</Text>
+                <Text style={styles.alertAmount}>
+                  {peso(
+                    allTenants
+                      .filter((t) => t.status === "OVERDUE")
+                      .reduce(
+                        (sum, t) =>
+                          sum +
+                          cycleDetails(
+                            t.raw,
+                            payments.filter((p) => p.tenantId === t.id),
+                          ).balance,
+                        0,
+                      ),
+                  )}
+                </Text>
               </Text>
               <Text style={styles.alertText}>
-                Unsettled amounts past the monthly grace period. You can trigger
-                automated in-app notifications.
+                Current rent balances past the configured due date. Send an
+                in-app reminder to eligible tenants.
               </Text>
             </View>
             <Pressable
               style={styles.notifyAll}
-              onPress={() =>
-                Alert.alert(
-                  "Notifications sent",
-                  "Payment reminders were sent to all overdue tenants.",
-                )
-              }
+              onPress={() => void remindAll()}
             >
               <Text style={styles.notifyText}>Notify All Overdue Tenants</Text>
             </Pressable>
@@ -233,7 +428,9 @@ export default function Tenants() {
           filteredTenants.length === 0 && (
             <View style={styles.empty}>
               <Text style={styles.emptyTitle}>
-                {searchQuery || filter !== "all" ? "No matching tenants" : "No tenants yet"}
+                {searchQuery || filter !== "all"
+                  ? "No matching tenants"
+                  : "No tenants yet"}
               </Text>
               <Text style={styles.emptyText}>
                 {searchQuery || filter !== "all"
@@ -243,233 +440,136 @@ export default function Tenants() {
             </View>
           )
         )}
-        {filteredTenants.map((tenant, index) => (
-          <Pressable key={`${tenant.name}-${tenant.room}-${index}`} style={styles.card} onPress={() => setSelectedTenant(tenant)}>
+        {filteredTenants.map((tenant) => (
+          <Pressable
+            key={`${tenant.isPending ? "application" : "tenant"}:${tenant.id}`}
+            style={styles.card}
+            onPress={() => openTenant(tenant)}
+          >
             <View style={styles.cardTop}>
               {tenant.photoURL ? (
-                <Image source={tenant.photoURL ? { uri: tenant.photoURL } : undefined} style={styles.avatarImage} />
+                <Image
+                  source={
+                    tenant.photoURL ? { uri: tenant.photoURL } : undefined
+                  }
+                  style={styles.avatarImage}
+                />
               ) : (
                 <View style={styles.avatarInitials}>
-                  <Text style={styles.avatarInitialsText}>{String(tenant.name).slice(0, 2).toUpperCase()}</Text>
+                  <Text style={styles.avatarInitialsText}>
+                    {String(tenant.name).slice(0, 2).toUpperCase()}
+                  </Text>
                 </View>
               )}
               <View style={styles.person}>
                 <Text style={styles.name}>{tenant.name}</Text>
                 <Text style={styles.room}>{tenant.room}</Text>
-                <Text style={styles.phone}>{tenant.phone || "Phone not provided"}</Text>
+                <Text style={styles.phone}>
+                  {tenant.phone || "Phone not provided"}
+                </Text>
               </View>
               <Text style={[styles.badge, { backgroundColor: tenant.color }]}>
                 {tenant.status}
               </Text>
             </View>
-            <View style={styles.tenantActions}>
+            {!tenant.isPending && (
+              <Text style={[styles.phone, { marginVertical: 10 }]}>
+                {tenant.raw.assignedSpace || "Space not specified"} · Balance{" "}
+                {peso(
+                  cycleDetails(
+                    tenant.raw,
+                    payments.filter((p) => p.tenantId === tenant.id),
+                  ).balance,
+                )}{" "}
+                · Due{" "}
+                {cycleDetails(
+                  tenant.raw,
+                  payments.filter((p) => p.tenantId === tenant.id),
+                ).due.toLocaleDateString()}
+              </Text>
+            )}
+            <View style={[styles.tenantActions, { flexWrap: "wrap", gap: 8 }]}>
               <Text style={styles.rent}>
                 {tenant.rent}
                 <Text style={styles.month}>/mo</Text>
               </Text>
-              <Pressable
-                style={styles.smallButton}
-                onPress={(e) => { e.stopPropagation(); void callTenant(tenant); }}
-              >
-                <Ionicons name="call-outline" size={12} color="#173b36" />
-                <Text>Call</Text>
-              </Pressable>
-              <Pressable
-                style={[
-                  styles.smallButton,
-                  tenant.status.includes("OVERDUE") && styles.notifyButton,
-                ]}
-                onPress={(e) => { e.stopPropagation(); setSelectedTenant(tenant); }}
-              >
-                <Ionicons
-                  name="notifications-outline"
-                  size={12}
-                  color={tenant.status.includes("OVERDUE") ? "#fff" : "#173b36"}
-                />
-                <Text
-                  style={tenant.status.includes("OVERDUE") && styles.notifyButtonText}
+              {!tenant.isPending && (
+                <Pressable
+                  style={[styles.smallButton, { minHeight: 44 }]}
+                  accessibilityRole="button"
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    router.push({
+                      pathname: "/landlord/messages",
+                      params: { tenantId: tenant.id },
+                    });
+                  }}
                 >
-                  {tenant.status.includes("OVERDUE") ? "Notify" : "Profile"}
-                </Text>
+                  <Ionicons
+                    name="chatbubble-outline"
+                    size={18}
+                    color="#2864e8"
+                  />
+                  <Text>Message</Text>
+                </Pressable>
+              )}
+              <Pressable
+                style={[styles.smallButton, { minHeight: 44 }]}
+                accessibilityRole="button"
+                onPress={(e) => {
+                  e.stopPropagation();
+                  openTenant(tenant);
+                }}
+              >
+                <Ionicons name="person-outline" size={18} color="#2864e8" />
+                <Text>{tenant.isPending ? "Review" : "View Info"}</Text>
               </Pressable>
+              {tenant.status === "OVERDUE" && (
+                <Pressable
+                  style={[
+                    styles.smallButton,
+                    tenant.status.includes("OVERDUE") && styles.notifyButton,
+                  ]}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    if (tenant.status === "OVERDUE")
+                      void remindTenant(tenant)
+                        .then(() =>
+                          Alert.alert(
+                            "Reminder saved",
+                            "The reminder was saved if the tenant has reminders enabled.",
+                          ),
+                        )
+                        .catch(() =>
+                          Alert.alert(
+                            "Unable to send reminder",
+                            "Please try again.",
+                          ),
+                        );
+                    else openTenant(tenant);
+                  }}
+                >
+                  <Ionicons
+                    name="notifications-outline"
+                    size={12}
+                    color={
+                      tenant.status.includes("OVERDUE") ? "#fff" : "#173b36"
+                    }
+                  />
+                  <Text
+                    style={
+                      tenant.status.includes("OVERDUE") &&
+                      styles.notifyButtonText
+                    }
+                  >
+                    Notify
+                  </Text>
+                </Pressable>
+              )}
             </View>
           </Pressable>
         ))}
       </ScrollView>
-      <Modal
-        visible={!!selectedTenant}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setSelectedTenant(null)}
-      >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modal}>
-            {selectedTenant && (
-              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 30 }}>
-                <View style={styles.modalHeader}>
-                  <Pressable onPress={() => setSelectedTenant(null)} style={styles.closeBtn}>
-                    <Ionicons name="close" size={24} color="#536783" />
-                  </Pressable>
-                </View>
-                
-                <View style={styles.tenantProfile}>
-                  {selectedTenant.photoURL ? (
-                    <Image source={selectedTenant.photoURL ? { uri: selectedTenant.photoURL } : undefined} style={styles.modalAvatar} />
-                  ) : (
-                    <View style={styles.modalAvatarPlaceholder}>
-                      <Text style={styles.modalAvatarInitials}>{String(selectedTenant.name).slice(0, 2).toUpperCase()}</Text>
-                    </View>
-                  )}
-                  <Text style={styles.modalName}>{selectedTenant.name}</Text>
-                  <Text style={styles.modalRoom}>{selectedTenant.room}</Text>
-                  <View style={[styles.badge, { backgroundColor: selectedTenant.color, alignSelf: 'center', marginTop: 8 }]}>
-                    <Text style={{ fontSize: 11, fontWeight: '600' }}>{selectedTenant.status}</Text>
-                  </View>
-                </View>
-
-                {!selectedTenant.isPending && (
-                  <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Payment History</Text>
-                    <View style={styles.historyCard}>
-                      <View style={styles.historyRow}>
-                        <View>
-                          <Text style={styles.historyItemTitle}>September Rent</Text>
-                          <Text style={styles.historyItemDate}>Sep 1, 2026</Text>
-                        </View>
-                        <Text style={styles.historyItemAmount}>Paid {selectedTenant.rent}</Text>
-                      </View>
-                      <View style={styles.historyDivider} />
-                      <View style={styles.historyRow}>
-                        <View>
-                          <Text style={styles.historyItemTitle}>August Rent</Text>
-                          <Text style={styles.historyItemDate}>Aug 2, 2026</Text>
-                        </View>
-                        <Text style={styles.historyItemAmount}>Paid {selectedTenant.rent}</Text>
-                      </View>
-                    </View>
-                  </View>
-                )}
-
-                <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>Recent Activity</Text>
-                  <View style={styles.activityList}>
-                    <View style={styles.activityItem}>
-                      <View style={styles.activityDot} />
-                      <View>
-                        <Text style={styles.activityTitle}>Maintenance request completed</Text>
-                        <Text style={styles.activityDate}>Sep 12, 2026</Text>
-                      </View>
-                    </View>
-                    <View style={styles.activityItem}>
-                      <View style={styles.activityDot} />
-                      <View>
-                        <Text style={styles.activityTitle}>Lease agreement signed</Text>
-                        <Text style={styles.activityDate}>Aug 1, 2026</Text>
-                      </View>
-                    </View>
-                  </View>
-                </View>
-
-                {!selectedTenant.isPending && (
-                  <View style={styles.dangerZone}>
-                    <Text style={styles.dangerTitle}>Landlord Actions</Text>
-
-                    <Pressable
-                      style={[styles.evictBtn, { marginBottom: 12 }]}
-                      onPress={() => {
-                        Alert.alert(
-                          "Remove tenant from room?",
-                          `This will immediately remove ${selectedTenant.name} from their rented room. Continue?`,
-                          [
-                            { text: "Cancel", style: "cancel" },
-                            {
-                              text: "Remove Tenant",
-                              style: "destructive",
-                              onPress: async () => {
-                                try {
-                                  const tenantId = selectedTenant.id || selectedTenant.raw?.id;
-                                  const roomNumber = selectedTenant.raw?.roomNumber || selectedTenant.raw?.roomId || "";
-                                  if (!tenantId) {
-                                    throw new Error("This tenant record is missing a user id.");
-                                  }
-                                  await vacateTenantRoom(tenantId, roomNumber);
-                                  await createNotification(tenantId, {
-                                    type: "room_update",
-                                    title: "Room assignment removed",
-                                    body: roomNumber
-                                      ? `Your room assignment for Room ${roomNumber} was removed by the landlord.`
-                                      : "Your room assignment was removed by the landlord.",
-                                    route: "/tenant/account",
-                                  });
-                                  Alert.alert("Tenant removed", "The tenant was successfully removed from the room.");
-                                  setSelectedTenant(null);
-                                } catch (error) {
-                                  Alert.alert(
-                                    "Unable to remove tenant",
-                                    error instanceof Error ? error.message : "Please try again.",
-                                  );
-                                }
-                              },
-                            },
-                          ],
-                        );
-                      }}
-                    >
-                      <Ionicons name="log-out-outline" size={18} color="#c62828" />
-                      <Text style={styles.evictBtnText}>Remove Tenant from Room</Text>
-                    </Pressable>
-
-                    <Pressable
-                      style={styles.evictBtn}
-                      onPress={() => {
-                        Alert.alert(
-                          "30-Day Notice",
-                          `Are you sure you want to issue a 30-day notice to remove ${selectedTenant.name}?`,
-                          [
-                            { text: "Cancel", style: "cancel" },
-                            {
-                              text: "Issue Notice",
-                              style: "destructive",
-                              onPress: async () => {
-                                try {
-                                  const tenantId = selectedTenant.id || selectedTenant.raw?.id;
-                                  const roomNumber = selectedTenant.raw?.roomNumber || selectedTenant.raw?.roomId || "";
-                                  if (!tenantId) {
-                                    throw new Error("This tenant record is missing a user id.");
-                                  }
-                                  await vacateTenantRoom(tenantId, roomNumber);
-                                  await createNotification(tenantId, {
-                                    type: "room_update",
-                                    title: "Room assignment removed",
-                                    body: roomNumber
-                                      ? `Your room assignment for Room ${roomNumber} was removed by the landlord.`
-                                      : "Your room assignment was removed by the landlord.",
-                                    route: "/tenant/account",
-                                  });
-                                  Alert.alert("Notice Issued", "The tenant was removed from the room assignment and notified.");
-                                  setSelectedTenant(null);
-                                } catch (error) {
-                                  Alert.alert(
-                                    "Unable to remove tenant",
-                                    error instanceof Error ? error.message : "Please try again.",
-                                  );
-                                }
-                              },
-                            },
-                          ],
-                        );
-                      }}
-                    >
-                      <Ionicons name="warning-outline" size={18} color="#c62828" />
-                      <Text style={styles.evictBtnText}>Issue 30-Day Removal Notice</Text>
-                    </Pressable>
-                  </View>
-                )}
-              </ScrollView>
-            )}
-          </View>
-        </View>
-      </Modal>
       <LandlordNavigation active="Tenants" />
     </SafeAreaView>
   );
@@ -530,7 +630,13 @@ const styles = StyleSheet.create({
     elevation: 8,
     zIndex: 1,
   },
-  headerBrand: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 12 },
+  headerBrand: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
   headerLogo: {
     width: 44,
     height: 44,
@@ -541,9 +647,20 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   headerCopy: { flex: 1, minWidth: 0 },
-  kicker: { fontSize: 11, color: "#d9e5ff", fontWeight: "700", letterSpacing: 1.4 },
+  kicker: {
+    fontSize: 11,
+    color: "#d9e5ff",
+    fontWeight: "700",
+    letterSpacing: 1.4,
+  },
   title: { fontSize: 24, fontWeight: "800", color: "#fff", marginTop: 2 },
-  subtitle: { fontSize: 11, color: "#e1eaff", marginTop: 5, maxWidth: 310, lineHeight: 16 },
+  subtitle: {
+    fontSize: 11,
+    color: "#e1eaff",
+    marginTop: 5,
+    maxWidth: 310,
+    lineHeight: 16,
+  },
   register: {
     backgroundColor: "#173b36",
     borderRadius: 7,
@@ -566,8 +683,20 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 7,
   },
-  searchInput: { flex: 1, minWidth: 0, height: 42, fontSize: 12, color: "#253149", paddingVertical: 0 },
-  filters: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginVertical: 12 },
+  searchInput: {
+    flex: 1,
+    minWidth: 0,
+    height: 42,
+    fontSize: 12,
+    color: "#253149",
+    paddingVertical: 0,
+  },
+  filters: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginVertical: 12,
+  },
   filterActive: {
     fontSize: 11,
     color: "#fff",
@@ -630,7 +759,14 @@ const styles = StyleSheet.create({
   cardTop: { flexDirection: "row", alignItems: "center", gap: 11 },
   avatar: { display: "none" },
   avatarImage: { width: 38, height: 38, borderRadius: 19 },
-  avatarInitials: { width: 42, height: 42, borderRadius: 21, backgroundColor: "#eaf1ff", alignItems: "center", justifyContent: "center" },
+  avatarInitials: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#eaf1ff",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   avatarInitialsText: { color: "#2458c7", fontSize: 13, fontWeight: "700" },
   person: { flex: 1 },
   name: { fontSize: 13, fontWeight: "700", color: "#253149" },
@@ -662,6 +798,7 @@ const styles = StyleSheet.create({
   },
   month: { fontSize: 12, fontWeight: "400" },
   smallButton: {
+    minHeight: 44,
     borderRadius: 6,
     backgroundColor: "#f3f7fd",
     paddingHorizontal: 10,

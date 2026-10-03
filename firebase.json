@@ -1,6 +1,6 @@
 {
   "firestore": {
-    "rules": "firestore.rules"
+    "rules": "../backend/firestore.rules",
+    "indexes": "../backend/firestore.indexes.json"
   }
 }
-

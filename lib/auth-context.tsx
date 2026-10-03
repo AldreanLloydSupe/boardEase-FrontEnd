@@ -23,11 +23,15 @@ type Role = "admin" | "user";
 type AuthContextValue = {
   user: User | null;
   profilePhoto: string | null;
+  displayName: string;
   role: Role | null;
   hasRoom: boolean;
   loading: boolean;
   firebaseReady: boolean;
-  signIn: (email: string, password: string) => Promise<void>;
+  signIn: (
+    email: string,
+    password: string,
+  ) => Promise<{ role: Role; hasRoom: boolean }>;
   signUp: (
     name: string,
     email: string,
@@ -84,12 +88,10 @@ function readableAuthError(error: unknown) {
 
 async function loadSession(nextUser: User) {
   const token = await getIdTokenResult(nextUser, true);
-  
-  // Security Feature: Check Firebase claims OR our hardcoded test admin email
-  const isLandlord = 
-    token.claims.admin === true || 
-    token.claims.role === "landlord" || 
-    nextUser.email === "admin@boardease.com";
+
+  // Roles come exclusively from trusted Firebase custom claims.
+  const isLandlord =
+    token.claims.admin === true || token.claims.role === "landlord";
 
   if (isLandlord) return { role: "admin" as const, hasRoom: false };
   const profile = db ? await getDoc(doc(db, "users", nextUser.uid)) : null;
@@ -101,6 +103,7 @@ async function loadSession(nextUser: User) {
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [displayName, setDisplayName] = useState("");
   const [user, setUser] = useState<User | null>(null);
   const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
   const [role, setRole] = useState<Role | null>(null);
@@ -115,6 +118,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!nextUser) {
         setUser(null);
         setProfilePhoto(null);
+        setDisplayName("");
         setRole(null);
         setHasRoom(false);
         setLoading(false);
@@ -123,19 +127,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         const session = await loadSession(nextUser);
         const safePhotoUrl =
-          typeof nextUser.photoURL === "string" && nextUser.photoURL.trim()
+          typeof nextUser.photoURL === "string" &&
+          /^https:\/\//.test(nextUser.photoURL)
             ? nextUser.photoURL
             : null;
         setUser(nextUser);
+        setDisplayName(nextUser.displayName || "");
         setProfilePhoto(safePhotoUrl);
         setRole(session.role);
         setHasRoom(session.hasRoom);
-        if (session.role === "user" && db) {
+        if (db) {
           stopProfile = onSnapshot(
             doc(db, "users", nextUser.uid),
             (profile) => {
               const data = profile.data();
-              setHasRoom(data?.hasRoom === true || Boolean(data?.roomId));
+              setDisplayName(String(data?.name || nextUser.displayName || ""));
+              setHasRoom(
+                session.role === "user" &&
+                  (data?.hasRoom === true || Boolean(data?.roomId)),
+              );
+              setProfilePhoto(
+                typeof data?.photoURL === "string" &&
+                  /^(https:\/\/|data:image\/)/.test(data.photoURL)
+                  ? data.photoURL
+                  : safePhotoUrl,
+              );
             },
           );
         }
@@ -155,6 +171,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     () => ({
       user,
       profilePhoto,
+      displayName,
       role,
       hasRoom,
       loading,
@@ -171,13 +188,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           );
           const session = await loadSession(credential.user);
           const safePhotoUrl =
-            typeof credential.user.photoURL === "string" && credential.user.photoURL.trim()
+            typeof credential.user.photoURL === "string" &&
+            /^https:\/\//.test(credential.user.photoURL)
               ? credential.user.photoURL
               : null;
           setUser(credential.user);
+          setDisplayName(credential.user.displayName || "");
           setProfilePhoto(safePhotoUrl);
           setRole(session.role);
           setHasRoom(session.hasRoom);
+          return session;
         } catch (error) {
           if (
             error instanceof Error &&
@@ -188,7 +208,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           throw error;
         }
       },
-      async signUp(name, email, password, phone, emergencyContact, emergencyPhone) {
+      async signUp(
+        name,
+        email,
+        password,
+        phone,
+        emergencyContact,
+        emergencyPhone,
+      ) {
         if (!auth || !db) throw new Error(firebaseSetupMessage);
         let createdUser: User | null = null;
         try {
@@ -210,10 +237,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             createdAt: new Date().toISOString(),
           });
           const safePhotoUrl =
-            typeof createdUser.photoURL === "string" && createdUser.photoURL.trim()
+            typeof createdUser.photoURL === "string" &&
+            createdUser.photoURL.trim()
               ? createdUser.photoURL
               : null;
           setUser(createdUser);
+          setDisplayName(name);
           setProfilePhoto(safePhotoUrl);
           setRole("user");
           setHasRoom(false);
@@ -236,6 +265,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       async signOut() {
         if (auth) await firebaseSignOut(auth);
         setUser(null);
+        setDisplayName("");
         setProfilePhoto(null);
         setRole(null);
         setHasRoom(false);
@@ -248,7 +278,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!cleanUri) {
           throw new Error("A valid image URL is required.");
         }
-        await updateProfile(auth.currentUser, { photoURL: cleanUri });
+        if (
+          !/^data:image\/(jpeg|png|webp);base64,/.test(cleanUri) ||
+          cleanUri.length > 510000
+        )
+          throw new Error("Choose a small JPG, PNG, or WebP image.");
         await setDoc(
           doc(db, "users", auth.currentUser.uid),
           { photoURL: cleanUri },
@@ -266,9 +300,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           merge: true,
         });
         setUser(auth.currentUser);
+        setDisplayName(profile.name);
       },
     }),
-    [hasRoom, loading, profilePhoto, role, user],
+    [hasRoom, loading, profilePhoto, role, user, displayName],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

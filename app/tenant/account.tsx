@@ -1,3 +1,5 @@
+import { usePropertySettings } from "@/lib/use-property-settings";
+import { AppAlert as Alert } from "@/components/app-alert";
 import { ProfilePictureButton } from "@/components/profile-picture-button";
 import {
   ApplicantTenantNav,
@@ -6,19 +8,16 @@ import {
 import { TenantPageHeader } from "@/components/tenant-page-header";
 import { useAuth } from "@/lib/auth-context";
 import { auth, db } from "@/lib/firebase";
-import { vacateTenantRoom } from "@/lib/room-vacate";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import {
   EmailAuthProvider,
-  deleteUser,
   reauthenticateWithCredential,
   updatePassword,
 } from "firebase/auth";
-import { doc, onSnapshot, setDoc } from "firebase/firestore";
+import { doc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
 import React from "react";
 import {
-  Alert,
   Modal,
   Pressable,
   ScrollView,
@@ -38,24 +37,25 @@ type Profile = {
   roomNumber: string;
   roomType: string;
   roomRent: string;
+  rentDueDay: number;
 };
 
 export default function Account() {
-  const {
-    user,
-    hasRoom,
-    signOut,
-    resetPassword,
-    updateUserProfile,
-  } = useAuth();
+  const { user, hasRoom, signOut, resetPassword, updateUserProfile } =
+    useAuth();
 
+  const { settings } = usePropertySettings();
   const [notifications, setNotifications] = React.useState(true);
   const [paymentReminders, setPaymentReminders] = React.useState(true);
   const [maintenanceUpdates, setMaintenanceUpdates] = React.useState(true);
   const [applicationUpdates, setApplicationUpdates] = React.useState(true);
   const [tourUpdates, setTourUpdates] = React.useState(true);
   const [reminderTiming, setReminderTiming] = React.useState("3 days before");
+  const [verificationStatus, setVerificationStatus] =
+    React.useState("Not submitted");
+  const [feedback, setFeedback] = React.useState("");
   const [editOpen, setEditOpen] = React.useState(false);
+  const [timingOpen, setTimingOpen] = React.useState(false);
   const [passwordOpen, setPasswordOpen] = React.useState(false);
   const [currentPassword, setCurrentPassword] = React.useState("");
   const [newPassword, setNewPassword] = React.useState("");
@@ -74,6 +74,7 @@ export default function Account() {
     roomNumber: "",
     roomType: "Room",
     roomRent: "",
+    rentDueDay: 5,
   });
 
   const [draft, setDraft] = React.useState({
@@ -95,10 +96,12 @@ export default function Account() {
         phone: String(data.phone || ""),
         emergencyContact: String(data.emergencyContact || ""),
         emergencyPhone: String(data.emergencyPhone || ""),
-        roomNumber: String(data.roomNumber || data.roomId || ""),
+        roomNumber: String(data.roomNumber || ""),
         roomType: String(data.roomType || "Room"),
         roomRent: String(data.roomRent || ""),
+        rentDueDay: Number(data.rentDueDay || 5),
       }));
+      setVerificationStatus(String(data.verificationStatus || "Not submitted"));
       setNotifications(data.notificationsEnabled !== false);
       setPaymentReminders(data.paymentReminders !== false);
       setMaintenanceUpdates(data.maintenanceUpdates !== false);
@@ -111,9 +114,28 @@ export default function Account() {
   async function savePreference(field: string, value: boolean | string) {
     if (!db || !user) return;
     try {
-      await setDoc(doc(db, "users", user.uid), { [field]: value }, { merge: true });
+      await setDoc(
+        doc(db, "users", user.uid),
+        { [field]: value },
+        { merge: true },
+      );
     } catch {
-      Alert.alert("Unable to save setting", "Please try again.");
+      Alert.alert(
+        "Unable to save setting",
+        "Your change was not saved. Please try again.",
+      );
+      const original = await import("firebase/firestore")
+        .then((m) => m.getDoc(doc(db!, "users", user!.uid)))
+        .catch(() => null);
+      const data = original?.data();
+      if (data) {
+        setNotifications(data.notificationsEnabled !== false);
+        setPaymentReminders(data.paymentReminders !== false);
+        setMaintenanceUpdates(data.maintenanceUpdates !== false);
+        setApplicationUpdates(data.applicationUpdates !== false);
+        setTourUpdates(data.tourUpdates !== false);
+        setReminderTiming(String(data.reminderTiming || "3 days before"));
+      }
     }
   }
 
@@ -121,7 +143,10 @@ export default function Account() {
     if (!user?.email) return;
     try {
       await resetPassword(user.email);
-      Alert.alert("Password reset sent", `Check ${user.email} for the reset link.`);
+      Alert.alert(
+        "Password reset sent",
+        `Check ${user.email} for the reset link.`,
+      );
     } catch {
       Alert.alert("Unable to send reset link", "Please try again later.");
     }
@@ -138,64 +163,77 @@ export default function Account() {
       return;
     }
     try {
-      const credential = EmailAuthProvider.credential(user.email, currentPassword);
+      const credential = EmailAuthProvider.credential(
+        user.email,
+        currentPassword,
+      );
       await reauthenticateWithCredential(auth.currentUser, credential);
       await updatePassword(auth.currentUser, newPassword);
       setPasswordOpen(false);
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
-      Alert.alert("Password changed", "Your password was updated successfully.");
-    } catch (error) {
-      const code = error && typeof error === "object" && "code" in error
-        ? String((error as { code?: unknown }).code || "")
-        : "";
       Alert.alert(
-        code === "auth/invalid-credential" ? "Incorrect current password" : "Unable to change password",
-        code === "auth/invalid-credential" ? "Check your current password and try again." : "Please try again.",
+        "Password changed",
+        "Your password was updated successfully.",
+      );
+    } catch (error) {
+      const code =
+        error && typeof error === "object" && "code" in error
+          ? String((error as { code?: unknown }).code || "")
+          : "";
+      Alert.alert(
+        code === "auth/invalid-credential"
+          ? "Incorrect current password"
+          : "Unable to change password",
+        code === "auth/invalid-credential"
+          ? "Check your current password and try again."
+          : "Please try again.",
       );
     }
   }
 
   function chooseReminderTiming() {
-    Alert.alert("Payment reminder timing", "When should we remind you?", [
-      ...["7 days before", "3 days before", "1 day before"].map((value) => ({
-        text: value,
-        onPress: () => {
-          setReminderTiming(value);
-          void savePreference("reminderTiming", value);
-        },
-      })),
-      { text: "Cancel", style: "cancel" },
-    ]);
+    setTimingOpen(true);
   }
 
+  async function requestAccountAction(kind: "deletion" | "vacate") {
+    if (!db || !user) return;
+    try {
+      await setDoc(doc(db, "accountRequests", user.uid), {
+        tenantId: user.uid,
+        kind,
+        status: "pending",
+        createdAt: serverTimestamp(),
+      });
+      setFeedback(
+        kind === "deletion"
+          ? "Account deletion requested. Management will review your tenancy and contact you."
+          : "Move-out requested. Your room remains assigned until management confirms.",
+      );
+    } catch {
+      Alert.alert(
+        "Unable to submit request",
+        "Please check your connection and try again.",
+      );
+    }
+  }
   function confirmDeleteAccount() {
     Alert.alert(
-      "Delete account?",
-      "This signs you out and permanently deletes your Firebase account. This cannot be undone.",
+      "Request account deletion?",
+      "Management will review your tenancy and payment records before deleting your account and personal data.",
       [
         { text: "Cancel", style: "cancel" },
         {
-          text: "Delete account",
+          text: "Request deletion",
           style: "destructive",
-          onPress: async () => {
-            if (!auth?.currentUser) return;
-            try {
-              await deleteUser(auth.currentUser);
-              router.replace("/login");
-            } catch {
-              Alert.alert(
-                "Recent sign-in required",
-                "For your security, sign in again before deleting your account.",
-              );
-            }
+          onPress: () => {
+            void requestAccountAction("deletion");
           },
         },
       ],
     );
   }
-
   function openEdit() {
     setDraft({
       name: profile.name,
@@ -212,7 +250,10 @@ export default function Account() {
       Alert.alert("Missing name", "Enter your full name.");
       return;
     }
-    if (draft.phone.trim() && !/^[+\d][\d\s()-]{6,}$/.test(draft.phone.trim())) {
+    if (
+      draft.phone.trim() &&
+      !/^[+\d][\d\s()-]{6,}$/.test(draft.phone.trim())
+    ) {
       Alert.alert("Invalid phone number", "Enter a valid contact number.");
       return;
     }
@@ -227,15 +268,9 @@ export default function Account() {
 
       setEditOpen(false);
 
-      Alert.alert(
-        "Profile updated",
-        "Your profile details were saved."
-      );
+      Alert.alert("Profile updated", "Your profile details were saved.");
     } catch {
-      Alert.alert(
-        "Unable to update profile",
-        "Please try again."
-      );
+      Alert.alert("Unable to update profile", "Please try again.");
     }
   }
 
@@ -246,13 +281,16 @@ export default function Account() {
 
   async function leaveRoom() {
     if (!user || !profile.roomNumber) {
-      Alert.alert("No room assigned", "You are not currently assigned to a room.");
+      Alert.alert(
+        "No room assigned",
+        "You are not currently assigned to a room.",
+      );
       return;
     }
 
     Alert.alert(
       "Leave room?",
-      `This will remove your assignment from Room ${profile.roomNumber}. The landlord will need to assign you to a new room again if needed.`,
+      `Request to move out of Room ${profile.roomNumber}? Management will confirm the move-out before releasing your room.`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -260,8 +298,7 @@ export default function Account() {
           style: "destructive",
           onPress: async () => {
             try {
-              await vacateTenantRoom(user.uid, profile.roomNumber);
-              Alert.alert("Room removed", "Your room assignment has been cleared.");
+              await requestAccountAction("vacate");
             } catch (error) {
               Alert.alert(
                 "Unable to leave room",
@@ -285,6 +322,11 @@ export default function Account() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.content}
       >
+        {!!feedback && (
+          <Text accessibilityRole="alert" style={styles.modalHint}>
+            {feedback}
+          </Text>
+        )}
         {/* PROFILE HEADER */}
         <View style={styles.profile}>
           <ProfilePictureButton
@@ -302,9 +344,7 @@ export default function Account() {
                 : "No room assigned"}
             </Text>
 
-            <Text style={styles.email}>
-              {user?.email || ""}
-            </Text>
+            <Text style={styles.email}>{user?.email || ""}</Text>
           </View>
 
           <Pressable
@@ -312,11 +352,7 @@ export default function Account() {
             accessibilityLabel="Edit profile"
             style={styles.editProfileButton}
           >
-            <Ionicons
-              name="create-outline"
-              size={19}
-              color="#526174"
-            />
+            <Ionicons name="create-outline" size={19} color="#526174" />
           </Pressable>
         </View>
 
@@ -332,28 +368,21 @@ export default function Account() {
           open={tenancyOpen}
           onPress={() => setTenancyOpen((current) => !current)}
         >
-          <Info
-            label="Assigned Room"
-            value={roomLabel}
-          />
+          <Info label="Assigned Room" value={roomLabel} />
 
           <Info
             label="Monthly Rent"
-            value={
-              profile.roomRent
-                ? `₱${profile.roomRent} / month`
-                : "—"
-            }
+            value={profile.roomRent ? `₱${profile.roomRent} / month` : "—"}
           />
 
           <Info
             label="Rent Due Date"
-            value="5th of every month"
+            value={`Day ${profile.rentDueDay} of every month`}
           />
 
           <Setting
             icon="exit-outline"
-            label="Leave Room"
+            label="Request Move-out"
             onPress={() => {
               void leaveRoom();
             }}
@@ -368,28 +397,16 @@ export default function Account() {
           open={personalOpen}
           onPress={() => setPersonalOpen((current) => !current)}
           rightAction={
-            <Pressable
-              onPress={openEdit}
-              hitSlop={8}
-            >
+            <Pressable onPress={openEdit} hitSlop={8}>
               <Text style={styles.edit}>Edit</Text>
             </Pressable>
           }
         >
-          <Info
-            label="Full Name"
-            value={profile.name}
-          />
+          <Info label="Full Name" value={profile.name} />
 
-          <Info
-            label="Contact Number"
-            value={profile.phone}
-          />
+          <Info label="Contact Number" value={profile.phone} />
 
-          <Info
-            label="Email"
-            value={user?.email || ""}
-          />
+          <Info label="Email" value={user?.email || ""} />
 
           <Info
             label="Emergency Contact"
@@ -401,10 +418,7 @@ export default function Account() {
             value={profile.emergencyPhone || "Not provided"}
           />
 
-          <Info
-            label="ID Verification"
-            value="Verified Student ID"
-          />
+          <Info label="ID Verification" value={verificationStatus} />
         </DropdownSection>
 
         {/* SETTINGS & PREFERENCES DROPDOWN */}
@@ -440,9 +454,7 @@ export default function Account() {
                 false: "#d8dee8",
                 true: "#9bb9f5",
               }}
-              thumbColor={
-                notifications ? "#2864e8" : "#f4f4f4"
-              }
+              thumbColor={notifications ? "#2864e8" : "#f4f4f4"}
             />
           </Setting>
 
@@ -452,7 +464,10 @@ export default function Account() {
             onPress={() =>
               Alert.alert(
                 "House rules and help",
-                "Quiet hours: 10:00 PM–6:00 AM. Keep shared areas clean, report maintenance issues promptly, and contact Kuya Bert for urgent concerns.",
+                String(
+                  settings.houseRules ||
+                    "Management has not published the house rules yet. Please contact your caretaker.",
+                ),
                 [{ text: "OK" }],
               )
             }
@@ -571,7 +586,7 @@ export default function Account() {
             onPress={() =>
               Alert.alert(
                 "Privacy & verification",
-                "ID status: Verified Student ID\n\nYour profile is visible to your landlord for tenancy management. Contact support to replace your verification document or request data deletion.",
+                `ID status: ${verificationStatus}\n\nOnly you and management can access your profile. Contact management to review your ID or request data deletion.`,
                 [{ text: "OK" }],
               )
             }
@@ -585,19 +600,10 @@ export default function Account() {
         </DropdownSection>
 
         {/* LOG OUT */}
-        <Pressable
-          style={styles.logout}
-          onPress={logout}
-        >
-          <Ionicons
-            name="log-out-outline"
-            size={17}
-            color="#d33f3f"
-          />
+        <Pressable style={styles.logout} onPress={logout}>
+          <Ionicons name="log-out-outline" size={17} color="#d33f3f" />
 
-          <Text style={styles.logoutText}>
-            Log Out
-          </Text>
+          <Text style={styles.logoutText}>Log Out</Text>
         </Pressable>
       </ScrollView>
 
@@ -608,6 +614,40 @@ export default function Account() {
         <ApplicantTenantNav active="Account" />
       )}
 
+      <Modal
+        visible={timingOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setTimingOpen(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modal}>
+            <Text style={styles.modalTitle}>Payment reminder timing</Text>
+            {["7 days before", "3 days before", "1 day before"].map((value) => (
+              <Pressable
+                key={value}
+                style={{ paddingVertical: 16 }}
+                onPress={() => {
+                  setReminderTiming(value);
+                  setTimingOpen(false);
+                  void savePreference("reminderTiming", value);
+                }}
+              >
+                <Text style={styles.edit}>
+                  {value}
+                  {reminderTiming === value ? " ✓" : ""}
+                </Text>
+              </Pressable>
+            ))}
+            <Pressable
+              style={{ paddingVertical: 12 }}
+              onPress={() => setTimingOpen(false)}
+            >
+              <Text>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
       {/* EDIT PROFILE MODAL */}
       <Modal
         visible={passwordOpen}
@@ -623,7 +663,15 @@ export default function Account() {
                 <Ionicons name="close" size={22} color="#526174" />
               </Pressable>
             </View>
-            <Text style={styles.modalHint}>Enter your current password, then choose a new one.</Text>
+            <Text style={styles.modalHint}>
+              Enter your current password, then choose a new one.
+            </Text>
+            <Pressable
+              onPress={() => void sendPasswordReset()}
+              style={{ paddingVertical: 12 }}
+            >
+              <Text style={styles.edit}>Send password reset email</Text>
+            </Pressable>
             <Text style={styles.inputLabel}>Current Password</Text>
             <TextInput
               style={styles.input}
@@ -648,7 +696,10 @@ export default function Account() {
               secureTextEntry
               placeholder="Repeat new password"
             />
-            <Pressable style={styles.saveButton} onPress={() => void changePassword()}>
+            <Pressable
+              style={styles.saveButton}
+              onPress={() => void changePassword()}
+            >
               <Text style={styles.saveText}>Update Password</Text>
             </Pressable>
           </View>
@@ -664,25 +715,14 @@ export default function Account() {
         <View style={styles.modalBackdrop}>
           <View style={styles.modal}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>
-                Edit Profile
-              </Text>
+              <Text style={styles.modalTitle}>Edit Profile</Text>
 
-              <Pressable
-                onPress={() => setEditOpen(false)}
-                hitSlop={8}
-              >
-                <Ionicons
-                  name="close"
-                  size={22}
-                  color="#526174"
-                />
+              <Pressable onPress={() => setEditOpen(false)} hitSlop={8}>
+                <Ionicons name="close" size={22} color="#526174" />
               </Pressable>
             </View>
 
-            <Text style={styles.inputLabel}>
-              Full Name
-            </Text>
+            <Text style={styles.inputLabel}>Full Name</Text>
 
             <TextInput
               style={styles.input}
@@ -695,9 +735,7 @@ export default function Account() {
               }
             />
 
-            <Text style={styles.inputLabel}>
-              Contact Number
-            </Text>
+            <Text style={styles.inputLabel}>Contact Number</Text>
 
             <TextInput
               style={styles.input}
@@ -711,9 +749,7 @@ export default function Account() {
               keyboardType="phone-pad"
             />
 
-            <Text style={styles.inputLabel}>
-              Emergency Contact
-            </Text>
+            <Text style={styles.inputLabel}>Emergency Contact</Text>
 
             <TextInput
               style={styles.input}
@@ -736,13 +772,8 @@ export default function Account() {
               keyboardType="phone-pad"
             />
 
-            <Pressable
-              style={styles.saveButton}
-              onPress={saveProfile}
-            >
-              <Text style={styles.saveText}>
-                Save Changes
-              </Text>
+            <Pressable style={styles.saveButton} onPress={saveProfile}>
+              <Text style={styles.saveText}>Save Changes</Text>
             </Pressable>
           </View>
         </View>
@@ -782,69 +813,39 @@ function DropdownSection({
         }}
       >
         <View style={styles.dropdownIcon}>
-          <Ionicons
-            name={icon}
-            size={18}
-            color="#2864e8"
-          />
+          <Ionicons name={icon} size={18} color="#2864e8" />
         </View>
 
         <View style={styles.dropdownTitleArea}>
-          <Text style={styles.dropdownTitle}>
-            {title}
-          </Text>
+          <Text style={styles.dropdownTitle}>{title}</Text>
 
-          {!open && (
-            <Text style={styles.dropdownSubtitle}>
-              {subtitle}
-            </Text>
-          )}
+          {!open && <Text style={styles.dropdownSubtitle}>{subtitle}</Text>}
         </View>
 
         {rightAction && open ? (
-          <View style={styles.dropdownRightAction}>
-            {rightAction}
-          </View>
+          <View style={styles.dropdownRightAction}>{rightAction}</View>
         ) : null}
 
         <View style={styles.chevronContainer}>
           <Ionicons
-            name={
-              open
-                ? "chevron-up"
-                : "chevron-down"
-            }
+            name={open ? "chevron-up" : "chevron-down"}
             size={18}
             color="#71809a"
           />
         </View>
       </Pressable>
 
-      {open && (
-        <View style={styles.dropdownContent}>
-          {children}
-        </View>
-      )}
+      {open && <View style={styles.dropdownContent}>{children}</View>}
     </View>
   );
 }
 
-function Info({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
+function Info({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.info}>
-      <Text style={styles.label}>
-        {label}
-      </Text>
+      <Text style={styles.label}>{label}</Text>
 
-      <Text style={styles.value}>
-        {value}
-      </Text>
+      <Text style={styles.value}>{value}</Text>
     </View>
   );
 }
@@ -861,28 +862,15 @@ function Setting({
   children?: React.ReactNode;
 }) {
   return (
-    <Pressable
-      style={styles.setting}
-      onPress={onPress}
-    >
+    <Pressable style={styles.setting} onPress={onPress}>
       <View style={styles.settingIcon}>
-        <Ionicons
-          name={icon}
-          size={17}
-          color="#2864e8"
-        />
+        <Ionicons name={icon} size={17} color="#2864e8" />
       </View>
 
-      <Text style={styles.settingLabel}>
-        {label}
-      </Text>
+      <Text style={styles.settingLabel}>{label}</Text>
 
       {children || (
-        <Ionicons
-          name="chevron-forward"
-          size={16}
-          color="#71809a"
-        />
+        <Ionicons name="chevron-forward" size={16} color="#71809a" />
       )}
     </Pressable>
   );

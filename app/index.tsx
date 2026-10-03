@@ -1,30 +1,6 @@
 import { Redirect } from "expo-router";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
-import { useAuth } from "@/lib/auth-context";
 
+// The app entry is Login; authenticated deep routes restore their saved session.
 export default function Index() {
-  const { user, role, hasRoom, loading } = useAuth();
-
-  if (loading) {
-    return (
-      <View style={styles.loading}>
-        <ActivityIndicator color="#2563eb" />
-      </View>
-    );
-  }
-
-  if (!user) return <Redirect href="/welcome" />;
-  if (role === "admin") return <Redirect href="/landlord/dashboard" />;
-  return (
-    <Redirect href={hasRoom ? "/tenant/tenant-home" : "/tenant/room-browser"} />
-  );
+  return <Redirect href="/login" />;
 }
-
-const styles = StyleSheet.create({
-  loading: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#f7f9fc",
-  },
-});

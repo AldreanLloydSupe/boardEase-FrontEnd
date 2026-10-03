@@ -1,6 +1,8 @@
+import { AppAlert as Alert } from "@/components/app-alert";
+import { sharedImage } from "@/lib/image-data";
 import { useAuth } from "@/lib/auth-context";
 import * as ImagePicker from "expo-image-picker";
-import { Alert, Image, Pressable, StyleSheet, Text } from "react-native";
+import { Image, Pressable, StyleSheet, Text } from "react-native";
 
 type Props = {
   fallback: string;
@@ -18,26 +20,31 @@ export function ProfilePictureButton({
   const { profilePhoto, updateProfilePhoto } = useAuth();
 
   async function choosePhoto() {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert(
-        "Photo permission needed",
-        "Allow photo access in your device settings to choose a profile picture.",
-      );
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.8,
-    });
-    if (result.canceled || !result.assets[0]?.uri) return;
     try {
-      await updateProfilePhoto(result.assets[0].uri);
+      const permission =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          "Photo permission needed",
+          "Allow photo access in your device settings to choose a profile picture.",
+        );
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.3,
+        base64: true,
+      });
+      if (result.canceled || !result.assets[0]?.uri) return;
+      await updateProfilePhoto(sharedImage(result.assets[0]));
       onChanged?.();
-    } catch {
-      Alert.alert("Unable to update photo", "Please try again.");
+    } catch (error) {
+      Alert.alert(
+        "Unable to update photo",
+        error instanceof Error ? error.message : "Please try again.",
+      );
     }
   }
 

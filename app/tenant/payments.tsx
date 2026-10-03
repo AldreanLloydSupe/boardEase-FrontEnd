@@ -1,32 +1,32 @@
+import { usePropertySettings } from "@/lib/use-property-settings";
+import { AppAlert as Alert } from "@/components/app-alert";
+import { useTenantData } from "@/lib/use-tenant-data";
+import { cycleDetails, peso, timestampMillis } from "@/lib/billing";
+import { sharedImage } from "@/lib/image-data";
+import * as Clipboard from "expo-clipboard";
 import { TenantPageHeader } from "@/components/tenant-page-header";
 import { AssignedTenantNav } from "@/components/tenant-navigation";
 import { useAuth } from "@/lib/auth-context";
 import { db } from "@/lib/firebase";
 import { Ionicons } from "@expo/vector-icons";
-import DateTimePicker, {
-    type DateTimePickerEvent,
-} from "@react-native-community/datetimepicker";
+import DateTimePicker from "@/components/date-time-picker";
+import type { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import * as FileSystem from "expo-file-system/legacy";
 import * as ImagePicker from "expo-image-picker";
 import * as Sharing from "expo-sharing";
-import {
-    addDoc,
-    collection,
-    serverTimestamp,
-} from "firebase/firestore";
+import { doc, runTransaction, serverTimestamp } from "firebase/firestore";
 import React from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Image,
-    Modal,
-    Platform,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+  ActivityIndicator,
+  Image,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -34,10 +34,20 @@ type Receipt = {
   id: string;
   date: string;
   amount: string;
+  reference: string;
+  period: string;
+  tenantName: string;
+  roomNumber: string;
 };
 
 export default function TenantPayments() {
   const { user } = useAuth();
+  const { profile, payments, loading, error } = useTenantData();
+  const { settings, error: settingsError } = usePropertySettings();
+  const receiverNumber = String(settings.gcashNumber || "");
+  const receiverName = String(settings.gcashName || "");
+  const cycle = cycleDetails(profile, payments);
+  const [feedback, setFeedback] = React.useState("");
   const [proofOpen, setProofOpen] = React.useState(false);
   const [referenceNumber, setReferenceNumber] = React.useState("");
   const [sentAt, setSentAt] = React.useState(() => new Date());
@@ -45,32 +55,60 @@ export default function TenantPayments() {
   const [timePickerOpen, setTimePickerOpen] = React.useState(false);
   const [selectedImage, setSelectedImage] =
     React.useState<ImagePicker.ImagePickerAsset | null>(null);
-  const [amount, setAmount] = React.useState("₱3,500.00");
+  const [amount, setAmount] = React.useState("");
   const [isSubmitting, setIsSubmitting] = React.useState(false);
-  const [selectedReceipt, setSelectedReceipt] = React.useState<Receipt | null>(null);
+  const [selectedReceipt, setSelectedReceipt] = React.useState<Receipt | null>(
+    null,
+  );
   const [receiptDetailsOpen, setReceiptDetailsOpen] = React.useState(false);
 
-  const receipts: Receipt[] = [
-    { id: "OR-0892", date: "Sep 04, 2026", amount: "₱3,500.00" },
-    { id: "OR-0741", date: "Aug 05, 2026", amount: "₱3,500.00" },
-    { id: "OR-0610", date: "Jul 04, 2026", amount: "₱3,500.00" },
-  ];
+  const receipts: Receipt[] = payments
+    .filter((p) => p.status === "approved")
+    .sort((a, b) => timestampMillis(b.createdAt) - timestampMillis(a.createdAt))
+    .map((p) => ({
+      id: p.id,
+      date: String(p.dateSent || "Not recorded"),
+      amount: peso(p.amount),
+      reference: String(p.referenceNumber || p.reference || "Not recorded"),
+      period: String(p.billingPeriod || "Not allocated"),
+      tenantName: String(
+        p.tenantName || profile.name || user?.displayName || "Tenant",
+      ),
+      roomNumber: String(p.roomNumber || "Not recorded"),
+    }));
 
   async function downloadReceipt(receipt: Receipt) {
     try {
-      const directory = FileSystem.documentDirectory || FileSystem.cacheDirectory;
-      if (!directory) throw new Error("Receipt storage is unavailable.");
-      const fileUri = `${directory}${receipt.id}.txt`;
       const contents = [
         "BOARDEASE PAYMENT RECEIPT",
         "-------------------------",
-        `Official Receipt: ${receipt.id}`,
-        `Tenant: ${user?.displayName || "Tenant"}`,
+        `Payment Record: ${receipt.id}`,
+        `Tenant: ${receipt.tenantName}`,
         `Amount Paid: ${receipt.amount}`,
         `Payment Date: ${receipt.date}`,
-        "Description: Rent & Wi-Fi",
+        `Room: ${receipt.roomNumber}`,
+        `Billing period: ${receipt.period}`,
+        `Transfer reference: ${receipt.reference}`,
+        "BoardEase payment acknowledgement; not a BIR tax invoice.",
         "Status: PAID",
-      ].join("\\n");
+      ].join("\n");
+      if (Platform.OS === "web") {
+        const url = URL.createObjectURL(
+          new Blob([contents], { type: "text/plain;charset=utf-8" }),
+        );
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `boardease-${receipt.id}.txt`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        return;
+      }
+      const directory =
+        FileSystem.documentDirectory || FileSystem.cacheDirectory;
+      if (!directory) throw new Error("Receipt storage is unavailable.");
+      const fileUri = `${directory}boardease-${receipt.id}.txt`;
       await FileSystem.writeAsStringAsync(fileUri, contents);
       if (await Sharing.isAvailableAsync()) {
         await Sharing.shareAsync(fileUri, {
@@ -79,7 +117,10 @@ export default function TenantPayments() {
           UTI: "public.plain-text",
         });
       } else {
-        Alert.alert("Receipt saved", `Receipt ${receipt.id} was saved on this device.`);
+        Alert.alert(
+          "Receipt saved",
+          `Receipt ${receipt.id} was saved on this device.`,
+        );
       }
     } catch (error) {
       Alert.alert(
@@ -95,16 +136,16 @@ export default function TenantPayments() {
   }
 
   function openProof() {
+    if (loading || error || !profile.hasRoom || cycle.balance <= 0) return;
+    setAmount(cycle.balance.toFixed(2));
+    setFeedback("");
     setSentAt(new Date());
     setDatePickerOpen(false);
     setTimePickerOpen(false);
     setProofOpen(true);
   }
 
-  function handleDateChange(
-    event: DateTimePickerEvent,
-    selectedDate?: Date,
-  ) {
+  function handleDateChange(event: DateTimePickerEvent, selectedDate?: Date) {
     if (Platform.OS === "android") setDatePickerOpen(false);
     if (event.type === "set" && selectedDate) {
       setSentAt((current) => {
@@ -119,10 +160,7 @@ export default function TenantPayments() {
     }
   }
 
-  function handleTimeChange(
-    event: DateTimePickerEvent,
-    selectedTime?: Date,
-  ) {
+  function handleTimeChange(event: DateTimePickerEvent, selectedTime?: Date) {
     if (Platform.OS === "android") setTimePickerOpen(false);
     if (event.type === "set" && selectedTime) {
       setSentAt((current) => {
@@ -135,7 +173,8 @@ export default function TenantPayments() {
 
   async function chooseReceipt() {
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      const permission =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
         Alert.alert(
           "Photo access needed",
@@ -155,7 +194,7 @@ export default function TenantPayments() {
         Alert.alert("Unable to read image", "Choose another receipt photo.");
         return;
       }
-      if (asset.base64.length > 900_000) {
+      if (asset.base64.length > 500_000) {
         Alert.alert(
           "Image too large for Firestore",
           "Choose or crop a smaller receipt photo, then try again.",
@@ -164,15 +203,19 @@ export default function TenantPayments() {
       }
       setSelectedImage(asset);
     } catch {
-      Alert.alert("Unable to open photos", "Please try selecting the receipt again.");
+      Alert.alert(
+        "Unable to open photos",
+        "Please try selecting the receipt again.",
+      );
     }
   }
 
   async function submitProof() {
-    if (!referenceNumber.trim()) {
+    if (isSubmitting) return;
+    if (!/^[0-9]{13}$/.test(referenceNumber.trim())) {
       Alert.alert(
         "Reference number required",
-        "Enter the GCash reference number before submitting.",
+        "Enter the 13-digit GCash reference number (numbers only).",
       );
       return;
     }
@@ -181,6 +224,10 @@ export default function TenantPayments() {
         "Receipt required",
         "Choose a photo of your payment receipt before submitting.",
       );
+      return;
+    }
+    if (!profile.hasRoom || !profile.roomId) {
+      setFeedback("An active room assignment is required.");
       return;
     }
     const parsedAmount = Number(amount.replace(/[^\d.-]/g, ""));
@@ -198,27 +245,39 @@ export default function TenantPayments() {
 
     setIsSubmitting(true);
     try {
-      const receiptBase64 = `data:image/jpeg;base64,${selectedImage.base64}`;
+      const receiptBase64 = sharedImage(selectedImage);
+      const ref = doc(db, "payments", user.uid + "__" + referenceNumber.trim());
+      await runTransaction(db, async (tx) => {
+        const existing = await tx.get(ref);
+        if (existing.exists() && existing.data().status !== "rejected")
+          throw new Error(
+            "This reference was already submitted. Wait for management review.",
+          );
 
-      await addDoc(collection(db, "payments"), {
-        tenantId: user.uid,
-        tenantName: user.displayName || user.email || "Tenant",
-        amount: parsedAmount,
-        referenceNumber: referenceNumber.trim(),
-        dateSent: formatDate(sentAt),
-        timeSent: formatTime(sentAt),
-        receiptUrl: receiptBase64,
-        status: "pending",
-        createdAt: serverTimestamp(),
+        tx.set(ref, {
+          tenantId: user.uid,
+          tenantName: String(profile.name || user.displayName || "Tenant"),
+          roomId: String(profile.roomId || ""),
+          roomNumber: String(profile.roomNumber || ""),
+          billingPeriod: cycle.period,
+          amount: parsedAmount,
+          referenceNumber: referenceNumber.trim(),
+          dateSent: formatDate(sentAt),
+          timeSent: formatTime(sentAt),
+          receiptUrl: receiptBase64,
+          status: "pending",
+          createdAt: serverTimestamp(),
+        });
       });
+      setFeedback("Payment proof submitted for review.");
+      setReferenceNumber("");
+      setSelectedImage(null);
 
       setProofOpen(false);
       Alert.alert(
         "Proof submitted",
         "Your payment is waiting for landlord verification.",
       );
-      setReferenceNumber("");
-      setSelectedImage(null);
     } catch (error: unknown) {
       Alert.alert(
         "Unable to submit proof",
@@ -234,72 +293,85 @@ export default function TenantPayments() {
     <SafeAreaView style={styles.page}>
       <TenantPageHeader title="Payments" />
       <ScrollView contentContainerStyle={styles.content}>
+        {!!(error || feedback) && (
+          <Text accessibilityRole="alert">{error || feedback}</Text>
+        )}
+        {!!settingsError && (
+          <Text accessibilityRole="alert">{settingsError}</Text>
+        )}
+        {loading && <ActivityIndicator />}
         <View style={styles.propertyRow}>
           <View style={styles.dot} />
           <View style={{ flex: 1 }}>
-            <Text style={styles.property}>ROOM 201 • TWIN SHARING</Text>
-            <Text style={styles.tenant}>{user?.displayName || "Tenant"}</Text>
+            <Text style={styles.property}>
+              {profile.roomNumber
+                ? `ROOM ${profile.roomNumber} · ${profile.roomType || "Room"}`
+                : "No room assigned"}
+            </Text>
+            <Text style={styles.tenant}>
+              {String(profile.name || user?.displayName || "Tenant")}
+            </Text>
           </View>
-          <Text style={styles.cycle}>Cycle: Oct 01 - 31</Text>
+          <Text style={styles.cycle}>Cycle: {cycle.period}</Text>
         </View>
 
         <View style={styles.card}>
           <View style={styles.rowBetween}>
-            <Text style={styles.badge}>DUE IN 4 DAYS</Text>
+            <Text style={styles.badge}>
+              {cycle.balance === 0
+                ? "NO BALANCE"
+                : cycle.daysUntilDue < 0
+                  ? "OVERDUE"
+                  : `DUE IN ${cycle.daysUntilDue} DAYS`}
+            </Text>
             <Text style={styles.deadline}>
-              Payment Deadline{"\n"}Oct 05, 2026
+              Payment Deadline{"\n"}
+              {cycle.due.toLocaleDateString("en-PH")}
             </Text>
           </View>
           <Text style={styles.sectionTitle}>Monthly Rent Due</Text>
-          <Text style={styles.total}>₱3,500.00</Text>
+          <Text style={styles.total}>
+            {loading || error ? "—" : peso(cycle.balance)}
+          </Text>
           <Text style={styles.muted}>
             Base billing for current active tenancy cycle
           </Text>
           <Line
             icon="bed-outline"
-            label="Twin Sharing Bed Space"
-            value="₱3,000.00"
+            label="Monthly rent"
+            value={peso(cycle.rent)}
           />
           <Line
-            icon="water-outline"
-            label="Fiber Wi-Fi & Facility Surcharge"
-            value="₱500.00"
+            icon="checkmark-circle-outline"
+            label="Approved this billing period"
+            value={peso(cycle.paid)}
           />
           <Pressable
+            disabled={
+              loading || !!error || !profile.hasRoom || cycle.balance <= 0
+            }
             style={styles.payButton}
             onPress={openProof}
           >
             <Ionicons name="flash" size={15} color="#fff" />
-            <Text style={styles.payText}>Pay ₱3,500.00 Now</Text>
+            <Text style={styles.payText}>Pay {peso(cycle.balance)} Now</Text>
           </Pressable>
         </View>
 
         <View style={styles.card}>
-          <View style={styles.rowBetween}>
-            <Text style={styles.cardTitle}>Submeter Readings</Text>
-            <Text style={styles.smallBadge}>Due Oct 10</Text>
-          </View>
-          <Text style={styles.muted}>Measured independently for Room 201</Text>
-          <Line
-            icon="flash"
-            label="Electricity (142 kWh)"
-            value="₱1,136.00"
-            detail="Rate: ₱8.00 / kWh"
-          />
-          <Line
-            icon="water"
-            label="Clean Water (4.2 m³)"
-            value="₱210.00"
-            detail="Rate: ₱50.00 / m³"
-          />
-          <View style={styles.bundle}>
-            <Text style={styles.bundleText}>
-              Bundle with Rent (Total: ₱4,846.00)
-            </Text>
-            <Text>→</Text>
-          </View>
+          <Text style={styles.cardTitle}>Payment submissions</Text>
+          <Text style={styles.muted}>
+            Contact management for any separately billed utilities.
+          </Text>
+          {payments
+            .filter((p) => p.status !== "approved")
+            .map((p) => (
+              <Text key={p.id} style={styles.muted}>
+                {peso(p.amount)} · {String(p.status || "pending")} · Ref{" "}
+                {String(p.referenceNumber || "—")}
+              </Text>
+            ))}
         </View>
-
         <View style={styles.gcashCard}>
           <View style={styles.gcashHeading}>
             <Ionicons name="wallet-outline" size={18} color="#2864e8" />
@@ -308,33 +380,59 @@ export default function TenantPayments() {
           <Text style={styles.gcashLabel}>RECEIVER GCASH ACCOUNT</Text>
           <View style={styles.gcashReceiver}>
             <View>
-              <Text style={styles.gcashName}>Kuya Bert Morales</Text>
+              <Text style={styles.gcashName}>
+                {receiverName || "Receiver not configured"}
+              </Text>
               <Text style={styles.muted}>BoardEase Management & Admin</Text>
-              <Text style={styles.gcashNumber}>0917 554 8921</Text>
+              <Text style={styles.gcashNumber}>
+                {receiverNumber || "Contact management for payment details"}
+              </Text>
             </View>
-            <Pressable onPress={() => Alert.alert("GCash number copied", "0917 554 8921") }>
+            <Pressable
+              disabled={!receiverNumber}
+              onPress={() =>
+                void Clipboard.setStringAsync(receiverNumber)
+                  .then(() => setFeedback("GCash number copied."))
+                  .catch(() =>
+                    setFeedback(
+                      "Could not copy. Please copy the displayed number manually.",
+                    ),
+                  )
+              }
+            >
               <Text style={styles.copyText}>Copy</Text>
             </Pressable>
           </View>
           <Text style={styles.gcashLabel}>TRANSFER INSTRUCTIONS</Text>
-          <Text style={styles.instruction}>1. Open your GCash app and tap Send Money.</Text>
-          <Text style={styles.instruction}>2. Send exactly the amount shown above.</Text>
-          <Text style={styles.instruction}>3. Keep your GCash reference number.</Text>
+          <Text style={styles.instruction}>
+            1. Open your GCash app and tap Send Money.
+          </Text>
+          <Text style={styles.instruction}>
+            2. Confirm the receiver account name in GCash before sending.
+          </Text>
+          <Text style={styles.instruction}>
+            3. Keep your reference number and submit proof using Pay Now.
+          </Text>
         </View>
 
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Payment Preferences</Text>
           <Line
             icon="phone-portrait-outline"
-            label="Auto-Debit via GCash"
-            value="ON"
-            detail={`Linked: ${user?.displayName || "Tenant"}`}
+            label="Manual GCash transfer"
+            value="MANUAL"
+            detail="Send your transfer and submit proof for review"
           />
           <Line
             icon="alarm-outline"
             label="In-App Payment Reminders"
-            value="ACTIVE"
-            detail="3 days prior to due dates"
+            value={
+              profile.notificationsEnabled === false ||
+              profile.paymentReminders === false
+                ? "OFF"
+                : "ON"
+            }
+            detail={`${String(profile.reminderTiming || "3 days before")} · while the app is open`}
           />
         </View>
 
@@ -343,32 +441,56 @@ export default function TenantPayments() {
             <Text style={styles.cardTitle}>Receipts Archive</Text>
             <Ionicons name="refresh-outline" size={16} color="#71809a" />
           </View>
-          <Text style={styles.muted}>Verified BIR official receipts</Text>
-          {receipts.map((receipt, index) => (
+          <Text style={styles.muted}>Landlord-approved payment records</Text>
+          {!receipts.length && (
+            <Text style={styles.muted}>No approved payments yet.</Text>
+          )}
+          {receipts.map((receipt) => (
             <View style={styles.receipt} key={receipt.id}>
               <View>
                 <Text style={styles.receiptAmount}>
-                  ₱3,500.00 <Text style={styles.paid}>PAID</Text>
+                  {receipt.amount} <Text style={styles.paid}>PAID</Text>
                 </Text>
                 <Text style={styles.muted}>
-                  {index === 0
-                    ? "Sep 04, 2026"
-                    : index === 1
-                      ? "Aug 05, 2026"
-                      : "Jul 04, 2026"}{" "}
-                  • Rent & Wi-Fi
+                  {receipt.date} · Period {receipt.period}
                 </Text>
               </View>
               <View style={styles.receiptActions}>
                 <Text style={styles.receiptId}>{receipt.id}</Text>
-                <Text
-                  style={styles.download}
-                  onPress={() =>
-                    index === 0 ? downloadReceipt(receipt) : viewReceipt(receipt)
-                  }
-                >
-                  {index === 0 ? "⇩ Download Receipt" : "▣ View Details"}
-                </Text>
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <Pressable
+                    onPress={() => viewReceipt(receipt)}
+                    accessibilityRole="button"
+                    accessibilityLabel="View receipt details"
+                    style={{
+                      minHeight: 44,
+                      minWidth: 44,
+                      justifyContent: "center",
+                      alignItems: "center",
+                    }}
+                  >
+                    <Ionicons name="eye-outline" size={20} color="#2864e8" />
+                    <Text style={styles.download}>Details</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => void downloadReceipt(receipt)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Download receipt"
+                    style={{
+                      minHeight: 44,
+                      minWidth: 44,
+                      justifyContent: "center",
+                      alignItems: "center",
+                    }}
+                  >
+                    <Ionicons
+                      name="download-outline"
+                      size={20}
+                      color="#2864e8"
+                    />
+                    <Text style={styles.download}>Download</Text>
+                  </Pressable>
+                </View>
               </View>
             </View>
           ))}
@@ -383,23 +505,42 @@ export default function TenantPayments() {
       >
         <View style={styles.modalBackdrop}>
           <View style={styles.proofModal}>
-            <View style={styles.rowBetween}>
-              <Text style={styles.modalTitle}>Receipt Details</Text>
-              <Pressable onPress={() => setReceiptDetailsOpen(false)}>
-                <Text style={styles.close}>×</Text>
-              </Pressable>
-            </View>
-            <Text style={styles.modalHint}>BoardEase verified payment receipt</Text>
-            <Text style={styles.inputLabel}>Official receipt</Text>
-            <Text style={styles.detailValue}>{selectedReceipt?.id || "—"}</Text>
-            <Text style={styles.inputLabel}>Tenant</Text>
-            <Text style={styles.detailValue}>{user?.displayName || "Tenant"}</Text>
-            <Text style={styles.inputLabel}>Amount paid</Text>
-            <Text style={styles.detailValue}>{selectedReceipt?.amount || "—"}</Text>
-            <Text style={styles.inputLabel}>Payment date</Text>
-            <Text style={styles.detailValue}>{selectedReceipt?.date || "—"}</Text>
-            <Text style={styles.inputLabel}>Description</Text>
-            <Text style={styles.detailValue}>Rent & Wi-Fi · PAID</Text>
+            <ScrollView keyboardShouldPersistTaps="handled">
+              <View style={styles.rowBetween}>
+                <Text style={styles.modalTitle}>Receipt Details</Text>
+                <Pressable onPress={() => setReceiptDetailsOpen(false)}>
+                  <Text style={styles.close}>×</Text>
+                </Pressable>
+              </View>
+              <Text style={styles.modalHint}>
+                Landlord-approved payment acknowledgement
+              </Text>
+              <Text style={styles.inputLabel}>Payment record ID</Text>
+              <Text style={styles.detailValue}>
+                {selectedReceipt?.id || "—"}
+              </Text>
+              <Text style={styles.inputLabel}>Tenant</Text>
+              <Text style={styles.detailValue}>
+                {selectedReceipt?.tenantName || "Tenant"}
+              </Text>
+              <Text style={styles.inputLabel}>Amount paid</Text>
+              <Text style={styles.detailValue}>
+                {selectedReceipt?.amount || "—"}
+              </Text>
+              <Text style={styles.inputLabel}>Payment date</Text>
+              <Text style={styles.detailValue}>
+                {selectedReceipt?.date || "—"}
+              </Text>
+              <Text style={styles.inputLabel}>Description</Text>
+              <Text style={styles.detailValue}>
+                Period {selectedReceipt?.period} · Room{" "}
+                {selectedReceipt?.roomNumber}
+              </Text>
+              <Text style={styles.inputLabel}>Transfer reference</Text>
+              <Text style={styles.detailValue}>
+                {selectedReceipt?.reference}
+              </Text>
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -411,124 +552,152 @@ export default function TenantPayments() {
       >
         <View style={styles.modalBackdrop}>
           <View style={styles.proofModal}>
-            <View style={styles.rowBetween}>
-              <Text style={styles.modalTitle}>Payment Proof Submission</Text>
-              <Pressable onPress={() => setProofOpen(false)}>
-                <Text style={styles.close}>×</Text>
-              </Pressable>
-            </View>
-            <Text style={styles.modalHint}>
-              Send your GCash payment for landlord verification.
-            </Text>
-            <Text style={styles.inputLabel}>GCash Reference No.</Text>
-            <TextInput
-              style={styles.input}
-              value={referenceNumber}
-              onChangeText={setReferenceNumber}
-              placeholder="e.g. 1002 8492 7104"
-            />
-            <View style={styles.inputRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.inputLabel}>Date Sent</Text>
-                <Pressable
-                  style={styles.pickerButton}
-                  onPress={() => {
-                    setDatePickerOpen((open) => !open);
-                    setTimePickerOpen(false);
-                  }}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Date sent, ${formatDate(sentAt)}`}
-                >
-                  <Text style={styles.pickerText}>{formatDate(sentAt)}</Text>
-                  <Ionicons name="calendar-outline" size={16} color="#526174" />
+            <ScrollView keyboardShouldPersistTaps="handled">
+              <View style={styles.rowBetween}>
+                <Text style={styles.modalTitle}>Payment Proof Submission</Text>
+                <Pressable onPress={() => setProofOpen(false)}>
+                  <Text style={styles.close}>×</Text>
                 </Pressable>
-                {datePickerOpen && (
-                  <DateTimePicker
-                    value={sentAt}
-                    mode="date"
-                    display={Platform.OS === "ios" ? "compact" : "default"}
-                    onChange={handleDateChange}
-                  />
-                )}
               </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.inputLabel}>Time Sent</Text>
-                <Pressable
-                  style={styles.pickerButton}
-                  onPress={() => {
-                    setTimePickerOpen((open) => !open);
-                    setDatePickerOpen(false);
-                  }}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Time sent, ${formatTime(sentAt)}`}
-                >
-                  <Text style={styles.pickerText}>{formatTime(sentAt)}</Text>
-                  <Ionicons name="time-outline" size={16} color="#526174" />
-                </Pressable>
-                {timePickerOpen && (
-                  <DateTimePicker
-                    value={sentAt}
-                    mode="time"
-                    display={Platform.OS === "ios" ? "compact" : "default"}
-                    onChange={handleTimeChange}
-                  />
-                )}
+              <Text style={styles.modalHint}>
+                Send your GCash payment for landlord verification.
+              </Text>
+              <Text style={styles.inputLabel}>GCash Reference No.</Text>
+              <TextInput
+                style={styles.input}
+                value={referenceNumber}
+                onChangeText={setReferenceNumber}
+                placeholder="13-digit reference"
+                keyboardType="number-pad"
+                maxLength={13}
+              />
+              <View style={styles.inputRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.inputLabel}>Date Sent</Text>
+                  <Pressable
+                    style={styles.pickerButton}
+                    onPress={() => {
+                      setDatePickerOpen((open) => !open);
+                      setTimePickerOpen(false);
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Date sent, ${formatDate(sentAt)}`}
+                  >
+                    <Text style={styles.pickerText}>{formatDate(sentAt)}</Text>
+                    <Ionicons
+                      name="calendar-outline"
+                      size={16}
+                      color="#526174"
+                    />
+                  </Pressable>
+                  {datePickerOpen && (
+                    <DateTimePicker
+                      value={sentAt}
+                      mode="date"
+                      display={Platform.OS === "ios" ? "compact" : "default"}
+                      onChange={handleDateChange}
+                    />
+                  )}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.inputLabel}>Time Sent</Text>
+                  <Pressable
+                    style={styles.pickerButton}
+                    onPress={() => {
+                      setTimePickerOpen((open) => !open);
+                      setDatePickerOpen(false);
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Time sent, ${formatTime(sentAt)}`}
+                  >
+                    <Text style={styles.pickerText}>{formatTime(sentAt)}</Text>
+                    <Ionicons name="time-outline" size={16} color="#526174" />
+                  </Pressable>
+                  {timePickerOpen && (
+                    <DateTimePicker
+                      value={sentAt}
+                      mode="time"
+                      display={Platform.OS === "ios" ? "compact" : "default"}
+                      onChange={handleTimeChange}
+                    />
+                  )}
+                </View>
               </View>
-            </View>
-            <Text style={styles.inputLabel}>Amount Transferred</Text>
-            <TextInput
-              style={styles.input}
-              value={amount}
-              onChangeText={setAmount}
-              keyboardType="decimal-pad"
-            />
-            <Pressable
-              style={styles.uploadBox}
-              onPress={chooseReceipt}
-              accessibilityRole="button"
-              accessibilityLabel={selectedImage ? "Change receipt image" : "Upload receipt image"}
-            >
-              {selectedImage ? (
-                <>
-                  {selectedImage.uri ? <Image source={{ uri: selectedImage.uri }} style={styles.receiptPreview} /> : null}
-                  <Text style={styles.uploadTitle}>Receipt selected</Text>
-                  <Text style={styles.changeReceipt}>Tap to change</Text>
-                </>
-              ) : (
-                <>
-                  <Ionicons name="cloud-upload-outline" size={22} color="#2864e8" />
-                  <Text style={styles.uploadTitle}>Tap to upload receipt</Text>
-                  <Text style={styles.modalHint}>Compressed JPEG receipt</Text>
-                </>
-              )}
-            </Pressable>
-            {selectedImage && (
+              <Text style={styles.inputLabel}>Amount Transferred</Text>
+              <TextInput
+                style={styles.input}
+                value={amount}
+                onChangeText={setAmount}
+                keyboardType="decimal-pad"
+              />
               <Pressable
-                style={styles.removeReceiptButton}
-                onPress={() => setSelectedImage(null)}
+                style={styles.uploadBox}
+                onPress={chooseReceipt}
                 accessibilityRole="button"
-                accessibilityLabel="Remove receipt image"
+                accessibilityLabel={
+                  selectedImage
+                    ? "Change receipt image"
+                    : "Upload receipt image"
+                }
               >
-                <Text style={styles.removeReceiptText}>Remove receipt</Text>
+                {selectedImage ? (
+                  <>
+                    {selectedImage.uri ? (
+                      <Image
+                        source={{ uri: selectedImage.uri }}
+                        style={styles.receiptPreview}
+                      />
+                    ) : null}
+                    <Text style={styles.uploadTitle}>Receipt selected</Text>
+                    <Text style={styles.changeReceipt}>Tap to change</Text>
+                  </>
+                ) : (
+                  <>
+                    <Ionicons
+                      name="cloud-upload-outline"
+                      size={22}
+                      color="#2864e8"
+                    />
+                    <Text style={styles.uploadTitle}>
+                      Tap to upload receipt
+                    </Text>
+                    <Text style={styles.modalHint}>
+                      Compressed JPEG receipt
+                    </Text>
+                  </>
+                )}
               </Pressable>
-            )}
-            <Pressable
-              style={[styles.submitButton, isSubmitting && styles.submitButtonDisabled]}
-              onPress={submitProof}
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.submitText}>
-                  ▷ Submit GCash Payment Proof
-                </Text>
+              {selectedImage && (
+                <Pressable
+                  style={styles.removeReceiptButton}
+                  onPress={() => setSelectedImage(null)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Remove receipt image"
+                >
+                  <Text style={styles.removeReceiptText}>Remove receipt</Text>
+                </Pressable>
               )}
-            </Pressable>
-            <Text style={styles.notice}>
-              Payments are manually verified by the landlord. You will receive
-              an update after approval.
-            </Text>
+              <Pressable
+                style={[
+                  styles.submitButton,
+                  isSubmitting && styles.submitButtonDisabled,
+                ]}
+                onPress={submitProof}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.submitText}>
+                    ▷ Submit GCash Payment Proof
+                  </Text>
+                )}
+              </Pressable>
+              <Text style={styles.notice}>
+                Payments are manually verified by the landlord. You will receive
+                an update after approval.
+              </Text>
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -595,7 +764,12 @@ const styles = StyleSheet.create({
     elevation: 7,
   },
   headerCopy: { flex: 1, marginLeft: 11 },
-  brand: { fontSize: 10, color: "#d9e5ff", fontWeight: "700", letterSpacing: 1.3 },
+  brand: {
+    fontSize: 10,
+    color: "#d9e5ff",
+    fontWeight: "700",
+    letterSpacing: 1.3,
+  },
   title: { fontSize: 24, fontWeight: "800", color: "#fff" },
   propertyRow: {
     backgroundColor: "#fff",
@@ -723,7 +897,12 @@ const styles = StyleSheet.create({
   },
   gcashHeading: { flexDirection: "row", alignItems: "center", gap: 7 },
   gcashTitle: { color: "#253149", fontSize: 14, fontWeight: "700" },
-  gcashLabel: { color: "#8997a6", fontSize: 9, fontWeight: "700", marginTop: 13 },
+  gcashLabel: {
+    color: "#8997a6",
+    fontSize: 9,
+    fontWeight: "700",
+    marginTop: 13,
+  },
   gcashReceiver: {
     backgroundColor: "#f3f7fd",
     borderRadius: 8,
@@ -734,7 +913,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   gcashName: { color: "#253149", fontSize: 12, fontWeight: "700" },
-  gcashNumber: { color: "#2458c7", fontSize: 14, fontWeight: "700", marginTop: 5 },
+  gcashNumber: {
+    color: "#2458c7",
+    fontSize: 14,
+    fontWeight: "700",
+    marginTop: 5,
+  },
   copyText: { color: "#2864e8", fontSize: 11, fontWeight: "700" },
   instruction: { color: "#526174", fontSize: 10, lineHeight: 16, marginTop: 4 },
   proofButton: {
@@ -772,6 +956,9 @@ const styles = StyleSheet.create({
     padding: 18,
     paddingBottom: 28,
     maxHeight: "92%",
+    maxWidth: 560,
+    width: "100%",
+    alignSelf: "center",
   },
   modalTitle: { flex: 1, fontSize: 18, fontWeight: "700", color: "#253149" },
   close: { fontSize: 28, color: "#526174" },

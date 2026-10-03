@@ -1,18 +1,15 @@
+import { backOrReplace } from "@/lib/navigation";
+import { AppAlert as Alert } from "@/components/app-alert";
+import { approveTenancy } from "@/lib/tenancy-data";
 import { db } from "@/lib/firebase";
 import { createNotification } from "@/lib/notification-data";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
-import {
-  doc,
-  getDoc,
-  serverTimestamp,
-  setDoc,
-  updateDoc,
-} from "firebase/firestore";
+import { doc, getDoc, serverTimestamp, updateDoc } from "firebase/firestore";
 import React from "react";
 import {
-  Alert,
   Pressable,
+  Linking,
   ScrollView,
   StyleSheet,
   Text,
@@ -25,11 +22,13 @@ export default function ApplicationReview() {
     name: string;
     applicationId?: string;
   }>();
-  const applicant = decodeURIComponent(name || "Juan Dela Cruz");
+  const applicant = name || "Applicant";
   const [application, setApplication] = React.useState<Record<string, string>>(
     {},
   );
-  const [tenantProfile, setTenantProfile] = React.useState<Record<string, unknown>>({});
+  const [tenantProfile, setTenantProfile] = React.useState<
+    Record<string, unknown>
+  >({});
   React.useEffect(() => {
     if (!db || !applicationId) return;
     const firestore = db;
@@ -39,18 +38,29 @@ export default function ApplicationReview() {
           const data = snapshot.data();
           setApplication(data as Record<string, string>);
           if (data.tenantId) {
-            return getDoc(doc(firestore, "users", String(data.tenantId))).then((profile) => {
-              if (profile.exists()) setTenantProfile(profile.data());
-            });
+            return getDoc(doc(firestore, "users", String(data.tenantId))).then(
+              (profile) => {
+                if (profile.exists()) setTenantProfile(profile.data());
+              },
+            );
           }
         }
       })
-      .catch(() => undefined);
+      .catch(() =>
+        Alert.alert(
+          "Unable to load application",
+          "Check your connection and permissions.",
+        ),
+      );
   }, [applicationId]);
-  const tenantName = String(tenantProfile.name || application.tenantName || applicant);
+  const tenantName = String(
+    tenantProfile.name || application.tenantName || applicant,
+  );
   const tenantEmail = String(application.tenantEmail || "Not provided");
   const tenantPhone = String(tenantProfile.phone || "Not provided");
-  const emergencyContact = String(tenantProfile.emergencyContact || "Not provided");
+  const emergencyContact = String(
+    tenantProfile.emergencyContact || "Not provided",
+  );
   const status = String(application.status || "pending");
   const roomLabel = application.roomNumber
     ? `Room ${application.roomNumber} ï¿½ ${application.roomType || "Room"}`
@@ -75,48 +85,23 @@ export default function ApplicationReview() {
       return;
     }
     try {
-      await updateDoc(doc(db, "applications", applicationId), {
-        status: "approved",
-        approvedAt: serverTimestamp(),
-        roomId: application.roomNumber,
-      });
-      await setDoc(
-        doc(db, "rooms", application.roomNumber),
-        {
-          number: application.roomNumber,
-          type: application.roomType || "Room",
-          rent: application.price || "0",
-          status: "Occupied",
-          tenant: applicant,
-          tenantId: application.tenantId,
-          applicationId,
-          updatedAt: serverTimestamp(),
-        },
-        { merge: true },
-      );
-      await setDoc(
-        doc(db, "users", application.tenantId),
-        {
-          hasRoom: true,
-          roomId: application.roomNumber,
-          roomNumber: application.roomNumber,
-          roomType: application.roomType || "Room",
-          roomRent: application.price || "0",
-          applicationId,
-        },
-        { merge: true },
-      );
+      await approveTenancy(applicationId);
       await createNotification(application.tenantId, {
         type: "application_update",
         title: "Application approved",
         body: `Your application for ${cleanRoomLabel} was approved and assigned to you.`,
         route: "/tenant/tenant-home",
-      });
+      }).catch(() =>
+        Alert.alert(
+          "Assigned successfully",
+          "The notification could not be delivered. The tenant will still see the updated room.",
+        ),
+      );
       Alert.alert(
         "Application approved",
         `${applicant} was assigned to ${cleanRoomLabel}. The room is now occupied.`,
       );
-      router.back();
+      backOrReplace(router, "/landlord/pending-applications");
     } catch (error) {
       Alert.alert(
         "Unable to approve",
@@ -153,7 +138,7 @@ export default function ApplicationReview() {
                 "Application rejected",
                 "The application was removed from pending review.",
               );
-              router.back();
+              backOrReplace(router, "/landlord/pending-applications");
             } catch (error) {
               Alert.alert(
                 "Unable to reject",
@@ -168,7 +153,7 @@ export default function ApplicationReview() {
   return (
     <SafeAreaView style={styles.page}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()}>
+        <Pressable onPress={() => backOrReplace(router, "/landlord/pending-applications")}>
           <Ionicons name="arrow-back" size={21} color="#172033" />
         </Pressable>
         <View style={styles.headerLogo}>
@@ -196,27 +181,59 @@ export default function ApplicationReview() {
           </View>
         </View>
         <View style={styles.contactRow}>
-          <Action icon="chatbubble-outline" label="Chat" />
-          <Action icon="mail-outline" label="Email" />
+          <Action
+            icon="call-outline"
+            label="Call"
+            onPress={() => {
+              if (tenantPhone !== "Not provided")
+                void Linking.openURL(
+                  `tel:${tenantPhone.replace(/[^+0-9]/g, "")}`,
+                ).catch(() =>
+                  Alert.alert(
+                    "Cannot call",
+                    "This device cannot place a call.",
+                  ),
+                );
+              else
+                Alert.alert("Phone unavailable", "No phone number is on file.");
+            }}
+          />
+          <Action
+            icon="mail-outline"
+            label="Email"
+            onPress={() => {
+              if (tenantEmail !== "Not provided")
+                void Linking.openURL(
+                  `mailto:${encodeURIComponent(tenantEmail)}`,
+                ).catch(() =>
+                  Alert.alert(
+                    "Cannot email",
+                    "This device cannot open an email app.",
+                  ),
+                );
+              else Alert.alert("Email unavailable", "No email is on file.");
+            }}
+          />
         </View>
         <Card
           title="Tenancy Summary"
           icon="briefcase-outline"
-          tag="Active Lease"
+          tag="Application"
         >
           <View style={styles.summaryRow}>
             <InfoBox label="Requested Room" value={cleanRoomLabel} />
             <InfoBox label="Monthly Rent" value={displayPrice} />
           </View>
         </Card>
-        <Card title="Personal & Contact Info" icon="person-outline" tag="Edit">
+        <Card
+          title="Personal & Contact Info"
+          icon="person-outline"
+          tag="Profile"
+        >
           <InfoLine label="Full Name" value={tenantName} />
           <InfoLine label="Contact Number" value={tenantPhone} />
           <InfoLine label="Email" value={tenantEmail} />
-          <InfoLine
-            label="Emergency Contact"
-            value={emergencyContact}
-          />
+          <InfoLine label="Emergency Contact" value={emergencyContact} />
         </Card>
       </ScrollView>
       <View style={styles.footer}>
@@ -225,12 +242,24 @@ export default function ApplicationReview() {
         </Pressable>
         <Pressable
           style={styles.request}
-          onPress={() =>
-            Alert.alert(
-              "Request sent",
-              "More information was requested from the applicant.",
-            )
-          }
+          onPress={() => {
+            if (application.tenantId)
+              void createNotification(application.tenantId, {
+                type: "application_update",
+                title: "Information requested",
+                body: "Management needs more information for your room application. Please check your profile contact details and contact management.",
+                route: "/tenant/account",
+              })
+                .then(() =>
+                  Alert.alert(
+                    "Request saved",
+                    "The information request was saved for eligible tenant notifications.",
+                  ),
+                )
+                .catch(() =>
+                  Alert.alert("Unable to request info", "Please try again."),
+                );
+          }}
         >
           <Text style={styles.requestText}>Request Info</Text>
         </Pressable>
@@ -245,17 +274,14 @@ export default function ApplicationReview() {
 function Action({
   icon,
   label,
+  onPress,
 }: {
+  onPress: () => void;
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
 }) {
   return (
-    <Pressable
-      style={styles.action}
-      onPress={() =>
-        Alert.alert(label, `${label} action will be connected later.`)
-      }
-    >
+    <Pressable style={styles.action} onPress={onPress}>
       <Ionicons name={icon} size={17} color="#2864e8" />
       <Text style={styles.actionText}>{label}</Text>
     </Pressable>

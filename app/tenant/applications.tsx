@@ -1,5 +1,8 @@
-import { NotificationBell } from "@/components/notification-bell";
-import { TenantHeaderMark } from "@/components/tenant-header-mark";
+import { usePropertySettings } from "@/lib/use-property-settings";
+import { AppAlert as Alert } from "@/components/app-alert";
+import { useTenantData } from "@/lib/use-tenant-data";
+import { timestampMillis } from "@/lib/billing";
+import { sharedImage } from "@/lib/image-data";
 import {
   ApplicantTenantNav,
   AssignedTenantNav,
@@ -9,13 +12,12 @@ import { useAuth } from "@/lib/auth-context";
 import { db } from "@/lib/firebase";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
-import { router, useLocalSearchParams } from "expo-router";
+import { router } from "expo-router";
 import {
   addDoc,
   collection,
   doc,
   onSnapshot,
-  orderBy,
   query,
   serverTimestamp,
   updateDoc,
@@ -24,9 +26,9 @@ import {
 import React from "react";
 import {
   ActivityIndicator,
-  Alert,
   Image,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -58,15 +60,16 @@ type TourRequestRecord = {
 };
 
 export default function Applications() {
-  const params = useLocalSearchParams<{
-    number?: string;
-    type?: string;
-    price?: string;
-    image?: string;
-  }>();
   const { user, hasRoom } = useAuth();
-  const [storedApplication, setStoredApplication] =
-    React.useState<ApplicationRecord | null>(null);
+  const {
+    profile,
+    loading: profileLoading,
+    error: profileError,
+  } = useTenantData();
+  const [storedApplications, setStoredApplications] = React.useState<
+    ApplicationRecord[]
+  >([]);
+  const [applicationError, setApplicationError] = React.useState("");
   const [tourRequests, setTourRequests] = React.useState<TourRequestRecord[]>(
     [],
   );
@@ -80,30 +83,39 @@ export default function Applications() {
       collection(db, "tourRequests"),
       where("tenantId", "==", user.uid),
     );
-    const unsubscribeApplication = onSnapshot(applicationQuery, (snapshot) => {
-      const record = snapshot.docs[0];
-      if (!record) {
-        setStoredApplication(null);
-        return;
-      }
-      const data = record.data();
-      setStoredApplication({
-        id: record.id,
-        roomNumber: data.roomNumber,
-        roomType: data.roomType,
-        price: data.price,
-        image: data.image,
-        status: data.status ? String(data.status) : "Under Review",
-      });
-    });
-    const unsubscribeTours = onSnapshot(tourQuery, (snapshot) => {
-      setTourRequests(
-        snapshot.docs.map((record) => ({
-          id: record.id,
-          ...record.data(),
-        })) as TourRequestRecord[],
-      );
-    });
+    const unsubscribeApplication = onSnapshot(
+      applicationQuery,
+      (snapshot) => {
+        setStoredApplications(
+          [...snapshot.docs]
+            .sort(
+              (a, b) =>
+                timestampMillis(b.data().createdAt) -
+                timestampMillis(a.data().createdAt),
+            )
+            .map((record) => ({
+              ...record.data(),
+              id: record.id,
+            })) as ApplicationRecord[],
+        );
+      },
+      () =>
+        setApplicationError(
+          "Unable to load applications. Check your connection and permissions.",
+        ),
+    );
+    const unsubscribeTours = onSnapshot(
+      tourQuery,
+      (snapshot) => {
+        setTourRequests(
+          snapshot.docs.map((record) => ({
+            id: record.id,
+            ...record.data(),
+          })) as TourRequestRecord[],
+        );
+      },
+      () => setApplicationError("Unable to load tour requests."),
+    );
     return () => {
       unsubscribeApplication();
       unsubscribeTours();
@@ -121,48 +133,68 @@ export default function Applications() {
       Alert.alert("Unable to cancel tour", "Please try again.");
     }
   }
-  const room = storedApplication?.roomNumber ?? params.number ?? "";
-  const type = storedApplication?.roomType ?? params.type ?? "";
-  const price = storedApplication?.price ?? params.price ?? "";
-  const applicationImage = storedApplication?.image || params.image;
-  const hasApplication = Boolean(storedApplication || params.number);
-  const image =
-    applicationImage ||
-    "https://images.unsplash.com/photo-1616486338812-3dadae4b4ace?w=900";
+  const hasApplication = storedApplications.length > 0;
+  if (hasRoom && (profileLoading || profileError || !profile.roomNumber))
+    return (
+      <SafeAreaView>
+        <Text>{profileError || "Loading your assigned room…"}</Text>
+      </SafeAreaView>
+    );
   if (hasRoom) {
     return (
       <CareRequests
-        tenantName={user?.displayName || "Tenant"}
+        tenantName={String(profile.name || user?.displayName || "Tenant")}
         tenantId={user?.uid || ""}
-        roomNumber={storedApplication?.roomNumber || "201"}
-        roomType={storedApplication?.roomType || "Twin Sharing"}
+        roomNumber={String(profile.roomNumber || "")}
+        roomType={String(profile.roomType || "Room")}
       />
     );
   }
   const pageTitle = "My Applications";
   return (
     <SafeAreaView style={styles.page}>
-      <TenantPageHeader title={pageTitle} backHref={hasRoom ? "/tenant/tenant-home" : "/tenant/room-browser"} />
+      <TenantPageHeader
+        title={pageTitle}
+        backHref={hasRoom ? "/tenant/tenant-home" : "/tenant/room-browser"}
+      />
       <ScrollView contentContainerStyle={styles.content}>
+        {!!applicationError && (
+          <Text accessibilityRole="alert">{applicationError}</Text>
+        )}
         {hasApplication ? (
           <>
             <View style={styles.filters}>
-              <Text style={styles.activeFilter}>All Applications (1)</Text>
-              <Text style={styles.filter}>Under Review (1)</Text>
+              <Text style={styles.activeFilter}>
+                All Applications ({storedApplications.length})
+              </Text>
+              <Text style={styles.filter}>
+                Under Review (
+                {
+                  storedApplications.filter((a) => a.status === "pending")
+                    .length
+                }
+                )
+              </Text>
             </View>
-            <ApplicationCard
-              image={image}
-              room={`Room ${room} - ${type}`}
-              price={price}
-              status={storedApplication?.status || "Under Review"}
-              code={`APP-${storedApplication?.id.slice(0, 4).toUpperCase() || "8492"}`}
-              onPress={() =>
-                router.push({
-                  pathname: "/tenant/application-details",
-                  params: { room, type, price, image },
-                } as any)
-              }
-            />
+            {storedApplications.map((application) => (
+              <ApplicationCard
+                key={application.id}
+                image={application.image || ""}
+                room={`Room ${application.roomNumber} - ${application.roomType}`}
+                price={application.price}
+                status={String(application.status || "pending").replaceAll(
+                  "_",
+                  " ",
+                )}
+                code={`APP-${application.id.slice(-8).toUpperCase()}`}
+                onPress={() =>
+                  router.push({
+                    pathname: "/tenant/application-details",
+                    params: { applicationId: application.id },
+                  })
+                }
+              />
+            ))}
           </>
         ) : (
           <View style={styles.emptyCard}>
@@ -199,7 +231,7 @@ export default function Applications() {
           <View style={{ flex: 1 }}>
             <Text style={styles.helpTitle}>Looking for another unit?</Text>
             <Text style={styles.helpText}>
-              Browse verified rooms with instant application approval.
+              Browse available rooms and apply for landlord review.
             </Text>
             <Pressable
               onPress={() => router.replace("/tenant/room-browser" as any)}
@@ -241,13 +273,6 @@ type MaintenanceTicket = {
   createdAt?: any;
 };
 
-type MaintenanceMessage = {
-  id: string;
-  senderId?: string;
-  senderName?: string;
-  body: string;
-};
-
 function categoryIcon(category?: string) {
   switch (category) {
     case "Plumbing":
@@ -276,6 +301,8 @@ function CareRequests({
   roomNumber: string;
   roomType: string;
 }) {
+  const { settings } = usePropertySettings();
+  const [loadError, setLoadError] = React.useState("");
   const [requests, setRequests] = React.useState<MaintenanceTicket[]>([]);
   const [newRequestOpen, setNewRequestOpen] = React.useState(false);
   const [activeFilter, setActiveFilter] = React.useState<
@@ -292,11 +319,6 @@ function CareRequests({
   const [allowEntry, setAllowEntry] = React.useState(true);
   const [preferredTime, setPreferredTime] = React.useState("Anytime");
   const [isSubmitting, setIsSubmitting] = React.useState(false);
-  const [replyRequest, setReplyRequest] = React.useState<MaintenanceTicket | null>(null);
-  const [replyOpen, setReplyOpen] = React.useState(false);
-  const [replyText, setReplyText] = React.useState("");
-  const [messages, setMessages] = React.useState<MaintenanceMessage[]>([]);
-  const [sendingReply, setSendingReply] = React.useState(false);
 
   React.useEffect(() => {
     if (!db || !tenantId) return;
@@ -304,68 +326,36 @@ function CareRequests({
       collection(db, "maintenanceRequests"),
       where("tenantId", "==", tenantId),
     );
-    return onSnapshot(requestQuery, (snapshot) => {
-      setRequests(
-        snapshot.docs.map((record) => {
-          const data = record.data();
-          return {
-            id: record.id,
-            title: String(data.title || "Maintenance request"),
-            details: String(data.details || "Awaiting caretaker review."),
-            category: data.category ? String(data.category) : "Plumbing",
-            priority: data.priority === "urgent" ? "urgent" : "normal",
-            photoUri: data.photoUri ? String(data.photoUri) : null,
-            allowEntry: data.allowEntry !== false,
-            preferredTime: data.preferredTime
-              ? String(data.preferredTime)
-              : "Anytime",
-            dateNeeded: data.dateNeeded ? String(data.dateNeeded) : "",
-            status: (data.status as any) || "in_progress",
-            createdAt: data.createdAt,
-          };
-        }),
-      );
-    });
-  }, [tenantId]);
-
-  React.useEffect(() => {
-    if (!db || !replyRequest) return;
     return onSnapshot(
-      query(
-        collection(db, "maintenanceRequests", replyRequest.id, "messages"),
-        orderBy("createdAt", "asc"),
-      ),
-      (snapshot) =>
-        setMessages(
-          snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as MaintenanceMessage[],
+      requestQuery,
+      (snapshot) => {
+        setRequests(
+          snapshot.docs.map((record) => {
+            const data = record.data();
+            return {
+              id: record.id,
+              title: String(data.title || "Maintenance request"),
+              details: String(data.details || "Awaiting caretaker review."),
+              category: data.category ? String(data.category) : "Plumbing",
+              priority: data.priority === "urgent" ? "urgent" : "normal",
+              photoUri: data.photoUri ? String(data.photoUri) : null,
+              allowEntry: data.allowEntry !== false,
+              preferredTime: data.preferredTime
+                ? String(data.preferredTime)
+                : "Anytime",
+              dateNeeded: data.dateNeeded ? String(data.dateNeeded) : "",
+              status: (data.status as any) || "in_progress",
+              createdAt: data.createdAt,
+            };
+          }),
+        );
+      },
+      () =>
+        setLoadError(
+          "Unable to load maintenance requests. Check your connection and permissions.",
         ),
-      () => setMessages([]),
     );
-  }, [replyRequest]);
-
-  function openReply(request: MaintenanceTicket) {
-    setReplyRequest(request);
-    setReplyText("");
-    setReplyOpen(true);
-  }
-
-  async function sendReply() {
-    if (!db || !replyRequest || !replyText.trim()) return;
-    setSendingReply(true);
-    try {
-      await addDoc(collection(db, "maintenanceRequests", replyRequest.id, "messages"), {
-        senderId: tenantId,
-        senderName: tenantName,
-        body: replyText.trim(),
-        createdAt: serverTimestamp(),
-      });
-      setReplyText("");
-    } catch {
-      Alert.alert("Unable to send reply", "Please check your connection and try again.");
-    } finally {
-      setSendingReply(false);
-    }
-  }
+  }, [tenantId]);
 
   async function pickPhoto() {
     try {
@@ -381,13 +371,17 @@ function CareRequests({
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ["images"],
         allowsEditing: true,
-        quality: 0.7,
+        quality: 0.3,
+        base64: true,
       });
       if (!result.canceled && result.assets[0]?.uri) {
-        setPhotoUri(result.assets[0].uri);
+        setPhotoUri(sharedImage(result.assets[0]));
       }
-    } catch {
-      Alert.alert("Unable to pick photo", "Please try again.");
+    } catch (error) {
+      Alert.alert(
+        "Unable to pick photo",
+        error instanceof Error ? error.message : "Please try again.",
+      );
     }
   }
 
@@ -403,10 +397,11 @@ function CareRequests({
       }
       const result = await ImagePicker.launchCameraAsync({
         allowsEditing: true,
-        quality: 0.7,
+        quality: 0.3,
+        base64: true,
       });
       if (!result.canceled && result.assets[0]?.uri) {
-        setPhotoUri(result.assets[0].uri);
+        setPhotoUri(sharedImage(result.assets[0]));
       }
     } catch {
       Alert.alert("Unable to open camera", "Please try again.");
@@ -414,6 +409,10 @@ function CareRequests({
   }
 
   function handlePhotoOption() {
+    if (Platform.OS === "web") {
+      void pickPhoto();
+      return;
+    }
     Alert.alert("Attach Photo Proof", "Choose an option", [
       { text: "Take Photo", onPress: takePhoto },
       { text: "Choose from Library", onPress: pickPhoto },
@@ -422,11 +421,23 @@ function CareRequests({
   }
 
   async function submitRequest() {
+    if (isSubmitting) return;
+    if (!db || !tenantId || !roomNumber) {
+      Alert.alert(
+        "Cannot submit",
+        "Sign in and wait for your assigned room to load.",
+      );
+      return;
+    }
     if (!requestTitle.trim()) {
       Alert.alert(
         "Missing title",
         "Please state what needs attention (e.g. Bathroom sink leaking).",
       );
+      return;
+    }
+    if (requestTitle.trim().length > 200) {
+      Alert.alert("Title too long", "Use at most 200 characters.");
       return;
     }
     setIsSubmitting(true);
@@ -446,17 +457,10 @@ function CareRequests({
       status: "in_progress" as const,
     };
     try {
-      if (db && tenantId) {
-        await addDoc(collection(db, "maintenanceRequests"), {
-          ...requestData,
-          createdAt: serverTimestamp(),
-        });
-      } else {
-        setRequests((current) => [
-          { ...requestData, id: `local-${Date.now()}` },
-          ...current,
-        ]);
-      }
+      await addDoc(collection(db, "maintenanceRequests"), {
+        ...requestData,
+        createdAt: serverTimestamp(),
+      });
       // Reset form
       setRequestTitle("");
       setRequestDetails("");
@@ -469,7 +473,7 @@ function CareRequests({
       setNewRequestOpen(false);
       Alert.alert(
         "Request Logged",
-        `Your ${priority === "urgent" ? "urgent " : ""}maintenance ticket for Room ${roomNumber} has been submitted for Kuya Bert.`,
+        `Your ${priority === "urgent" ? "urgent " : ""}maintenance ticket for Room ${roomNumber} has been saved. You can follow up in Messages.`,
       );
     } catch {
       Alert.alert("Unable to send request", "Please try again.");
@@ -498,24 +502,12 @@ function CareRequests({
 
   return (
     <SafeAreaView style={styles.page}>
-      <View style={styles.requestHeader}>
-        <Pressable onPress={() => router.replace("/tenant/tenant-home" as any)} hitSlop={8}>
-          <Ionicons name="arrow-back" size={21} color="#fff" />
-        </Pressable>
-        <View style={styles.headerIdentity}>
-          <TenantHeaderMark />
-          <View>
-            <Text style={styles.brand}>BOARDEASE</Text>
-            <Text style={styles.headerPageTitle}>Requests & Care</Text>
-            <Text style={styles.requestSubtitle}>
-              Room {roomNumber} · {roomType}
-            </Text>
-          </View>
-        </View>
-        <NotificationBell />
-      </View>
-
+      <TenantPageHeader
+        title="Requests & Care"
+        subtitle={`Room ${roomNumber} · ${roomType}`}
+      />
       <ScrollView contentContainerStyle={styles.requestContent}>
+        {!!loadError && <Text accessibilityRole="alert">{loadError}</Text>}
         <View style={styles.requestTitleRow}>
           <Text style={styles.sectionHeading}>Requests</Text>
           <Pressable
@@ -581,16 +573,28 @@ function CareRequests({
           <View style={{ flex: 1 }}>
             <Text style={styles.urgentTitle}>Urgent Issue?</Text>
             <Text style={styles.urgentText}>
-              Active water leak or electrical spark? Call Kuya Bert immediately.
+              Active water leak or electrical spark? Call your caretaker
+              immediately.
             </Text>
             <Pressable
               style={styles.callCaretaker}
-              onPress={() =>
-                Alert.alert(
-                  "Call caretaker",
-                  "Calling Kuya Bert (+63 917 554 8921)...",
-                )
-              }
+              onPress={() => {
+                const phone = String(settings.caretakerPhone || "");
+                if (phone)
+                  void Linking.openURL(
+                    `tel:${phone.replace(/[^+0-9]/g, "")}`,
+                  ).catch(() =>
+                    Alert.alert(
+                      "Cannot place call",
+                      "Use the caretaker number in your phone app.",
+                    ),
+                  );
+                else
+                  Alert.alert(
+                    "Contact not configured",
+                    "Ask management to add the caretaker phone number.",
+                  );
+              }}
             >
               <Ionicons name="call" size={13} color="#fff" />
               <Text style={styles.callCaretakerText}>Call Caretaker Now</Text>
@@ -634,12 +638,11 @@ function CareRequests({
                         styles.requestStatus,
                         {
                           color: statusColor,
-                          backgroundColor:
-                            isCompleted
-                              ? "#e6f8f0"
-                              : isPartsSourced
-                                ? "#fef3c7"
-                                : "#eaf1ff",
+                          backgroundColor: isCompleted
+                            ? "#e6f8f0"
+                            : isPartsSourced
+                              ? "#fef3c7"
+                              : "#eaf1ff",
                         },
                       ]}
                     >
@@ -661,7 +664,8 @@ function CareRequests({
 
                 <View style={styles.requestMeta}>
                   <Text style={styles.requestMetaCategory}>
-                    {categoryIcon(request.category)} {request.category || "General"} · Room {roomNumber}
+                    {categoryIcon(request.category)}{" "}
+                    {request.category || "General"} · Room {roomNumber}
                   </Text>
                   <Text style={styles.requestMetaTime}>
                     {request.dateNeeded
@@ -678,7 +682,9 @@ function CareRequests({
                         style={styles.cardPhotoThumb}
                       />
                     ) : null}
-                    <Text style={styles.cardPhotoNote}>Photo attached for caretaker</Text>
+                    <Text style={styles.cardPhotoNote}>
+                      Photo attached for caretaker
+                    </Text>
                   </View>
                 )}
 
@@ -695,7 +701,10 @@ function CareRequests({
                   <View
                     style={[
                       styles.progressFill,
-                      { width: progressPercent as any, backgroundColor: statusColor },
+                      {
+                        width: progressPercent as any,
+                        backgroundColor: statusColor,
+                      },
                     ]}
                   />
                 </View>
@@ -703,7 +712,9 @@ function CareRequests({
                   <Text
                     style={[
                       styles.progressStepLabel,
-                      !isPartsSourced && !isCompleted && styles.progressStepActive,
+                      !isPartsSourced &&
+                        !isCompleted &&
+                        styles.progressStepActive,
                     ]}
                   >
                     Reported
@@ -728,10 +739,14 @@ function CareRequests({
 
                 <View style={styles.caretakerRow}>
                   <View style={styles.caretakerAvatar}>
-                    <Text style={styles.caretakerInitials}>KB</Text>
+                    <Ionicons
+                      name="document-text-outline"
+                      size={18}
+                      color="#16805d"
+                    />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.caretakerName}>Kuya Bert (Caretaker)</Text>
+                    <Text style={styles.caretakerName}>Reported issue</Text>
                     <Text style={styles.muted}>{request.details}</Text>
                   </View>
                 </View>
@@ -739,14 +754,19 @@ function CareRequests({
                 <View style={styles.requestActions}>
                   <Pressable
                     style={styles.replyButton}
-                    onPress={() => openReply(request)}
+                    onPress={() =>
+                      router.push({
+                        pathname: "/tenant/messages",
+                        params: { requestId: request.id },
+                      })
+                    }
                   >
                     <Ionicons
                       name="chatbubble-ellipses-outline"
                       size={13}
                       color="#fff"
                     />
-                    <Text style={styles.replyText}>Reply to Bert</Text>
+                    <Text style={styles.replyText}>Message caretaker</Text>
                   </Pressable>
                 </View>
               </View>
@@ -754,7 +774,9 @@ function CareRequests({
           })
         )}
 
-        <Text style={styles.historyTitle}>House Rules & Maintenance Protocols</Text>
+        <Text style={styles.historyTitle}>
+          House Rules & Maintenance Protocols
+        </Text>
         <Pressable
           style={styles.rulesCard}
           onPress={() =>
@@ -879,9 +901,7 @@ function CareRequests({
                 >
                   <Ionicons
                     name={
-                      priority === "urgent"
-                        ? "alert-circle"
-                        : "ellipse-outline"
+                      priority === "urgent" ? "alert-circle" : "ellipse-outline"
                     }
                     size={18}
                     color={priority === "urgent" ? "#dc2626" : "#94a3b8"}
@@ -901,7 +921,9 @@ function CareRequests({
               </View>
 
               {/* What needs attention */}
-              <Text style={styles.fieldSectionLabel}>WHAT NEEDS ATTENTION? *</Text>
+              <Text style={styles.fieldSectionLabel}>
+                WHAT NEEDS ATTENTION? *
+              </Text>
               <TextInput
                 style={styles.inputEnhanced}
                 value={requestTitle}
@@ -911,7 +933,9 @@ function CareRequests({
               />
 
               {/* Details & Location */}
-              <Text style={styles.fieldSectionLabel}>DETAILS & EXACT LOCATION</Text>
+              <Text style={styles.fieldSectionLabel}>
+                DETAILS & EXACT LOCATION
+              </Text>
               <TextInput
                 style={[styles.inputEnhanced, styles.multilineInputEnhanced]}
                 value={requestDetails}
@@ -922,7 +946,9 @@ function CareRequests({
               />
 
               {/* Photo Proof */}
-              <Text style={styles.fieldSectionLabel}>PHOTO OF THE ISSUE (OPTIONAL)</Text>
+              <Text style={styles.fieldSectionLabel}>
+                PHOTO OF THE ISSUE (OPTIONAL)
+              </Text>
               {photoUri ? (
                 <View style={styles.photoAttachedBox}>
                   {photoUri ? (
@@ -932,7 +958,9 @@ function CareRequests({
                     />
                   ) : null}
                   <View style={{ flex: 1, marginLeft: 10 }}>
-                    <Text style={styles.photoAttachedTitle}>Photo Attached</Text>
+                    <Text style={styles.photoAttachedTitle}>
+                      Photo Attached
+                    </Text>
                     <Text style={styles.photoAttachedSub}>
                       Caretaker can inspect this image
                     </Text>
@@ -996,7 +1024,8 @@ function CareRequests({
                     Permission to enter room
                   </Text>
                   <Text style={styles.permissionSub}>
-                    Allow Kuya Bert to enter with staff if you are away during repair
+                    Allow Kuya Bert to enter with staff if you are away during
+                    repair
                   </Text>
                 </View>
                 <Switch
@@ -1037,88 +1066,6 @@ function CareRequests({
                 )}
               </Pressable>
             </ScrollView>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
-
-      <Modal
-        visible={replyOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setReplyOpen(false)}
-      >
-        <KeyboardAvoidingView
-          style={styles.replyBackdrop}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-        >
-          <View style={styles.replyModal}>
-            <View style={styles.replyHeader}>
-              <View style={styles.caretakerAvatar}>
-                <Text style={styles.caretakerInitials}>KB</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.replyTitle}>Kuya Bert (Caretaker)</Text>
-                <Text style={styles.replySubtitle}>
-                  {replyRequest?.title || "Maintenance request"} · Room {roomNumber}
-                </Text>
-              </View>
-              <Pressable onPress={() => setReplyOpen(false)} hitSlop={8}>
-                <Ionicons name="close" size={22} color="#526174" />
-              </Pressable>
-            </View>
-
-            <Text style={styles.replySafety}>
-              Keep payment details and passwords out of this conversation.
-            </Text>
-
-            <ScrollView
-              style={styles.messageList}
-              contentContainerStyle={styles.messageContent}
-              keyboardShouldPersistTaps="handled"
-            >
-              {messages.length === 0 ? (
-                <View style={styles.emptyMessages}>
-                  <Ionicons name="chatbubbles-outline" size={30} color="#9aa8ba" />
-                  <Text style={styles.emptyMessageText}>No messages yet.</Text>
-                  <Text style={styles.muted}>Send a message to update Kuya Bert.</Text>
-                </View>
-              ) : (
-                messages.map((message) => {
-                  const mine = message.senderId === tenantId;
-                  return (
-                    <View key={message.id} style={[styles.messageBubble, mine ? styles.myMessage : styles.bertMessage]}>
-                      <Text style={styles.messageSender}>{mine ? "You" : "Kuya Bert"}</Text>
-                      <Text style={styles.messageBody}>{message.body}</Text>
-                    </View>
-                  );
-                })
-              )}
-            </ScrollView>
-
-            <View style={styles.quickReplies}>
-              {["When can you come?", "The issue is still happening", "I’m unavailable"].map((quick) => (
-                <Pressable key={quick} style={styles.quickReply} onPress={() => setReplyText(quick)}>
-                  <Text style={styles.quickReplyText}>{quick}</Text>
-                </Pressable>
-              ))}
-            </View>
-            <View style={styles.replyComposer}>
-              <TextInput
-                style={styles.replyInput}
-                value={replyText}
-                onChangeText={setReplyText}
-                placeholder="Write a reply..."
-                placeholderTextColor="#94a3b8"
-                multiline
-              />
-              <Pressable
-                style={[styles.sendReplyButton, sendingReply && styles.submitButtonDisabled]}
-                onPress={() => void sendReply()}
-                disabled={sendingReply || !replyText.trim()}
-              >
-                <Ionicons name="send" size={17} color="#fff" />
-              </Pressable>
-            </View>
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -1242,7 +1189,7 @@ function ApplicationCard({
   code: string;
   onPress: () => void;
 }) {
-  const approved = status === "Approved";
+  const approved = status.toLowerCase() === "approved";
   return (
     <Pressable style={styles.card} onPress={onPress}>
       {image ? <Image source={{ uri: image }} style={styles.image} /> : null}
@@ -1270,16 +1217,16 @@ function ApplicationCard({
         </View>
         {approved ? (
           <Text style={styles.approvedNote}>
-            Your application was approved. Continue to reserve this room.
+            Your application was approved. View your assignment in Home.
           </Text>
         ) : (
           <Text style={styles.small}>
-            Submitted today · Review status updates will appear here.
+            Review status updates will appear here.
           </Text>
         )}
         <View style={styles.cardAction}>
           <Text style={styles.cardActionText}>
-            {approved ? "View Reservation" : "View Details"} →
+            {approved ? "View Assignment" : "View Details"} →
           </Text>
           <Ionicons name="chevron-forward" size={17} color="#fff" />
         </View>
@@ -1631,7 +1578,12 @@ const styles = StyleSheet.create({
   },
   requestStatus: { fontSize: 10, fontWeight: "700", color: "#b55339" },
   requestCode: { fontSize: 10, color: "#9aa8ba" },
-  requestName: { fontSize: 14, fontWeight: "700", color: "#253149", marginTop: 8 },
+  requestName: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#253149",
+    marginTop: 8,
+  },
   requestMeta: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -1688,7 +1640,12 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   replyText: { color: "#fff", fontSize: 11, fontWeight: "700" },
-  historyTitle: { fontSize: 15, fontWeight: "700", color: "#253149", marginBottom: 8 },
+  historyTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#253149",
+    marginBottom: 8,
+  },
   historyCard: {
     flexDirection: "row",
     alignItems: "center",
@@ -1728,7 +1685,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e1eafa",
   },
-  cardTitle: { fontSize: 13, fontWeight: "700", color: "#253149", marginBottom: 7 },
+  cardTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#253149",
+    marginBottom: 7,
+  },
   rule: { fontSize: 10, lineHeight: 15, color: "#71809a", marginTop: 5 },
   emptyCard: {
     backgroundColor: "#fff",
@@ -1841,18 +1803,62 @@ const styles = StyleSheet.create({
   messageList: { maxHeight: 250, marginTop: 10 },
   messageContent: { gap: 8, paddingVertical: 4 },
   emptyMessages: { alignItems: "center", paddingVertical: 28 },
-  emptyMessageText: { color: "#42526a", fontSize: 13, fontWeight: "700", marginTop: 7 },
+  emptyMessageText: {
+    color: "#42526a",
+    fontSize: 13,
+    fontWeight: "700",
+    marginTop: 7,
+  },
   messageBubble: { maxWidth: "84%", borderRadius: 12, padding: 10 },
   myMessage: { alignSelf: "flex-end", backgroundColor: "#eaf1ff" },
   bertMessage: { alignSelf: "flex-start", backgroundColor: "#f3f7fd" },
-  messageSender: { color: "#526174", fontSize: 10, fontWeight: "700", marginBottom: 3 },
+  messageSender: {
+    color: "#526174",
+    fontSize: 10,
+    fontWeight: "700",
+    marginBottom: 3,
+  },
   messageBody: { color: "#253149", fontSize: 12, lineHeight: 17 },
-  quickReplies: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 },
-  quickReply: { borderWidth: 1, borderColor: "#b9ccef", borderRadius: 14, paddingHorizontal: 9, paddingVertical: 6 },
+  quickReplies: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 8,
+  },
+  quickReply: {
+    borderWidth: 1,
+    borderColor: "#b9ccef",
+    borderRadius: 14,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+  },
   quickReplyText: { color: "#2864e8", fontSize: 10 },
-  replyComposer: { flexDirection: "row", alignItems: "flex-end", gap: 8, marginTop: 10 },
-  replyInput: { flex: 1, minHeight: 42, maxHeight: 85, borderWidth: 1, borderColor: "#d4e0f0", borderRadius: 10, paddingHorizontal: 11, paddingVertical: 9, color: "#253149", fontSize: 12 },
-  sendReplyButton: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", backgroundColor: "#2864e8" },
+  replyComposer: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 8,
+    marginTop: 10,
+  },
+  replyInput: {
+    flex: 1,
+    minHeight: 42,
+    maxHeight: 85,
+    borderWidth: 1,
+    borderColor: "#d4e0f0",
+    borderRadius: 10,
+    paddingHorizontal: 11,
+    paddingVertical: 9,
+    color: "#253149",
+    fontSize: 12,
+  },
+  sendReplyButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#2864e8",
+  },
   modalCloseButton: {
     width: 32,
     height: 32,

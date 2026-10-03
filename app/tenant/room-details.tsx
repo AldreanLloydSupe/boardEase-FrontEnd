@@ -1,25 +1,25 @@
+import { AppAlert as Alert } from "@/components/app-alert";
 import { TenantPageHeader } from "@/components/tenant-page-header";
 import { useAuth } from "@/lib/auth-context";
 import { getFavoriteRooms, setFavoriteRooms } from "@/lib/favorite-rooms";
 import { db } from "@/lib/firebase";
 import { createApplication, createTourRequest } from "@/lib/request-data";
 import { Ionicons } from "@expo/vector-icons";
-import DateTimePicker from "@react-native-community/datetimepicker";
+import DateTimePicker from "@/components/date-time-picker";
 import { router, useLocalSearchParams } from "expo-router";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import React from "react";
 import {
-    Alert,
-    Image,
-    KeyboardAvoidingView,
-    Modal,
-    Platform,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+  Image,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -59,27 +59,27 @@ export default function RoomDetails() {
         const appsQuery = query(
           collection(db, "applications"),
           where("tenantId", "==", user.uid),
-          where("roomNumber", "==", number)
+          where("roomNumber", "==", number),
         );
         const appsSnap = await getDocs(appsQuery);
-        const applied = appsSnap.docs.some(doc => {
+        const applied = appsSnap.docs.some((doc) => {
           const status = doc.data().status;
           return !status || status === "pending" || status === "approved";
         });
         if (applied) setHasApplied(true);
-        
+
         const toursQuery = query(
           collection(db, "tourRequests"),
           where("tenantId", "==", user.uid),
-          where("roomNumber", "==", number)
+          where("roomNumber", "==", number),
         );
         const toursSnap = await getDocs(toursQuery);
-        const requestedTour = toursSnap.docs.some(doc => {
+        const requestedTour = toursSnap.docs.some((doc) => {
           const status = doc.data().status;
           return !status || status === "pending" || status === "accepted";
         });
         if (requestedTour) setHasRequestedTour(true);
-      } catch (err) {
+      } catch {
         // ignore errors
       }
     };
@@ -104,6 +104,7 @@ export default function RoomDetails() {
   }
 
   async function submitTourRequest() {
+    if (isRequestingTour) return;
     if (!selectedDate || !tourNote.trim()) {
       Alert.alert(
         "Complete the request",
@@ -116,10 +117,9 @@ export default function RoomDetails() {
       day: "numeric",
       year: "numeric",
     });
-    
+
     setIsRequestingTour(true);
-    await new Promise(resolve => setTimeout(resolve, 800));
-    
+
     try {
       if (!user)
         throw new Error("Please log in again before requesting a tour.");
@@ -153,6 +153,7 @@ export default function RoomDetails() {
     <SafeAreaView style={styles.page}>
       <TenantPageHeader
         title="Room Details"
+        showBack
         backHref="/tenant/room-browser"
         rightAction={
           <Pressable onPress={toggleFavorite}>
@@ -166,7 +167,10 @@ export default function RoomDetails() {
       />
       <ScrollView contentContainerStyle={styles.content}>
         {params.image ? (
-          <Image source={params.image ? { uri: params.image } : undefined} style={styles.hero} />
+          <Image
+            source={params.image ? { uri: params.image } : undefined}
+            style={styles.hero}
+          />
         ) : null}
         <View style={styles.headingRow}>
           <View style={styles.headingText}>
@@ -229,37 +233,52 @@ export default function RoomDetails() {
       </ScrollView>
 
       <View style={styles.actions}>
-        <Pressable 
-          style={[styles.tourButton, hasRequestedTour && styles.tourButtonDisabled]} 
+        <Pressable
+          style={[
+            styles.tourButton,
+            hasRequestedTour && styles.tourButtonDisabled,
+          ]}
           onPress={requestTour}
           disabled={hasRequestedTour}
         >
-          <Ionicons name="calendar-outline" size={18} color={hasRequestedTour ? "#8390a2" : "#2864e8"} />
-          <Text style={[styles.tourText, hasRequestedTour && styles.tourTextDisabled]}>
+          <Ionicons
+            name="calendar-outline"
+            size={18}
+            color={hasRequestedTour ? "#8390a2" : "#2864e8"}
+          />
+          <Text
+            style={[
+              styles.tourText,
+              hasRequestedTour && styles.tourTextDisabled,
+            ]}
+          >
             {hasRequestedTour ? "Tour Requested ✓" : "Request a Tour"}
           </Text>
         </Pressable>
         <Pressable
-          style={[styles.applyButton, (isApplying || hasApplied) && styles.applyButtonDisabled]}
+          style={[
+            styles.applyButton,
+            (isApplying || hasApplied) && styles.applyButtonDisabled,
+          ]}
           disabled={isApplying || hasApplied}
           onPress={async () => {
             try {
               if (!user)
                 throw new Error("Please log in again before applying.");
-              
+
               setIsApplying(true);
-              await new Promise(resolve => setTimeout(resolve, 800));
-                
+              await new Promise((resolve) => setTimeout(resolve, 800));
+
               const application = await createApplication(user, {
                 roomNumber: number,
                 roomType: type,
                 price,
                 image: params.image,
               });
-              
+
               setIsApplying(false);
               setHasApplied(true);
-              
+
               setTimeout(() => {
                 router.push({
                   pathname: "/tenant/applications",
@@ -281,8 +300,17 @@ export default function RoomDetails() {
             }
           }}
         >
-          <Text style={[styles.applyText, (isApplying || hasApplied) && styles.applyTextDisabled]}>
-            {isApplying ? "Submitting..." : hasApplied ? "Submitted ✓" : "Apply for this Room"}
+          <Text
+            style={[
+              styles.applyText,
+              (isApplying || hasApplied) && styles.applyTextDisabled,
+            ]}
+          >
+            {isApplying
+              ? "Submitting..."
+              : hasApplied
+                ? "Submitted ✓"
+                : "Apply for this Room"}
           </Text>
         </Pressable>
       </View>
@@ -357,12 +385,20 @@ export default function RoomDetails() {
               multiline
               textAlignVertical="top"
             />
-            <Pressable 
-              style={[styles.modalSubmit, isRequestingTour && styles.applyButtonDisabled]} 
+            <Pressable
+              style={[
+                styles.modalSubmit,
+                isRequestingTour && styles.applyButtonDisabled,
+              ]}
               onPress={submitTourRequest}
               disabled={isRequestingTour}
             >
-              <Text style={[styles.modalSubmitText, isRequestingTour && styles.applyTextDisabled]}>
+              <Text
+                style={[
+                  styles.modalSubmitText,
+                  isRequestingTour && styles.applyTextDisabled,
+                ]}
+              >
                 {isRequestingTour ? "Sending Request..." : "Send Tour Request"}
               </Text>
             </Pressable>

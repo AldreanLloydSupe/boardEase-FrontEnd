@@ -1,3 +1,6 @@
+import { backOrReplace } from "@/lib/navigation";
+import { sharedImage } from "@/lib/image-data";
+import { AppAlert as Alert } from "@/components/app-alert";
 import { LandlordNavigation } from "@/components/landlord-navigation";
 import { useAuth } from "@/lib/auth-context";
 import { db } from "@/lib/firebase";
@@ -5,14 +8,18 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import {
-  addDoc,
+  doc,
+  getDocs,
+  getDoc,
+  query,
+  runTransaction,
+  where,
   collection,
   onSnapshot,
   serverTimestamp,
 } from "firebase/firestore";
 import React, { useState } from "react";
 import {
-  Alert,
   Animated,
   Image,
   Modal,
@@ -54,14 +61,14 @@ export default function Rooms() {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingRoomId, setEditingRoomId] = useState<string | null>(null);
-  
+
   const [number, setNumber] = useState("");
   const [type, setType] = useState("");
   const [rent, setRent] = useState("");
   const [guidelines, setGuidelines] = useState("");
   const [selectedAmenities, setSelectedAmenities] = useState<string[]>([]);
   const [imageUri, setImageUri] = useState("");
-  
+
   const [filter, setFilter] = useState<
     "all" | "available" | "occupied" | "attention"
   >("all");
@@ -137,34 +144,57 @@ export default function Rooms() {
           onPress: async () => {
             try {
               if (!db) return;
-              const { doc, deleteDoc } = await import("firebase/firestore");
-              await deleteDoc(doc(db, "rooms", id));
+              const firestore = db;
+              const ref = doc(firestore, "rooms", id);
+              await runTransaction(firestore, async (tx) => {
+                const room = await tx.get(ref);
+                if (!room.exists()) return;
+                if (
+                  room.data().tenantId ||
+                  String(room.data().status).toLowerCase() === "occupied"
+                )
+                  throw new Error(
+                    "Move the tenant out before deleting an occupied room.",
+                  );
+                tx.delete(ref);
+              });
               Alert.alert("Success", `Room ${roomNumber} has been deleted.`);
             } catch (error) {
-              Alert.alert("Error", "Could not delete room. Please try again.");
+              Alert.alert(
+                "Could not delete room",
+                error instanceof Error ? error.message : "Please try again.",
+              );
             }
           },
         },
-      ]
+      ],
     );
   };
 
   const pickImage = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [4, 3],
-      quality: 0.5,
-      base64: true,
-    });
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.5,
+        base64: true,
+      });
 
-    if (!result.canceled && result.assets[0].base64) {
-      setImageUri(`data:image/jpeg;base64,${result.assets[0].base64}`);
+      if (!result.canceled && result.assets[0].base64) {
+        setImageUri(sharedImage(result.assets[0]));
+      }
+    } catch (error) {
+      Alert.alert(
+        "Unable to add photo",
+        error instanceof Error ? error.message : "Please try again.",
+      );
     }
   };
 
   async function saveRoom() {
-    if (!number || !type || !rent) {
+    if (isAddingRoom) return;
+    if (!number.trim() || !type.trim() || !rent.trim()) {
       Alert.alert(
         "Missing details",
         "Enter the room number, type, and monthly rent.",
@@ -173,17 +203,33 @@ export default function Rooms() {
     }
     const normalizedNumber = number.trim();
     const normalizedType = type.trim();
-    const normalizedRent = rent.trim();
+    const parsedRent = Number(rent.replace(/[^0-9.]/g, ""));
+    if (
+      !/^[A-Za-z0-9 -]{1,30}$/.test(normalizedNumber) ||
+      !Number.isFinite(parsedRent) ||
+      parsedRent <= 0
+    ) {
+      Alert.alert(
+        "Invalid room details",
+        "Enter a valid room number and a rent greater than zero.",
+      );
+      return;
+    }
+    const normalizedRent = String(parsedRent);
     const normalizedGuidelines = guidelines.trim();
-    
-    if (!editingRoomId && rooms.some((room) => room.number === normalizedNumber)) {
+
+    if (
+      rooms.some(
+        (room) => room.number === normalizedNumber && room.id !== editingRoomId,
+      )
+    ) {
       Alert.alert(
         "Room already exists",
         `Room ${normalizedNumber} is already listed.`,
       );
       return;
     }
-    
+
     const roomData = {
       number: normalizedNumber,
       type: normalizedType,
@@ -193,27 +239,65 @@ export default function Rooms() {
       guidelines: normalizedGuidelines,
       image: imageUri,
     };
-    
+
     setIsAddingRoom(true);
-    await new Promise(resolve => setTimeout(resolve, 400));
-    
+
     try {
       if (db) {
         if (editingRoomId) {
-          const { doc, updateDoc } = await import("firebase/firestore");
+          const matches = await getDocs(
+            query(
+              collection(db, "rooms"),
+              where("number", "==", normalizedNumber),
+            ),
+          );
+          if (matches.docs.some((room) => room.id !== editingRoomId))
+            throw new Error("Another room already has this number.");
+          const original = await getDoc(doc(db, "rooms", editingRoomId));
+          if (!original.exists()) throw new Error("Room no longer exists.");
+          if (String(original.data().number) !== normalizedNumber)
+            throw new Error(
+              "Room numbers cannot be changed. Create a new room instead.",
+            );
+          const { updateDoc } = await import("firebase/firestore");
           await updateDoc(doc(db, "rooms", editingRoomId), roomData);
-          setRooms((current) => current.map(r => r.id === editingRoomId ? { ...r, ...roomData } : r));
+          setRooms((current) =>
+            current.map((r) =>
+              r.id === editingRoomId ? { ...r, ...roomData } : r,
+            ),
+          );
           Alert.alert("Success", `Room ${number} updated.`);
         } else {
-          const saved = await addDoc(collection(db, "rooms"), {
-            ...roomData,
-            status: "Available" as const,
-            createdBy: user?.uid ?? null,
-            createdAt: serverTimestamp(),
+          const firestore = db;
+          const matches = await getDocs(
+            query(
+              collection(firestore, "rooms"),
+              where("number", "==", normalizedNumber),
+            ),
+          );
+          if (!matches.empty)
+            throw new Error(
+              "This room number already exists. Refresh before adding another room.",
+            );
+          const saved = doc(firestore, "rooms", "room_" + normalizedNumber);
+          await runTransaction(firestore, async (tx) => {
+            if ((await tx.get(saved)).exists())
+              throw new Error("This room was already created.");
+            tx.set(saved, {
+              ...roomData,
+              status: "Available",
+              createdBy: user?.uid || "",
+              createdAt: serverTimestamp(),
+            });
           });
           setRooms((current) => [
             ...current,
-            { ...roomData, id: saved.id, status: "Available" as const, attention: false },
+            {
+              ...roomData,
+              id: saved.id,
+              status: "Available" as const,
+              attention: false,
+            },
           ]);
           Alert.alert("Room added", `Room ${number} is now available.`);
         }
@@ -225,10 +309,12 @@ export default function Rooms() {
         return;
       }
       setModalOpen(false);
-    } catch {
+    } catch (error) {
       Alert.alert(
         "Unable to save room",
-        "Check your Firebase connection and try again.",
+        error instanceof Error
+          ? error.message
+          : "Check your connection and try again.",
       );
     } finally {
       setIsAddingRoom(false);
@@ -237,7 +323,7 @@ export default function Rooms() {
   return (
     <SafeAreaView style={styles.page}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()}>
+        <Pressable onPress={() => backOrReplace(router, "/landlord/dashboard")}>
           <Ionicons name="arrow-back" size={22} color="#fff" />
         </Pressable>
         <View style={styles.headerTitle}>
@@ -318,7 +404,11 @@ export default function Rooms() {
                     />
                   ) : (
                     <View style={styles.roomImagePlaceholder}>
-                      <Ionicons name="image-outline" size={25} color="#7394d6" />
+                      <Ionicons
+                        name="image-outline"
+                        size={25}
+                        color="#7394d6"
+                      />
                       <Text style={styles.placeholderText}>No room photo</Text>
                     </View>
                   )}
@@ -388,7 +478,9 @@ export default function Rooms() {
                           : "lock-closed-outline"
                       }
                       size={13}
-                      color={room.status === "Available" ? "#2458c7" : "#536783"}
+                      color={
+                        room.status === "Available" ? "#2458c7" : "#536783"
+                      }
                     />
                     <Text
                       style={[
@@ -417,98 +509,121 @@ export default function Rooms() {
         <View style={styles.modalBackdrop}>
           <View style={styles.modal}>
             <View style={styles.modalTitleRow}>
-              <Text style={styles.modalTitle}>{editingRoomId ? "Edit Room" : "Add Room"}</Text>
+              <Text style={styles.modalTitle}>
+                {editingRoomId ? "Edit Room" : "Add Room"}
+              </Text>
               <Pressable onPress={() => setModalOpen(false)}>
                 <Ionicons name="close" size={23} color="#536783" />
               </Pressable>
             </View>
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20 }}>
-            
-            <Text style={styles.inputLabel}>Room Image</Text>
-            {imageUri ? (
-              <View style={styles.imagePreviewContainer}>
-                <Image source={{ uri: imageUri }} style={styles.imagePreview} />
-                <Pressable onPress={() => setImageUri("")} style={styles.removeImageBtn}>
-                  <Ionicons name="close-circle" size={24} color="#ff3b30" />
-                </Pressable>
-              </View>
-            ) : (
-              <Pressable style={styles.imagePickerBtn} onPress={pickImage}>
-                <Ionicons name="image-outline" size={24} color="#2864e8" />
-                <Text style={styles.imagePickerText}>Upload Image</Text>
-              </Pressable>
-            )}
-            
-            <Text style={styles.inputLabel}>Room Number</Text>
-            <TextInput
-              style={styles.input}
-              value={number}
-              onChangeText={setNumber}
-              placeholder="e.g. 305"
-              keyboardType="number-pad"
-            />
-            <Text style={styles.inputLabel}>Room Type</Text>
-            <TextInput
-              style={styles.input}
-              value={type}
-              onChangeText={setType}
-              placeholder="e.g. Single Room"
-            />
-            <Text style={styles.inputLabel}>Monthly Rent</Text>
-            <TextInput
-              style={styles.input}
-              value={rent}
-              onChangeText={setRent}
-              placeholder="e.g. 5000"
-              keyboardType="number-pad"
-            />
-            <Text style={styles.inputLabel}>Room Guidelines (Optional)</Text>
-            <TextInput
-              style={[styles.input, styles.textArea]}
-              value={guidelines}
-              onChangeText={setGuidelines}
-              placeholder="e.g. No smoking, No pets allowed"
-              multiline
-              numberOfLines={3}
-            />
-            <Text style={styles.inputLabel}>Amenities</Text>
-            <View style={styles.amenitiesContainer}>
-              {AMENITIES.map((amenity) => (
-                <Pressable
-                  key={amenity}
-                  style={[
-                    styles.amenityChip,
-                    selectedAmenities.includes(amenity) && styles.amenityChipSelected,
-                  ]}
-                  onPress={() => {
-                    setSelectedAmenities((prev) =>
-                      prev.includes(amenity)
-                        ? prev.filter((a) => a !== amenity)
-                        : [...prev, amenity]
-                    );
-                  }}
-                >
-                  <Text
-                    style={[
-                      styles.amenityChipText,
-                      selectedAmenities.includes(amenity) &&
-                        styles.amenityChipTextSelected,
-                    ]}
-                  >
-                    {amenity}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-            <Pressable 
-              style={[styles.saveButton, isAddingRoom && { backgroundColor: '#e0e0e0' }]} 
-              onPress={saveRoom}
-              disabled={isAddingRoom}
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingBottom: 20 }}
             >
-              <Text style={[styles.saveText, isAddingRoom && { color: '#9e9e9e' }]}>
-                {isAddingRoom ? "Saving..." : editingRoomId ? "Save Changes" : "Add Room"}
-              </Text>
-            </Pressable>
+              <Text style={styles.inputLabel}>Room Image</Text>
+              {imageUri ? (
+                <View style={styles.imagePreviewContainer}>
+                  <Image
+                    source={{ uri: imageUri }}
+                    style={styles.imagePreview}
+                  />
+                  <Pressable
+                    onPress={() => setImageUri("")}
+                    style={styles.removeImageBtn}
+                  >
+                    <Ionicons name="close-circle" size={24} color="#ff3b30" />
+                  </Pressable>
+                </View>
+              ) : (
+                <Pressable style={styles.imagePickerBtn} onPress={pickImage}>
+                  <Ionicons name="image-outline" size={24} color="#2864e8" />
+                  <Text style={styles.imagePickerText}>Upload Image</Text>
+                </Pressable>
+              )}
+
+              <Text style={styles.inputLabel}>Room Number</Text>
+              <TextInput
+                style={styles.input}
+                value={number}
+                onChangeText={setNumber}
+                placeholder="e.g. 305"
+                keyboardType="number-pad"
+              />
+              <Text style={styles.inputLabel}>Room Type</Text>
+              <TextInput
+                style={styles.input}
+                value={type}
+                onChangeText={setType}
+                placeholder="e.g. Single Room"
+              />
+              <Text style={styles.inputLabel}>Monthly Rent</Text>
+              <TextInput
+                style={styles.input}
+                value={rent}
+                onChangeText={setRent}
+                placeholder="e.g. 5000"
+                keyboardType="number-pad"
+              />
+              <Text style={styles.inputLabel}>Room Guidelines (Optional)</Text>
+              <TextInput
+                style={[styles.input, styles.textArea]}
+                value={guidelines}
+                onChangeText={setGuidelines}
+                placeholder="e.g. No smoking, No pets allowed"
+                multiline
+                numberOfLines={3}
+              />
+              <Text style={styles.inputLabel}>Amenities</Text>
+              <View style={styles.amenitiesContainer}>
+                {AMENITIES.map((amenity) => (
+                  <Pressable
+                    key={amenity}
+                    style={[
+                      styles.amenityChip,
+                      selectedAmenities.includes(amenity) &&
+                        styles.amenityChipSelected,
+                    ]}
+                    onPress={() => {
+                      setSelectedAmenities((prev) =>
+                        prev.includes(amenity)
+                          ? prev.filter((a) => a !== amenity)
+                          : [...prev, amenity],
+                      );
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.amenityChipText,
+                        selectedAmenities.includes(amenity) &&
+                          styles.amenityChipTextSelected,
+                      ]}
+                    >
+                      {amenity}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+              <Pressable
+                style={[
+                  styles.saveButton,
+                  isAddingRoom && { backgroundColor: "#e0e0e0" },
+                ]}
+                onPress={saveRoom}
+                disabled={isAddingRoom}
+              >
+                <Text
+                  style={[
+                    styles.saveText,
+                    isAddingRoom && { color: "#9e9e9e" },
+                  ]}
+                >
+                  {isAddingRoom
+                    ? "Saving..."
+                    : editingRoomId
+                      ? "Save Changes"
+                      : "Add Room"}
+                </Text>
+              </Pressable>
             </ScrollView>
           </View>
         </View>
@@ -523,9 +638,17 @@ const SkeletonRoomCard = () => {
   React.useEffect(() => {
     Animated.loop(
       Animated.sequence([
-        Animated.timing(anim, { toValue: 0.7, duration: 800, useNativeDriver: true }),
-        Animated.timing(anim, { toValue: 0.3, duration: 800, useNativeDriver: true }),
-      ])
+        Animated.timing(anim, {
+          toValue: 0.7,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+        Animated.timing(anim, {
+          toValue: 0.3,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+      ]),
     ).start();
   }, [anim]);
 
@@ -535,22 +658,88 @@ const SkeletonRoomCard = () => {
       <View style={styles.roomCardBody}>
         <View style={styles.roomHeader}>
           <View>
-            <Animated.View style={{ height: 14, width: 55, backgroundColor: '#e4ebf3', borderRadius: 4, opacity: anim }} />
-            <Animated.View style={{ height: 10, width: 42, backgroundColor: '#e4ebf3', borderRadius: 4, marginTop: 5, opacity: anim }} />
+            <Animated.View
+              style={{
+                height: 14,
+                width: 55,
+                backgroundColor: "#e4ebf3",
+                borderRadius: 4,
+                opacity: anim,
+              }}
+            />
+            <Animated.View
+              style={{
+                height: 10,
+                width: 42,
+                backgroundColor: "#e4ebf3",
+                borderRadius: 4,
+                marginTop: 5,
+                opacity: anim,
+              }}
+            />
           </View>
-          <Animated.View style={{ height: 20, width: 48, backgroundColor: '#e4ebf3', borderRadius: 10, opacity: anim }} />
+          <Animated.View
+            style={{
+              height: 20,
+              width: 48,
+              backgroundColor: "#e4ebf3",
+              borderRadius: 10,
+              opacity: anim,
+            }}
+          />
         </View>
         <View style={styles.roomInfo}>
           <View>
-            <Animated.View style={{ height: 10, width: 36, backgroundColor: '#e4ebf3', borderRadius: 4, marginBottom: 6, opacity: anim }} />
-            <Animated.View style={{ height: 12, width: 56, backgroundColor: '#e4ebf3', borderRadius: 4, opacity: anim }} />
+            <Animated.View
+              style={{
+                height: 10,
+                width: 36,
+                backgroundColor: "#e4ebf3",
+                borderRadius: 4,
+                marginBottom: 6,
+                opacity: anim,
+              }}
+            />
+            <Animated.View
+              style={{
+                height: 12,
+                width: 56,
+                backgroundColor: "#e4ebf3",
+                borderRadius: 4,
+                opacity: anim,
+              }}
+            />
           </View>
           <View style={styles.rentBox}>
-            <Animated.View style={{ height: 10, width: 30, backgroundColor: '#e4ebf3', borderRadius: 4, marginBottom: 6, opacity: anim }} />
-            <Animated.View style={{ height: 14, width: 45, backgroundColor: '#e4ebf3', borderRadius: 4, opacity: anim }} />
+            <Animated.View
+              style={{
+                height: 10,
+                width: 30,
+                backgroundColor: "#e4ebf3",
+                borderRadius: 4,
+                marginBottom: 6,
+                opacity: anim,
+              }}
+            />
+            <Animated.View
+              style={{
+                height: 14,
+                width: 45,
+                backgroundColor: "#e4ebf3",
+                borderRadius: 4,
+                opacity: anim,
+              }}
+            />
           </View>
         </View>
-        <Animated.View style={{ height: 34, borderRadius: 7, backgroundColor: '#e4ebf3', opacity: anim }} />
+        <Animated.View
+          style={{
+            height: 34,
+            borderRadius: 7,
+            backgroundColor: "#e4ebf3",
+            opacity: anim,
+          }}
+        />
       </View>
     </View>
   );
@@ -665,7 +854,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  kicker: { fontSize: 11, color: "#d9e5ff", fontWeight: "700", letterSpacing: 1.4 },
+  kicker: {
+    fontSize: 11,
+    color: "#d9e5ff",
+    fontWeight: "700",
+    letterSpacing: 1.4,
+  },
   title: { fontSize: 24, fontWeight: "800", color: "#fff", marginTop: 2 },
   addButton: {
     flexDirection: "row",
@@ -680,7 +874,12 @@ const styles = StyleSheet.create({
   content: { padding: 16, paddingBottom: 24 },
   overview: { fontSize: 16, fontWeight: "700", color: "#253149", marginTop: 4 },
   caption: { fontSize: 11, color: "#78879b", marginTop: 4, marginBottom: 2 },
-  summary: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginVertical: 12 },
+  summary: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginVertical: 12,
+  },
   summaryItem: {
     flexBasis: "47%",
     flexGrow: 1,
@@ -700,7 +899,13 @@ const styles = StyleSheet.create({
     borderColor: "#2864e8",
     backgroundColor: "#f5f8ff",
   },
-  summaryIcon: { width: 30, height: 30, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  summaryIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   summaryLabel: { fontSize: 11, color: "#64748b", marginTop: 7 },
   summaryValue: {
     fontSize: 18,
@@ -817,7 +1022,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 5,
     paddingVertical: 6,
   },
-  roomActionText: { flexShrink: 1, fontSize: 9, color: "#394b61", textAlign: "center" },
+  roomActionText: {
+    flexShrink: 1,
+    fontSize: 9,
+    color: "#394b61",
+    textAlign: "center",
+  },
   assignAction: { backgroundColor: "#eaf1ff" },
   assignText: { color: "#2458c7" },
   nav: {

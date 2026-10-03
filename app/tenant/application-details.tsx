@@ -1,103 +1,187 @@
+import { useTenantData } from "@/lib/use-tenant-data";
+import { usePropertySettings } from "@/lib/use-property-settings";
+import { peso, timestampMillis } from "@/lib/billing";
+import { db } from "@/lib/firebase";
+import {
+  doc,
+  onSnapshot,
+  serverTimestamp,
+  updateDoc,
+} from "firebase/firestore";
+import React from "react";
+import { AppAlert as Alert } from "@/components/app-alert";
 import { TenantPageHeader } from "@/components/tenant-page-header";
 import { useAuth } from "@/lib/auth-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams } from "expo-router";
 import {
-    Alert,
-    Image,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View,
+  Image,
+  Linking,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function ApplicationDetails() {
   const { user } = useAuth();
+  const { profile } = useTenantData();
+  const { settings } = usePropertySettings();
+  const [application, setApplication] = React.useState<Record<
+    string,
+    unknown
+  > | null>(null);
+  const [error, setError] = React.useState("");
   const params = useLocalSearchParams<{
+    applicationId?: string;
     room?: string;
     type?: string;
     price?: string;
     image?: string;
   }>();
-  const room = params.room ?? "201";
-  const type = params.type ?? "Twin Sharing";
-  const price = params.price ?? "3,500";
-  const image =
-    params.image ||
-    "https://images.unsplash.com/photo-1616486338812-3dadae4b4ace?w=900";
+  React.useEffect(() => {
+    if (!db || !params.applicationId || !user) return;
+    return onSnapshot(
+      doc(db, "applications", params.applicationId),
+      (snapshot) => {
+        if (snapshot.exists() && snapshot.data().tenantId === user.uid)
+          setApplication(snapshot.data());
+        else setError("Application not found.");
+      },
+      () =>
+        setError(
+          "Unable to load the application. Check your connection and permissions.",
+        ),
+    );
+  }, [params.applicationId, user]);
+  const room = String(application?.roomNumber || "");
+  const type = String(application?.roomType || "Room");
+  const price = peso(application?.price);
+  const image = String(application?.image || "");
+  const status = String(application?.status || "Loading")
+    .replaceAll("_", " ")
+    .toUpperCase();
+  async function cancelApplication() {
+    if (!db || !params.applicationId || application?.status !== "pending")
+      return;
+    const firestore = db;
+    Alert.alert(
+      "Cancel application?",
+      "This withdraws your application from landlord review.",
+      [
+        { text: "Keep application", style: "cancel" },
+        {
+          text: "Cancel application",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await updateDoc(
+                doc(firestore, "applications", params.applicationId!),
+                { status: "cancelled", updatedAt: serverTimestamp() },
+              );
+            } catch {
+              Alert.alert("Could not cancel", "Please try again.");
+            }
+          },
+        },
+      ],
+    );
+  }
   return (
     <SafeAreaView style={styles.page}>
-      <TenantPageHeader title="Application Details" backHref="/tenant/applications" />
+      <TenantPageHeader
+        title="Application Details"
+        showBack
+        backHref="/tenant/applications"
+      />
       <ScrollView contentContainerStyle={styles.content}>
+        {!!error && <Text accessibilityRole="alert">{error}</Text>}
+        {!params.applicationId && (
+          <Text>Select an application from My Applications.</Text>
+        )}
         <View style={styles.statusRow}>
           <Text style={styles.title}>Application Details</Text>
-          <Text style={styles.status}>PENDING REVIEW</Text>
+          <Text style={styles.status}>{status}</Text>
         </View>
         <Text style={styles.sub}>
-          Submitted today · Application #{`APP-${room}92`}
+          {timestampMillis(application?.createdAt)
+            ? new Date(
+                timestampMillis(application?.createdAt),
+              ).toLocaleDateString("en-PH")
+            : "Date unavailable"}{" "}
+          · Application {params.applicationId || "Not selected"}
         </Text>
         <View style={styles.notice}>
           <Ionicons name="hourglass-outline" size={17} color="#9b6700" />
           <Text style={styles.noticeText}>
-            Your application is being reviewed by the landlord. You will receive
-            an update when a decision is made.
+            {application?.status === "pending"
+              ? "Your application is awaiting landlord review."
+              : `Application status: ${status.toLowerCase()}.`}
           </Text>
         </View>
         {image ? <Image source={{ uri: image }} style={styles.hero} /> : null}
         <View style={styles.roomCard}>
           <Text style={styles.kicker}>{type.toUpperCase()}</Text>
           <Text style={styles.roomTitle}>Room {room}</Text>
-          <Text style={styles.house}>
-            BoardEase Boarding House · 2nd Floor, East Wing
-          </Text>
+          <Text style={styles.house}>BoardEase Boarding House</Text>
           <View style={styles.row}>
             <Text style={styles.label}>Monthly rent</Text>
-            <Text style={styles.value}>₱{price}</Text>
+            <Text style={styles.value}>{price}</Text>
           </View>
-          <Text style={styles.small}>Selected space: Bed A (Window Side)</Text>
         </View>
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Applicant Profile</Text>
-          <Info label="Applicant Name" value={user?.displayName || "Tenant"} />
-          <Info label="Contact Number" value="+63 917 555 1234" />
+          <Info
+            label="Applicant Name"
+            value={String(profile.name || user?.displayName || "Tenant")}
+          />
+          <Info
+            label="Contact Number"
+            value={String(profile.phone || "Not provided")}
+          />
           <Info label="Email Address" value={user?.email || ""} />
           <Info
             label="Identity Document"
-            value="Student ID (UST · 2024-****)"
+            value={String(profile.verificationStatus || "Not submitted")}
           />
         </View>
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Initial Payment Breakdown</Text>
-          <Info label="1st Month Rent" value={`₱${price}`} />
-          <Info label="Security Deposit (Refundable)" value="₱3,500.00" />
-          <Info label="Utility Initial Buffer" value="₱500.00" />
-          <View style={styles.total}>
-            <Text style={styles.label}>Total Due Upon Approval</Text>
-            <Text style={styles.totalValue}>₱7,500.00</Text>
-          </View>
+          <Text style={styles.cardTitle}>Requested rent</Text>
+          <Info label="Monthly rent" value={price} />
+          <Text style={styles.small}>
+            Management will confirm any deposit and utility charges before your
+            tenancy starts.
+          </Text>
         </View>
         <Pressable
           style={styles.message}
-          onPress={() =>
-            Alert.alert(
-              "Message landlord",
-              "Messaging will be connected to Firebase later.",
-            )
-          }
+          onPress={() => {
+            const phone = String(settings.caretakerPhone || "");
+            if (phone)
+              void Linking.openURL(
+                `tel:${phone.replace(/[^+0-9]/g, "")}`,
+              ).catch(() =>
+                Alert.alert(
+                  "Cannot call",
+                  "Use the management number in your phone app.",
+                ),
+              );
+            else
+              Alert.alert(
+                "Contact unavailable",
+                "Management has not configured a contact number yet.",
+              );
+          }}
         >
           <Ionicons name="chatbubble-outline" size={17} color="#fff" />
-          <Text style={styles.messageText}>Message Property Management</Text>
+          <Text style={styles.messageText}>Contact Property Management</Text>
         </Pressable>
         <Pressable
           style={styles.cancelContainer}
-          onPress={() =>
-            Alert.alert(
-              "Cancel application",
-              "Application cancellation will be connected later.",
-            )
-          }
+          disabled={application?.status !== "pending"}
+          onPress={() => void cancelApplication()}
         >
           <Text style={styles.cancelText}>Cancel Application</Text>
         </Pressable>

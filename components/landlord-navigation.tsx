@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useMaintenanceInbox } from "@/lib/use-maintenance-inbox";
 import { router } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
@@ -6,10 +7,12 @@ const items = [
   ["grid-outline", "Dashboard", "/landlord/dashboard"],
   ["business-outline", "Rooms", "/landlord/rooms"],
   ["people-outline", "Tenants", "/landlord/tenants"],
+  ["chatbubbles-outline", "Messages", "/landlord/messages"],
   ["bar-chart-outline", "Finance", "/landlord/finance"],
 ] as const;
 
 export function LandlordNavigation({ active }: { active: string }) {
+  const { unreadCount } = useMaintenanceInbox();
   return (
     <View style={styles.nav}>
       {items.map(([icon, label, path]) => {
@@ -18,6 +21,13 @@ export function LandlordNavigation({ active }: { active: string }) {
           <Pressable
             key={label}
             style={styles.item}
+            accessibilityRole="button"
+            accessibilityState={{ selected }}
+            accessibilityLabel={
+              label === "Messages" && unreadCount
+                ? `Messages, ${unreadCount} unread`
+                : label
+            }
             onPress={() => router.replace(path as any)}
           >
             <View style={[styles.icon, selected && styles.selectedIcon]}>
@@ -26,6 +36,13 @@ export function LandlordNavigation({ active }: { active: string }) {
                 size={19}
                 color={selected ? "#2864e8" : "#9aa8ba"}
               />
+              {label === "Messages" && unreadCount > 0 && (
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </Text>
+                </View>
+              )}
             </View>
             <Text style={[styles.label, selected && styles.selectedLabel]}>
               {label}
@@ -52,7 +69,20 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 8,
   },
-  item: { minWidth: 66, alignItems: "center", gap: 3 },
+  item: { flex: 1, alignItems: "center", gap: 3, minHeight: 48 },
+  badge: {
+    position: "absolute",
+    top: -5,
+    right: -9,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: "#ef4444",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
+  },
+  badgeText: { color: "white", fontSize: 10, fontWeight: "700" },
   icon: {
     width: 34,
     height: 28,

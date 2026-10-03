@@ -1,9 +1,9 @@
+import { AppAlert as Alert } from "@/components/app-alert";
 import { useAuth } from "@/lib/auth-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Link, router } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
-  Alert,
   Animated,
   KeyboardAvoidingView,
   Platform,
@@ -27,26 +27,27 @@ export default function Login() {
   const [successDelay, setSuccessDelay] = useState(false);
   const pulseAnim = useRef(new Animated.Value(0.4)).current;
 
-  const triggerFeedback = (field: string) => {
-    setFieldErrors((prev) => ({ ...prev, [field]: true }));
-    setTimeout(() => {
-      setFieldErrors((prev) => ({ ...prev, [field]: false }));
-    }, 1000);
-  };
-
   useEffect(() => {
     Animated.loop(
       Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 0.4, duration: 800, useNativeDriver: true }),
-      ])
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 0.4,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+      ]),
     ).start();
 
     const timer = setTimeout(() => {
       setLoadingSkeleton(false);
     }, 1500);
     return () => clearTimeout(timer);
-  }, []);
+  }, [pulseAnim]);
 
   async function submit() {
     try {
@@ -55,21 +56,30 @@ export default function Login() {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(email)) {
         setFieldErrors((prev) => ({ ...prev, email: true }));
-        setErrorMsg("Please enter a valid email address (mobile numbers are not accepted).");
+        setErrorMsg(
+          "Please enter a valid email address (mobile numbers are not accepted).",
+        );
         Alert.alert(
           "Invalid Email",
-          "Please enter a valid email address (mobile numbers are not accepted)."
+          "Please enter a valid email address (mobile numbers are not accepted).",
         );
         setBusy(false);
         return;
       }
-      await signIn(email, password);
+      const session = await signIn(email, password);
       setSuccessDelay(true);
       setTimeout(() => {
-        router.replace("/");
+        router.replace(
+          session.role === "admin"
+            ? "/landlord/dashboard"
+            : session.hasRoom
+              ? "/tenant/tenant-home"
+              : "/tenant/room-browser",
+        );
       }, 2000);
     } catch (error) {
-      const msg = error instanceof Error ? error.message : "Please check your details.";
+      const msg =
+        error instanceof Error ? error.message : "Please check your details.";
       setErrorMsg(msg);
       Alert.alert("Unable to log in", msg);
       setBusy(false);
@@ -95,16 +105,30 @@ export default function Login() {
     return (
       <View style={styles.dashboardSkeletonPage}>
         <View style={styles.dashboardSkeletonHeader}>
-          <Animated.View style={[styles.skeletonHeaderTitle, { opacity: pulseAnim }]} />
-          <Animated.View style={[styles.skeletonHeaderSubtitle, { opacity: pulseAnim }]} />
+          <Animated.View
+            style={[styles.skeletonHeaderTitle, { opacity: pulseAnim }]}
+          />
+          <Animated.View
+            style={[styles.skeletonHeaderSubtitle, { opacity: pulseAnim }]}
+          />
         </View>
         <View style={styles.dashboardSkeletonContent}>
-          <Animated.View style={[styles.skeletonCardLarge, { opacity: pulseAnim }]} />
+          <Animated.View
+            style={[styles.skeletonCardLarge, { opacity: pulseAnim }]}
+          />
           <View style={styles.skeletonGrid}>
-            <Animated.View style={[styles.skeletonCardSmall, { opacity: pulseAnim }]} />
-            <Animated.View style={[styles.skeletonCardSmall, { opacity: pulseAnim }]} />
-            <Animated.View style={[styles.skeletonCardSmall, { opacity: pulseAnim }]} />
-            <Animated.View style={[styles.skeletonCardSmall, { opacity: pulseAnim }]} />
+            <Animated.View
+              style={[styles.skeletonCardSmall, { opacity: pulseAnim }]}
+            />
+            <Animated.View
+              style={[styles.skeletonCardSmall, { opacity: pulseAnim }]}
+            />
+            <Animated.View
+              style={[styles.skeletonCardSmall, { opacity: pulseAnim }]}
+            />
+            <Animated.View
+              style={[styles.skeletonCardSmall, { opacity: pulseAnim }]}
+            />
           </View>
         </View>
       </View>
@@ -116,22 +140,42 @@ export default function Login() {
       <View style={styles.page}>
         <View style={styles.content}>
           <View style={styles.brand}>
-            <Animated.View style={[styles.skeletonLogo, { opacity: pulseAnim }]} />
-            <Animated.View style={[styles.skeletonBrandName, { opacity: pulseAnim }]} />
-            <Animated.View style={[styles.skeletonTagline, { opacity: pulseAnim }]} />
+            <Animated.View
+              style={[styles.skeletonLogo, { opacity: pulseAnim }]}
+            />
+            <Animated.View
+              style={[styles.skeletonBrandName, { opacity: pulseAnim }]}
+            />
+            <Animated.View
+              style={[styles.skeletonTagline, { opacity: pulseAnim }]}
+            />
           </View>
           <View style={styles.card}>
-            <Animated.View style={[styles.skeletonTitle, { opacity: pulseAnim }]} />
+            <Animated.View
+              style={[styles.skeletonTitle, { opacity: pulseAnim }]}
+            />
             <View style={styles.field}>
-              <Animated.View style={[styles.skeletonLabel, { opacity: pulseAnim }]} />
-              <Animated.View style={[styles.skeletonInput, { opacity: pulseAnim }]} />
+              <Animated.View
+                style={[styles.skeletonLabel, { opacity: pulseAnim }]}
+              />
+              <Animated.View
+                style={[styles.skeletonInput, { opacity: pulseAnim }]}
+              />
             </View>
             <View style={styles.field}>
-              <Animated.View style={[styles.skeletonLabel, { opacity: pulseAnim }]} />
-              <Animated.View style={[styles.skeletonInput, { opacity: pulseAnim }]} />
+              <Animated.View
+                style={[styles.skeletonLabel, { opacity: pulseAnim }]}
+              />
+              <Animated.View
+                style={[styles.skeletonInput, { opacity: pulseAnim }]}
+              />
             </View>
-            <Animated.View style={[styles.skeletonForgot, { opacity: pulseAnim }]} />
-            <Animated.View style={[styles.skeletonButton, { opacity: pulseAnim }]} />
+            <Animated.View
+              style={[styles.skeletonForgot, { opacity: pulseAnim }]}
+            />
+            <Animated.View
+              style={[styles.skeletonButton, { opacity: pulseAnim }]}
+            />
           </View>
         </View>
       </View>
@@ -164,9 +208,9 @@ export default function Login() {
           <Field
             label="Email"
             value={email}
-            onChangeText={(t) => { 
-              setEmail(t); 
-              setErrorMsg(""); 
+            onChangeText={(t) => {
+              setEmail(t);
+              setErrorMsg("");
               setFieldErrors((prev) => ({ ...prev, email: false }));
             }}
             placeholder="Enter your email"
@@ -177,7 +221,10 @@ export default function Login() {
           <PasswordField
             label="Password"
             value={password}
-            onChangeText={(t) => { setPassword(t); setErrorMsg(""); }}
+            onChangeText={(t) => {
+              setPassword(t);
+              setErrorMsg("");
+            }}
             placeholder="Enter your Password"
             secureTextEntry={!showPassword}
             showPassword={showPassword}
@@ -213,13 +260,28 @@ function Field({
   label,
   error,
   ...props
-}: React.ComponentProps<typeof TextInput> & { label: string; error?: boolean }) {
+}: React.ComponentProps<typeof TextInput> & {
+  label: string;
+  error?: boolean;
+}) {
   const [isFocused, setIsFocused] = React.useState(false);
   return (
     <View style={styles.field}>
-      <Text style={[styles.label, isFocused && styles.labelFocused, error && styles.labelError]}>{label}</Text>
+      <Text
+        style={[
+          styles.label,
+          isFocused && styles.labelFocused,
+          error && styles.labelError,
+        ]}
+      >
+        {label}
+      </Text>
       <TextInput
-        style={[styles.input, isFocused && styles.inputFocused, error && styles.inputError]}
+        style={[
+          styles.input,
+          isFocused && styles.inputFocused,
+          error && styles.inputError,
+        ]}
         placeholderTextColor="#9aa8ba"
         onFocus={(e) => {
           setIsFocused(true);
@@ -250,8 +312,22 @@ function PasswordField({
   const [isFocused, setIsFocused] = React.useState(false);
   return (
     <View style={styles.field}>
-      <Text style={[styles.label, isFocused && styles.labelFocused, error && styles.labelError]}>{label}</Text>
-      <View style={[styles.passwordWrap, isFocused && styles.inputFocused, error && styles.inputError]}>
+      <Text
+        style={[
+          styles.label,
+          isFocused && styles.labelFocused,
+          error && styles.labelError,
+        ]}
+      >
+        {label}
+      </Text>
+      <View
+        style={[
+          styles.passwordWrap,
+          isFocused && styles.inputFocused,
+          error && styles.inputError,
+        ]}
+      >
         <TextInput
           style={styles.passwordInput}
           placeholderTextColor="#9aa8ba"
@@ -384,14 +460,51 @@ const styles = StyleSheet.create({
   bottomText: { fontSize: 12, color: "#71809a", marginTop: 17 },
   setup: { fontSize: 12, color: "#8b98aa", textAlign: "center", marginTop: 18 },
   // Skeleton Styles
-  skeletonLogo: { width: 56, height: 56, borderRadius: 16, backgroundColor: '#d1d8e0', marginBottom: 12 },
-  skeletonBrandName: { width: 120, height: 24, borderRadius: 4, backgroundColor: '#d1d8e0', marginBottom: 10 },
-  skeletonTagline: { width: 220, height: 14, borderRadius: 4, backgroundColor: '#d1d8e0' },
-  skeletonTitle: { width: 140, height: 22, borderRadius: 4, backgroundColor: '#d1d8e0', marginBottom: 22 },
-  skeletonLabel: { width: 60, height: 12, borderRadius: 4, backgroundColor: '#d1d8e0', marginBottom: 7 },
-  skeletonInput: { height: 45, borderRadius: 9, backgroundColor: '#e2e8f0' },
-  skeletonForgot: { width: 100, height: 12, borderRadius: 4, backgroundColor: '#d1d8e0', alignSelf: 'flex-end', marginTop: -2, marginBottom: 17 },
-  skeletonButton: { height: 46, borderRadius: 9, backgroundColor: '#d1d8e0' },
+  skeletonLogo: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: "#d1d8e0",
+    marginBottom: 12,
+  },
+  skeletonBrandName: {
+    width: 120,
+    height: 24,
+    borderRadius: 4,
+    backgroundColor: "#d1d8e0",
+    marginBottom: 10,
+  },
+  skeletonTagline: {
+    width: 220,
+    height: 14,
+    borderRadius: 4,
+    backgroundColor: "#d1d8e0",
+  },
+  skeletonTitle: {
+    width: 140,
+    height: 22,
+    borderRadius: 4,
+    backgroundColor: "#d1d8e0",
+    marginBottom: 22,
+  },
+  skeletonLabel: {
+    width: 60,
+    height: 12,
+    borderRadius: 4,
+    backgroundColor: "#d1d8e0",
+    marginBottom: 7,
+  },
+  skeletonInput: { height: 45, borderRadius: 9, backgroundColor: "#e2e8f0" },
+  skeletonForgot: {
+    width: 100,
+    height: 12,
+    borderRadius: 4,
+    backgroundColor: "#d1d8e0",
+    alignSelf: "flex-end",
+    marginTop: -2,
+    marginBottom: 17,
+  },
+  skeletonButton: { height: 46, borderRadius: 9, backgroundColor: "#d1d8e0" },
   dashboardSkeletonPage: { flex: 1, backgroundColor: "#f3f7fd" },
   dashboardSkeletonHeader: {
     height: 140,
@@ -401,10 +514,36 @@ const styles = StyleSheet.create({
     padding: 20,
     justifyContent: "flex-end",
   },
-  skeletonHeaderTitle: { width: 150, height: 28, borderRadius: 6, backgroundColor: "#578af0", marginBottom: 8 },
-  skeletonHeaderSubtitle: { width: 100, height: 16, borderRadius: 4, backgroundColor: "#578af0" },
+  skeletonHeaderTitle: {
+    width: 150,
+    height: 28,
+    borderRadius: 6,
+    backgroundColor: "#578af0",
+    marginBottom: 8,
+  },
+  skeletonHeaderSubtitle: {
+    width: 100,
+    height: 16,
+    borderRadius: 4,
+    backgroundColor: "#578af0",
+  },
   dashboardSkeletonContent: { padding: 16, marginTop: 10, gap: 16 },
-  skeletonCardLarge: { width: "100%", height: 120, borderRadius: 12, backgroundColor: "#e2e8f0" },
-  skeletonGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12, justifyContent: "space-between" },
-  skeletonCardSmall: { width: "48%", height: 100, borderRadius: 12, backgroundColor: "#e2e8f0" },
+  skeletonCardLarge: {
+    width: "100%",
+    height: 120,
+    borderRadius: 12,
+    backgroundColor: "#e2e8f0",
+  },
+  skeletonGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+    justifyContent: "space-between",
+  },
+  skeletonCardSmall: {
+    width: "48%",
+    height: 100,
+    borderRadius: 12,
+    backgroundColor: "#e2e8f0",
+  },
 });

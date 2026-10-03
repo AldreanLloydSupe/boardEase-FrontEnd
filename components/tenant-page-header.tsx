@@ -10,10 +10,16 @@ export function TenantPageHeader({
   title,
   backHref,
   rightAction,
+  showBack = false,
+  onBack,
+  subtitle,
 }: {
   title: string;
   backHref?: string;
   rightAction?: ReactNode;
+  showBack?: boolean;
+  onBack?: () => void;
+  subtitle?: string;
 }) {
   const { hasRoom } = useAuth();
   const destination =
@@ -21,23 +27,36 @@ export function TenantPageHeader({
 
   return (
     <View style={styles.header}>
-      <Pressable
-        style={styles.back}
-        onPress={() => router.replace(destination as any)}
-        accessibilityRole="button"
-        accessibilityLabel="Go back"
-        hitSlop={8}
-      >
-        <Ionicons name="arrow-back" size={21} color="#fff" />
-      </Pressable>
+      {showBack && (
+        <Pressable
+          style={styles.back}
+          onPress={onBack || (() => router.replace(destination as any))}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          hitSlop={8}
+        >
+          <Ionicons name="arrow-back" size={21} color="#fff" />
+        </Pressable>
+      )}
       <TenantHeaderMark />
       <View style={styles.copy}>
         <Text style={styles.brand}>BOARDEASE</Text>
         <Text style={styles.title} numberOfLines={1}>
           {title}
         </Text>
+        {!!subtitle && <Text style={styles.subtitle}>{subtitle}</Text>}
       </View>
       {rightAction}
+      {title !== "Messages" && (
+        <Pressable
+          style={styles.back}
+          onPress={() => router.push("/tenant/messages" as any)}
+          accessibilityRole="button"
+          accessibilityLabel="Open messages"
+        >
+          <Ionicons name="chatbubbles-outline" size={22} color="#fff" />
+        </Pressable>
+      )}
       <NotificationBell />
     </View>
   );
@@ -62,6 +81,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   copy: { flex: 1, minWidth: 0 },
-  brand: { color: "#d9e5ff", fontSize: 10, fontWeight: "800", letterSpacing: 1.4 },
+  brand: {
+    color: "#d9e5ff",
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 1.4,
+  },
   title: { color: "#fff", fontSize: 18, fontWeight: "800", marginTop: 2 },
+  subtitle: { color: "#d9e5ff", fontSize: 11, marginTop: 3 },
 });

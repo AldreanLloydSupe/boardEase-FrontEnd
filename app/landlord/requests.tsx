@@ -1,10 +1,36 @@
+import { AppAlert as Alert } from "@/components/app-alert";
+import { useAuth } from "@/lib/auth-context";
+import { useMaintenanceInbox } from "@/lib/use-maintenance-inbox";
+import { usePropertySettings } from "@/lib/use-property-settings";
+import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { collection, doc, onSnapshot, orderBy, addDoc, serverTimestamp, updateDoc, query } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  onSnapshot,
+  orderBy,
+  addDoc,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+  query,
+} from "firebase/firestore";
 import React from "react";
-import { Alert, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  Image,
+  Linking,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LandlordNavigation } from "@/components/landlord-navigation";
 import { db } from "@/lib/firebase";
+import { timestampMillis } from "@/lib/billing";
 import { createNotification } from "@/lib/notification-data";
 
 type MaintenanceRequest = {
@@ -14,9 +40,16 @@ type MaintenanceRequest = {
   roomNumber?: string;
   title?: string;
   details?: string;
+  photoUri?: string;
+  createdAt?: unknown;
   status?: "in_progress" | "parts_sourced" | "completed";
 };
-type RequestMessage = { id: string; senderId?: string; senderName?: string; body: string };
+type RequestMessage = {
+  id: string;
+  senderId?: string;
+  senderName?: string;
+  body: string;
+};
 
 const statuses: MaintenanceRequest["status"][] = [
   "in_progress",
@@ -25,8 +58,16 @@ const statuses: MaintenanceRequest["status"][] = [
 ];
 
 export default function LandlordRequests() {
+  const { user, displayName } = useAuth();
+  const { requestId } = useLocalSearchParams<{ requestId?: string }>();
+  const inbox = useMaintenanceInbox();
+  const { settings } = usePropertySettings();
+  const [sending, setSending] = React.useState(false);
+  const [loadError, setLoadError] = React.useState("");
+  const [reload, setReload] = React.useState(0);
   const [requests, setRequests] = React.useState<MaintenanceRequest[]>([]);
-  const [selectedRequest, setSelectedRequest] = React.useState<MaintenanceRequest | null>(null);
+  const [selectedRequest, setSelectedRequest] =
+    React.useState<MaintenanceRequest | null>(null);
   const [replyOpen, setReplyOpen] = React.useState(false);
   const [messages, setMessages] = React.useState<RequestMessage[]>([]);
   const [replyText, setReplyText] = React.useState("");
@@ -35,57 +76,105 @@ export default function LandlordRequests() {
     if (!db) return;
     return onSnapshot(
       collection(db, "maintenanceRequests"),
-      (snapshot) =>
+      (snapshot) => {
+        const records = snapshot.docs.map((item) => ({
+          ...item.data(),
+          id: item.id,
+        })) as MaintenanceRequest[];
+        setLoadError("");
         setRequests(
+          records.sort(
+            (a, b) =>
+              Number(b.id === requestId) - Number(a.id === requestId) ||
+              timestampMillis(b.createdAt) - timestampMillis(a.createdAt),
+          ),
+        );
+      },
+      () =>
+        setLoadError(
+          "Unable to load requests. Please check your connection and permissions.",
+        ),
+    );
+  }, [requestId, reload]);
+
+  React.useEffect(() => {
+    if (!db || !selectedRequest || !replyOpen || !user) return;
+    const firestore = db;
+    return onSnapshot(
+      query(
+        collection(db, "maintenanceRequests", selectedRequest.id, "messages"),
+        orderBy("createdAt", "asc"),
+      ),
+      (snapshot) => {
+        setMessages(
           snapshot.docs.map((item) => ({
             id: item.id,
             ...item.data(),
-          })) as MaintenanceRequest[],
-        ),
-      () => setRequests([]),
+          })) as RequestMessage[],
+        );
+        void setDoc(
+          doc(
+            firestore,
+            "maintenanceRequests",
+            selectedRequest.id,
+            "readReceipts",
+            user.uid,
+          ),
+          { readAt: serverTimestamp() },
+        ).catch(() => setLoadError("Unable to mark replies read."));
+      },
+      () => setLoadError("Unable to load this conversation."),
     );
-  }, []);
-
-  React.useEffect(() => {
-    if (!db || !selectedRequest) return;
-    return onSnapshot(
-      query(collection(db, "maintenanceRequests", selectedRequest.id, "messages"), orderBy("createdAt", "asc")),
-      (snapshot) => setMessages(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })) as RequestMessage[]),
-      () => setMessages([]),
-    );
-  }, [selectedRequest]);
+  }, [selectedRequest, replyOpen, user]);
 
   function openConversation(request: MaintenanceRequest) {
     setSelectedRequest(request);
+    setMessages([]);
     setReplyText("");
     setReplyOpen(true);
   }
 
   async function sendReply() {
-    if (!db || !selectedRequest || !replyText.trim()) return;
+    if (!db || !user || !selectedRequest || !replyText.trim() || sending)
+      return;
+    if (replyText.trim().length > 2000) {
+      Alert.alert("Message too long", "Use at most 2,000 characters.");
+      return;
+    }
+    setSending(true);
     try {
-      const senderId = "landlord";
-      await addDoc(collection(db, "maintenanceRequests", selectedRequest.id, "messages"), {
-        senderId,
-        senderName: "BoardEase Caretaker",
-        body: replyText.trim(),
-        createdAt: serverTimestamp(),
-      });
+      const senderId = user.uid;
+      await addDoc(
+        collection(db, "maintenanceRequests", selectedRequest.id, "messages"),
+        {
+          senderId,
+          senderName: displayName || "BoardEase Management",
+          body: replyText.trim(),
+          createdAt: serverTimestamp(),
+        },
+      );
       setReplyText("");
       if (selectedRequest.tenantId) {
         try {
           await createNotification(selectedRequest.tenantId, {
             type: "maintenance_message",
-            title: "New message from Kuya Bert",
+            title: "New maintenance message",
             body: replyText.trim(),
-            route: "/tenant/applications",
+            route:
+              "/tenant/messages?requestId=" +
+              encodeURIComponent(selectedRequest.id),
           });
         } catch {
-          Alert.alert("Reply sent", "The message was saved, but the tenant notification could not be delivered.");
+          Alert.alert(
+            "Reply sent",
+            "The message was saved, but the tenant notification could not be delivered.",
+          );
         }
       }
     } catch {
       Alert.alert("Unable to send reply", "Please try again.");
+    } finally {
+      setSending(false);
     }
   }
 
@@ -108,7 +197,10 @@ export default function LandlordRequests() {
             route: "/tenant/applications",
           });
         } catch {
-          Alert.alert("Status updated", "The request status was saved, but the tenant notification could not be delivered.");
+          Alert.alert(
+            "Status updated",
+            "The request status was saved, but the tenant notification could not be delivered.",
+          );
         }
       }
     } catch {
@@ -119,88 +211,262 @@ export default function LandlordRequests() {
   return (
     <SafeAreaView style={styles.page}>
       <ScrollView contentContainerStyle={styles.content}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          onPress={() => {
+            if (router.canGoBack()) router.back();
+            else router.replace("/landlord/dashboard");
+          }}
+          style={({ pressed }) => [
+            styles.backButton,
+            pressed && { opacity: 0.65 },
+          ]}
+        >
+          <Ionicons name="arrow-back" size={20} color="#2864e8" />
+          <Text style={styles.backLabel}>Back</Text>
+        </Pressable>
         <Text style={styles.brand}>BOARDEASE</Text>
+        {!!(loadError || inbox.error) && (
+          <View style={styles.card}>
+            <Text accessibilityRole="alert">{loadError || inbox.error}</Text>
+            <Pressable
+              accessibilityRole="button"
+              disabled={inbox.retrying}
+              onPress={() => {
+                setLoadError("");
+                setReload((n) => n + 1);
+                void inbox.retry();
+              }}
+              style={{ paddingVertical: 12 }}
+            >
+              <Text style={styles.replyText}>
+                {inbox.retrying ? "Retrying..." : "Retry inbox"}
+              </Text>
+            </Pressable>
+          </View>
+        )}
         <View style={styles.headingRow}>
           <View>
             <Text style={styles.title}>Maintenance Requests</Text>
-            <Text style={styles.subtitle}>Review tenant requests and update their progress.</Text>
+            <Text style={styles.subtitle}>
+              Review tenant requests and update their progress.
+            </Text>
           </View>
           <Ionicons name="construct-outline" size={24} color="#2864e8" />
         </View>
         {requests.length === 0 ? (
           <View style={styles.empty}>
-            <Ionicons name="checkmark-circle-outline" size={34} color="#16805d" />
+            <Ionicons
+              name="checkmark-circle-outline"
+              size={34}
+              color="#16805d"
+            />
             <Text style={styles.emptyTitle}>No maintenance requests</Text>
-            <Text style={styles.emptyText}>New tenant requests will appear here.</Text>
+            <Text style={styles.emptyText}>
+              New tenant requests will appear here.
+            </Text>
           </View>
         ) : (
           requests.map((request) => (
-            <View style={styles.card} key={request.id}>
+            <View
+              style={[
+                styles.card,
+                request.id === requestId && {
+                  borderWidth: 2,
+                  borderColor: "#2864e8",
+                },
+              ]}
+              key={request.id}
+            >
               <View style={styles.cardTop}>
-                <View style={styles.iconCircle}><Ionicons name="construct-outline" size={18} color="#2864e8" /></View>
+                <View style={styles.iconCircle}>
+                  <Ionicons
+                    name="construct-outline"
+                    size={18}
+                    color="#2864e8"
+                  />
+                </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.requestTitle}>{request.title || "Maintenance request"}</Text>
-                  <Text style={styles.meta}>{request.tenantName || "Tenant"} · Room {request.roomNumber || "—"}</Text>
+                  <Text style={styles.requestTitle}>
+                    {request.title || "Maintenance request"}
+                  </Text>
+                  <Text style={styles.meta}>
+                    {request.tenantName || "Tenant"} · Room{" "}
+                    {request.roomNumber || "—"}
+                  </Text>
                 </View>
                 <Text style={styles.status}>{labelFor(request.status)}</Text>
               </View>
-              <Text style={styles.details}>{request.details || "No details provided."}</Text>
-              <Pressable style={styles.replyButton} onPress={() => openConversation(request)}>
-                <Ionicons name="chatbubble-ellipses-outline" size={16} color="#2864e8" />
-                <Text style={styles.replyText}>View Conversation</Text>
+              <Text style={styles.details}>
+                {request.details || "No details provided."}
+              </Text>
+              {!!request.photoUri &&
+                /^(https:\/\/|data:image\/)/.test(request.photoUri) && (
+                  <Image
+                    source={{ uri: request.photoUri }}
+                    accessibilityLabel="Tenant maintenance photo"
+                    style={{
+                      width: "100%",
+                      height: 180,
+                      borderRadius: 12,
+                      marginBottom: 12,
+                    }}
+                    resizeMode="contain"
+                  />
+                )}
+              <Pressable
+                style={styles.replyButton}
+                onPress={() => openConversation(request)}
+              >
+                <Ionicons
+                  name="chatbubble-ellipses-outline"
+                  size={16}
+                  color="#2864e8"
+                />
+                <Text style={styles.replyText}>
+                  View Conversation (
+                  {inbox.requests.find((r) => r.id === request.id)
+                    ?.unreadAvailable
+                    ? (inbox.requests.find((r) => r.id === request.id)
+                        ?.unread || 0) + " unread"
+                    : "Unread count unavailable"}
+                  )
+                </Text>
               </Pressable>
-              <Pressable style={styles.updateButton} onPress={() => changeStatus(request)}>
+              <Pressable
+                style={styles.updateButton}
+                onPress={() => changeStatus(request)}
+              >
                 <Ionicons name="sync-outline" size={16} color="#fff" />
-                <Text style={styles.updateText}>Mark as {nextLabel(request.status)}</Text>
+                <Text style={styles.updateText}>
+                  Mark as {nextLabel(request.status)}
+                </Text>
               </Pressable>
             </View>
           ))
         )}
       </ScrollView>
-      <Modal visible={replyOpen} transparent animationType="fade" onRequestClose={() => setReplyOpen(false)}>
+      <Modal
+        visible={replyOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setReplyOpen(false)}
+      >
         <View style={styles.modalBackdrop}>
           <View style={styles.modal}>
             <View style={styles.modalHeader}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.modalTitle}>Tenant Conversation</Text>
                 <Text style={styles.modalSubtitle}>
-                  {selectedRequest?.tenantName || "Tenant"} · Room {selectedRequest?.roomNumber || "—"}
+                  {selectedRequest?.tenantName || "Tenant"} · Room{" "}
+                  {selectedRequest?.roomNumber || "—"}
                 </Text>
               </View>
               <Pressable onPress={() => setReplyOpen(false)} hitSlop={8}>
                 <Ionicons name="close" size={22} color="#526174" />
               </Pressable>
             </View>
-            <Text style={styles.requestContext}>{selectedRequest?.title || "Maintenance request"}</Text>
-            <ScrollView style={styles.messageList} contentContainerStyle={styles.messageContent}>
+            <Text style={styles.requestContext}>
+              {selectedRequest?.title || "Maintenance request"}
+            </Text>
+            <ScrollView
+              style={styles.messageList}
+              contentContainerStyle={styles.messageContent}
+            >
               {messages.length === 0 ? (
-                <Text style={styles.emptyMessage}>No messages yet. Send an update to the tenant.</Text>
-              ) : messages.map((message) => (
-                <View key={message.id} style={[styles.messageBubble, message.senderId === "landlord" ? styles.landlordMessage : styles.tenantMessage]}>
-                  <Text style={styles.messageSender}>{message.senderName || (message.senderId === "landlord" ? "Kuya Bert" : "Tenant")}</Text>
-                  <Text style={styles.messageBody}>{message.body}</Text>
-                </View>
-              ))}
+                <Text style={styles.emptyMessage}>
+                  No messages yet. Send an update to the tenant.
+                </Text>
+              ) : (
+                messages.map((message) => (
+                  <View
+                    key={message.id}
+                    style={[
+                      styles.messageBubble,
+                      message.senderId !== selectedRequest?.tenantId
+                        ? styles.landlordMessage
+                        : styles.tenantMessage,
+                    ]}
+                  >
+                    <Text style={styles.messageSender}>
+                      {message.senderName ||
+                        (message.senderId === "landlord"
+                          ? "Kuya Bert"
+                          : "Tenant")}
+                    </Text>
+                    <Text style={styles.messageBody}>{message.body}</Text>
+                  </View>
+                ))
+              )}
             </ScrollView>
             <View style={styles.quickActions}>
-              {["I’ll check it today.", "Parts are being sourced.", "The request is completed."].map((quick) => (
-                <Pressable key={quick} style={styles.quickAction} onPress={() => setReplyText(quick)}>
+              {[
+                "I’ll check it today.",
+                "Parts are being sourced.",
+                "The request is completed.",
+              ].map((quick) => (
+                <Pressable
+                  key={quick}
+                  style={styles.quickAction}
+                  onPress={() => setReplyText(quick)}
+                >
                   <Text style={styles.quickActionText}>{quick}</Text>
                 </Pressable>
               ))}
             </View>
             <View style={styles.composer}>
-              <TextInput style={styles.replyInput} value={replyText} onChangeText={setReplyText} placeholder="Reply to tenant..." multiline />
-              <Pressable style={styles.sendButton} onPress={() => void sendReply()} disabled={!replyText.trim()}>
+              <TextInput
+                style={styles.replyInput}
+                value={replyText}
+                onChangeText={setReplyText}
+                placeholder="Reply to tenant..."
+                multiline
+              />
+              <Pressable
+                style={styles.sendButton}
+                onPress={() => void sendReply()}
+                disabled={sending || !replyText.trim()}
+              >
                 <Ionicons name="send" size={17} color="#fff" />
               </Pressable>
             </View>
             <View style={styles.modalActions}>
-              <Pressable style={styles.callButton} onPress={() => void Linking.openURL("tel:+639175548921")}>
-                <Ionicons name="call-outline" size={15} color="#2864e8" /><Text style={styles.callText}>Call caretaker</Text>
+              <Pressable
+                style={styles.callButton}
+                onPress={() => {
+                  const phone = String(settings.caretakerPhone || "");
+                  if (!phone) {
+                    Alert.alert(
+                      "Contact unavailable",
+                      "Add the caretaker number in Property Settings.",
+                    );
+                    return;
+                  }
+                  void Linking.openURL(`tel:${phone}`).catch(() =>
+                    Alert.alert(
+                      "Unable to call",
+                      "Use the caretaker number in your phone app.",
+                    ),
+                  );
+                }}
+              >
+                <Ionicons name="call-outline" size={15} color="#2864e8" />
+                <Text style={styles.callText}>Call caretaker</Text>
               </Pressable>
-              <Pressable style={styles.completeButton} onPress={() => { if (selectedRequest) void changeStatus(selectedRequest); setReplyOpen(false); }}>
-                <Ionicons name="checkmark-circle-outline" size={15} color="#fff" /><Text style={styles.completeText}>Update Status</Text>
+              <Pressable
+                style={styles.completeButton}
+                onPress={() => {
+                  if (selectedRequest) void changeStatus(selectedRequest);
+                  setReplyOpen(false);
+                }}
+              >
+                <Ionicons
+                  name="checkmark-circle-outline"
+                  size={15}
+                  color="#fff"
+                />
+                <Text style={styles.completeText}>Update Status</Text>
               </Pressable>
             </View>
           </View>
@@ -226,47 +492,198 @@ function nextLabel(status?: MaintenanceRequest["status"]) {
 const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: "#f7f9fc" },
   content: { padding: 14, paddingBottom: 95 },
+  backButton: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    minHeight: 44,
+    paddingHorizontal: 12,
+    marginBottom: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#e5eaf1",
+    backgroundColor: "#fff",
+  },
+  backLabel: { color: "#2864e8", fontSize: 14, fontWeight: "600" },
   brand: { color: "#2864e8", fontSize: 11, fontWeight: "700" },
-  headingRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 7, marginBottom: 16 },
+  headingRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 7,
+    marginBottom: 16,
+  },
   title: { color: "#172033", fontSize: 21, fontWeight: "700" },
   subtitle: { color: "#7a8799", fontSize: 11, marginTop: 3 },
-  empty: { backgroundColor: "#fff", borderRadius: 12, padding: 30, alignItems: "center", borderWidth: 1, borderColor: "#e5eaf1" },
-  emptyTitle: { color: "#253149", fontSize: 15, fontWeight: "700", marginTop: 10 },
+  empty: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 30,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#e5eaf1",
+  },
+  emptyTitle: {
+    color: "#253149",
+    fontSize: 15,
+    fontWeight: "700",
+    marginTop: 10,
+  },
   emptyText: { color: "#7a8799", fontSize: 11, marginTop: 5 },
-  card: { backgroundColor: "#fff", borderRadius: 12, padding: 13, marginBottom: 10, borderWidth: 1, borderColor: "#e5eaf1" },
+  card: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 13,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "#e5eaf1",
+  },
   cardTop: { flexDirection: "row", alignItems: "center", gap: 9 },
-  iconCircle: { width: 36, height: 36, borderRadius: 18, backgroundColor: "#eaf1ff", alignItems: "center", justifyContent: "center" },
+  iconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#eaf1ff",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   requestTitle: { color: "#253149", fontSize: 13, fontWeight: "700" },
   meta: { color: "#7a8799", fontSize: 10, marginTop: 3 },
   status: { color: "#a44c35", fontSize: 9, fontWeight: "700" },
   details: { color: "#526174", fontSize: 11, lineHeight: 16, marginTop: 12 },
-  replyButton: { marginTop: 10, borderWidth: 1, borderColor: "#b9ccef", borderRadius: 8, padding: 9, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 },
+  replyButton: {
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: "#b9ccef",
+    borderRadius: 8,
+    padding: 9,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
   replyText: { color: "#2864e8", fontSize: 11, fontWeight: "700" },
-  updateButton: { backgroundColor: "#2864e8", borderRadius: 8, padding: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, marginTop: 12 },
+  updateButton: {
+    backgroundColor: "#2864e8",
+    borderRadius: 8,
+    padding: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    marginTop: 12,
+  },
   updateText: { color: "#fff", fontSize: 11, fontWeight: "700" },
-  modalBackdrop: { flex: 1, backgroundColor: "rgba(15,23,42,.45)", justifyContent: "center", padding: 16 },
-  modal: { backgroundColor: "#fff", borderRadius: 20, padding: 16, maxHeight: "84%" },
-  modalHeader: { flexDirection: "row", alignItems: "center", borderBottomWidth: 1, borderColor: "#edf1f7", paddingBottom: 11 },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(15,23,42,.45)",
+    justifyContent: "center",
+    padding: 16,
+  },
+  modal: {
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    padding: 16,
+    maxHeight: "84%",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderBottomWidth: 1,
+    borderColor: "#edf1f7",
+    paddingBottom: 11,
+  },
   modalTitle: { color: "#172033", fontSize: 18, fontWeight: "800" },
   modalSubtitle: { color: "#71809a", fontSize: 11, marginTop: 3 },
-  requestContext: { color: "#2864e8", backgroundColor: "#eaf1ff", borderRadius: 8, padding: 9, marginTop: 10, fontSize: 12, fontWeight: "700" },
+  requestContext: {
+    color: "#2864e8",
+    backgroundColor: "#eaf1ff",
+    borderRadius: 8,
+    padding: 9,
+    marginTop: 10,
+    fontSize: 12,
+    fontWeight: "700",
+  },
   messageList: { maxHeight: 260, marginTop: 10 },
   messageContent: { gap: 8, paddingVertical: 4 },
-  emptyMessage: { color: "#71809a", textAlign: "center", paddingVertical: 26, fontSize: 12 },
+  emptyMessage: {
+    color: "#71809a",
+    textAlign: "center",
+    paddingVertical: 26,
+    fontSize: 12,
+  },
   messageBubble: { maxWidth: "84%", borderRadius: 12, padding: 10 },
   landlordMessage: { alignSelf: "flex-end", backgroundColor: "#eaf1ff" },
   tenantMessage: { alignSelf: "flex-start", backgroundColor: "#f3f7fd" },
-  messageSender: { color: "#526174", fontSize: 10, fontWeight: "700", marginBottom: 3 },
+  messageSender: {
+    color: "#526174",
+    fontSize: 10,
+    fontWeight: "700",
+    marginBottom: 3,
+  },
   messageBody: { color: "#253149", fontSize: 12, lineHeight: 17 },
-  quickActions: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 },
-  quickAction: { borderWidth: 1, borderColor: "#b9ccef", borderRadius: 14, paddingHorizontal: 9, paddingVertical: 6 },
+  quickActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 8,
+  },
+  quickAction: {
+    borderWidth: 1,
+    borderColor: "#b9ccef",
+    borderRadius: 14,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+  },
   quickActionText: { color: "#2864e8", fontSize: 10 },
-  composer: { flexDirection: "row", alignItems: "flex-end", gap: 8, marginTop: 10 },
-  replyInput: { flex: 1, minHeight: 42, maxHeight: 80, borderWidth: 1, borderColor: "#d4e0f0", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, color: "#253149" },
-  sendButton: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", backgroundColor: "#2864e8" },
+  composer: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 8,
+    marginTop: 10,
+  },
+  replyInput: {
+    flex: 1,
+    minHeight: 42,
+    maxHeight: 80,
+    borderWidth: 1,
+    borderColor: "#d4e0f0",
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    color: "#253149",
+  },
+  sendButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#2864e8",
+  },
   modalActions: { flexDirection: "row", gap: 8, marginTop: 12 },
-  callButton: { flex: 1, borderWidth: 1, borderColor: "#b9ccef", borderRadius: 8, padding: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5 },
+  callButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: "#b9ccef",
+    borderRadius: 8,
+    padding: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+  },
   callText: { color: "#2864e8", fontSize: 11, fontWeight: "700" },
-  completeButton: { flex: 1, backgroundColor: "#173b36", borderRadius: 8, padding: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5 },
+  completeButton: {
+    flex: 1,
+    backgroundColor: "#173b36",
+    borderRadius: 8,
+    padding: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+  },
   completeText: { color: "#fff", fontSize: 11, fontWeight: "700" },
 });

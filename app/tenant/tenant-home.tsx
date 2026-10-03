@@ -1,14 +1,20 @@
+import { useAuth } from "@/lib/auth-context";
+import { MeterReadings } from "@/components/meter-readings";
+import { useTenantData } from "@/lib/use-tenant-data";
+import { useNotifications } from "@/lib/use-notifications";
+import { usePropertySettings } from "@/lib/use-property-settings";
+import { cycleDetails, peso, timestampMillis } from "@/lib/billing";
 import { TenantPageHeader } from "@/components/tenant-page-header";
 import { AssignedTenantNav } from "@/components/tenant-navigation";
-import { useAuth } from "@/lib/auth-context";
 import { db } from "@/lib/firebase";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
-import { Linking } from "react-native";
-import { doc, onSnapshot } from "firebase/firestore";
+import { router, useLocalSearchParams } from "expo-router";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
 import React from "react";
 import {
   Pressable,
+  Modal,
+  Linking,
   ScrollView,
   StyleSheet,
   Text,
@@ -18,24 +24,51 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function TenantHome() {
   const { user } = useAuth();
-  const [tenantRoom, setTenantRoom] = React.useState({
-    number: "",
-    type: "Room",
-    rent: "",
-  });
-
+  const { profile, payments, error, loading } = useTenantData();
+  const { settings, error: settingsError } = usePropertySettings();
+  const {
+    unreadCount,
+    announcements,
+    markRead,
+    error: announcementError,
+  } = useNotifications();
+  const { announcementId } = useLocalSearchParams<{
+    announcementId?: string;
+  }>();
+  const [openedAnnouncement, setOpenedAnnouncement] = React.useState<
+    string | null
+  >(null);
+  const [showAllAnnouncements, setShowAllAnnouncements] = React.useState(false);
+  const selectedAnnouncement = announcements.find(
+    (notice) => notice.id === (openedAnnouncement || announcementId),
+  );
+  function closeAnnouncement() {
+    setOpenedAnnouncement(null);
+    if (announcementId) router.setParams({ announcementId: "" });
+  }
+  const [pending, setPending] = React.useState(0);
+  const [requestError, setRequestError] = React.useState("");
+  const cycle = cycleDetails(profile, payments);
+  const tenantRoom = {
+    number: String(profile.roomNumber || ""),
+    type: String(profile.roomType || "Room"),
+  };
   React.useEffect(() => {
     if (!db || !user) return;
-    return onSnapshot(doc(db, "users", user.uid), (snapshot) => {
-      const data = snapshot.data() || {};
-      setTenantRoom({
-        number: String(data.roomNumber || data.roomId || ""),
-        type: String(data.roomType || "Room"),
-        rent: String(data.roomRent || ""),
-      });
-    });
+    return onSnapshot(
+      query(
+        collection(db, "maintenanceRequests"),
+        where("tenantId", "==", user.uid),
+      ),
+      (snapshot) =>
+        setPending(
+          snapshot.docs.filter(
+            (d) => !["completed", "cancelled"].includes(d.data().status),
+          ).length,
+        ),
+      () => setRequestError("Unable to load maintenance count."),
+    );
   }, [user]);
-
   const roomLabel = tenantRoom.number
     ? `Room ${tenantRoom.number} - ${tenantRoom.type}`
     : "No room assigned";
@@ -43,43 +76,53 @@ export default function TenantHome() {
     <SafeAreaView style={styles.page}>
       <TenantPageHeader title="Home" backHref="/tenant/account" />
       <ScrollView contentContainerStyle={styles.content}>
+        {!!(error || requestError || settingsError || announcementError) && (
+          <Text accessibilityRole="alert">
+            {error || requestError || settingsError || announcementError}
+          </Text>
+        )}
         <View style={styles.due}>
           <View>
             <Text style={styles.dueLabel}>· Rent Due</Text>
-            <Text style={styles.amount}>₱3,500.00</Text>
+            <Text style={styles.amount}>
+              {loading || error ? "—" : peso(cycle.balance)}
+            </Text>
             <Text style={styles.muted}>
-              Period: October 2026 ·{" "}
-              <Text style={styles.bold}>Includes basic Wi-Fi</Text>
+              Period: {cycle.period} · Approved payments: {peso(cycle.paid)}
             </Text>
           </View>
-          <Text style={styles.dueBadge}>DUE OCT 5</Text>
+          <Text style={styles.dueBadge}>
+            DUE {cycle.due.toLocaleDateString("en-PH")}
+          </Text>
         </View>
         <View style={styles.roomCard}>
           <View style={styles.roomTop}>
             <View>
               <Text style={styles.cardLabel}>YOUR ROOM</Text>
               <Text style={styles.roomTitle}>{roomLabel}</Text>
-              <Text style={styles.muted}>
-                BoardEase Boarding House · 2nd Floor
-              </Text>
+              <Text style={styles.muted}>BoardEase Boarding House</Text>
             </View>
             <Text style={styles.lease}>● Active Lease</Text>
           </View>
           <View style={styles.roomDetails}>
             <View>
               <Text style={styles.cardLabel}>ASSIGNED SPACE</Text>
-              <Text style={styles.detail}>Bed A (Window Side)</Text>
+              <Text style={styles.detail}>
+                {String(profile.assignedSpace || "Not specified")}
+              </Text>
             </View>
             <View>
               <Text style={styles.cardLabel}>ROOMMATE</Text>
-              <Text style={styles.detail}>Ana Reyes (Bed B)</Text>
+              <Text style={styles.detail}>
+                {String(profile.roommateName || "Not specified")}
+              </Text>
             </View>
           </View>
         </View>
         <View style={styles.actions}>
           {[
-            ["construct-outline", "Maintenance", "1 Pending"],
-            ["notifications-outline", "Notifications", "2 New"],
+            ["construct-outline", "Maintenance", `${pending} Pending`],
+            ["notifications-outline", "Notifications", `${unreadCount} New`],
             ["person-outline", "Profile", "Tenant Info"],
           ].map(([icon, label, sub]) => (
             <Pressable
@@ -87,8 +130,10 @@ export default function TenantHome() {
               key={label}
               onPress={() => {
                 if (label === "Profile") router.push("/tenant/account" as any);
-                if (label === "Maintenance") router.push("/tenant/applications" as any);
-                if (label === "Notifications") router.push("/tenant/applications" as any);
+                if (label === "Maintenance")
+                  router.push("/tenant/applications" as any);
+                if (label === "Notifications")
+                  router.push("/tenant/notifications" as any);
               }}
             >
               <Ionicons
@@ -101,35 +146,129 @@ export default function TenantHome() {
             </Pressable>
           ))}
         </View>
-        <View style={styles.reading}>
+        <MeterReadings
+          key={String(profile.roomId || "")}
+          roomId={profile.hasRoom ? String(profile.roomId || "") : ""}
+          roomNumber={String(profile.roomNumber || "")}
+        />
+        <View style={styles.bulletin}>
           <View style={styles.sectionRow}>
-            <Text style={styles.sectionTitle}>⚡ Submeter Readings</Text>
-            <Text style={styles.history}>History</Text>
+            <Text style={styles.sectionTitle}>Recent Announcements</Text>
+            {announcements.length > 3 && (
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setShowAllAnnouncements((value) => !value)}
+                style={{ minHeight: 44, justifyContent: "center" }}
+              >
+                <Text style={styles.history}>
+                  {showAllAnnouncements ? "Show recent" : "View all"}
+                </Text>
+              </Pressable>
+            )}
           </View>
-          <View style={styles.readingRow}>
-            <Reading label="Electricity" value="142 kWh" />
-            <Reading label="Water" value="4.2 m³" />
-          </View>
+          {!announcements.length && (
+            <Text style={styles.muted}>
+              {announcementError
+                ? "Announcements could not load."
+                : "No announcements published yet."}
+            </Text>
+          )}
+          {announcements
+            .slice(0, showAllAnnouncements ? undefined : 3)
+            .map((notice) => (
+              <Pressable
+                key={notice.id}
+                accessibilityRole="button"
+                accessibilityLabel={`Read announcement: ${notice.title}`}
+                style={styles.announcementCard}
+                onPress={() => {
+                  setOpenedAnnouncement(notice.id);
+                  void markRead(notice);
+                }}
+              >
+                <View style={styles.sectionRow}>
+                  <Text style={[styles.sectionTitle, { flex: 1 }]}>
+                    {notice.title}
+                  </Text>
+                  {!notice.read && <Text style={styles.newBadge}>NEW</Text>}
+                </View>
+                <Text style={styles.muted}>
+                  {timestampMillis(notice.createdAt)
+                    ? new Date(
+                        timestampMillis(notice.createdAt),
+                      ).toLocaleString("en-PH")
+                    : "Just posted"}
+                </Text>
+                <Text style={styles.announcementBody} numberOfLines={3}>
+                  {notice.body}
+                </Text>
+                <Text style={styles.history}>Read announcement ›</Text>
+              </Pressable>
+            ))}
         </View>
         <View style={styles.bulletin}>
           <Text style={styles.sectionTitle}>📣 BoardEase Bulletin</Text>
           <Text style={styles.bulletinText}>
-            Monthly General Cleaning & Inspection
-          </Text>
-          <Text style={styles.muted}>
-            Saturday, 9:00 AM · 12:00 PM. Common kitchen and 2nd floor balcony
-            areas will be sanitized.
+            {String(settings.bulletin || "No bulletin published yet.")}
           </Text>
         </View>
       </ScrollView>
+      <Modal
+        visible={!!selectedAnnouncement}
+        transparent
+        animationType="fade"
+        onRequestClose={closeAnnouncement}
+      >
+        <View style={styles.announcementBackdrop}>
+          <View style={styles.announcementDialog}>
+            <ScrollView>
+              <View style={styles.sectionRow}>
+                <Text style={[styles.sectionTitle, { flex: 1 }]}>
+                  Announcement
+                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Close announcement"
+                  onPress={closeAnnouncement}
+                  style={{
+                    minHeight: 44,
+                    minWidth: 44,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Ionicons name="close" size={24} color="#536783" />
+                </Pressable>
+              </View>
+              <Text style={styles.announcementTitle}>
+                {selectedAnnouncement?.title}
+              </Text>
+              <Text style={styles.muted}>
+                {timestampMillis(selectedAnnouncement?.createdAt)
+                  ? new Date(
+                      timestampMillis(selectedAnnouncement?.createdAt),
+                    ).toLocaleString("en-PH")
+                  : "Just posted"}
+              </Text>
+              <Text selectable style={styles.announcementBody}>
+                {selectedAnnouncement?.body}
+              </Text>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
       <View style={styles.bottomBar}>
         <Text style={styles.bottomText}>
-          Kuya Bert ·{" "}
-          {tenantRoom.number ? `Room ${tenantRoom.number}` : "No room"}
+          {String(settings.caretakerName || "Caretaker")}
         </Text>
         <Pressable
           style={styles.call}
-          onPress={() => void Linking.openURL("tel:+639175548921")}
+          disabled={!settings.caretakerPhone}
+          onPress={() =>
+            void Linking.openURL(
+              `tel:${String(settings.caretakerPhone || "").replace(/[^+0-9]/g, "")}`,
+            ).catch(() => setRequestError("This device cannot place a call."))
+          }
         >
           <Ionicons name="call" size={13} color="#fff" />
           <Text style={styles.callText}>Call</Text>
@@ -139,16 +278,52 @@ export default function TenantHome() {
     </SafeAreaView>
   );
 }
-function Reading({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={styles.readingBox}>
-      <Text style={styles.muted}>{label}</Text>
-      <Text style={styles.readingValue}>{value}</Text>
-      <View style={styles.progress} />
-    </View>
-  );
-}
 const styles = StyleSheet.create({
+  announcementCard: {
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "#dce6fa",
+    borderRadius: 12,
+    backgroundColor: "#f8faff",
+    gap: 8,
+    marginTop: 12,
+  },
+  newBadge: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#2864e8",
+    backgroundColor: "#e8efff",
+    padding: 5,
+    borderRadius: 5,
+    alignSelf: "flex-start",
+  },
+  announcementBody: {
+    fontSize: 14,
+    lineHeight: 23,
+    color: "#253149",
+    marginVertical: 8,
+  },
+  announcementTitle: {
+    fontSize: 21,
+    fontWeight: "700",
+    color: "#172033",
+    marginVertical: 12,
+  },
+  announcementBackdrop: {
+    flex: 1,
+    backgroundColor: "#0006",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  announcementDialog: {
+    width: "100%",
+    maxWidth: 560,
+    maxHeight: "85%",
+    padding: 20,
+    borderRadius: 16,
+    backgroundColor: "#fff",
+  },
   page: { flex: 1, backgroundColor: "#f3f7fd" },
   header: {
     backgroundColor: "#2864e8",
@@ -164,7 +339,12 @@ const styles = StyleSheet.create({
     elevation: 7,
     zIndex: 1,
   },
-  kicker: { fontSize: 11, color: "#d9e5ff", fontWeight: "700", letterSpacing: 1.4 },
+  kicker: {
+    fontSize: 11,
+    color: "#d9e5ff",
+    fontWeight: "700",
+    letterSpacing: 1.4,
+  },
   headerBrand: { flexDirection: "row", alignItems: "center", gap: 11 },
   headerCopy: { flex: 1 },
   headerRow: {

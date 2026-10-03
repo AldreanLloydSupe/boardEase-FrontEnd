@@ -1,3 +1,8 @@
+import { cycleDetails, peso, timestampMillis } from "@/lib/billing";
+import { createNotification } from "@/lib/notification-data";
+import { AppAlert as Alert } from "@/components/app-alert";
+import { AnnouncementComposer } from "@/components/announcement-composer";
+import { useMaintenanceInbox } from "@/lib/use-maintenance-inbox";
 import { LandlordNavigation } from "@/components/landlord-navigation";
 import { ProfilePictureButton } from "@/components/profile-picture-button";
 import { useAuth } from "@/lib/auth-context";
@@ -7,6 +12,8 @@ import { router } from "expo-router";
 import {
   addDoc,
   collection,
+  doc,
+  setDoc,
   getDocs,
   onSnapshot,
   query,
@@ -15,8 +22,8 @@ import {
 } from "firebase/firestore";
 import React from "react";
 import {
-  Alert,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -53,7 +60,6 @@ const stats = [
     icon: "cash-outline" as const,
   },
 ];
-const dues: string[][] = [];
 
 type PaymentStatRecord = {
   id: string;
@@ -113,19 +119,7 @@ function firestoreDate(value: unknown, endOfDay = false): Date | null {
 }
 
 function revenueDate(payment: PaymentStatRecord) {
-  return (
-    firestoreDate(payment.dateSent) ??
-    firestoreDate(payment.createdAt)
-  );
-}
-
-function dueDate(payment: PaymentStatRecord) {
-  return (
-    firestoreDate(payment.dueDate, true) ??
-    firestoreDate(payment.dueAt, true) ??
-    firestoreDate(payment.dueDateTime, true) ??
-    firestoreDate(payment.paymentDueDate, true)
-  );
+  return firestoreDate(payment.dateSent) ?? firestoreDate(payment.createdAt);
 }
 
 function formatPeso(amount: number) {
@@ -144,6 +138,7 @@ type DashboardNotification = {
   status?: string;
   title?: string;
   details?: string;
+  createdAt?: unknown;
 };
 type MessageRecipient = {
   id: string;
@@ -153,18 +148,87 @@ type MessageRecipient = {
 };
 
 export default function Dashboard() {
-  const { user, signOut, updateUserProfile } = useAuth();
+  const { user, displayName, signOut, updateUserProfile } = useAuth();
   const [profileOpen, setProfileOpen] = React.useState(false);
   const [notificationsOpen, setNotificationsOpen] = React.useState(false);
   const [messageOpen, setMessageOpen] = React.useState(false);
+  const [announcementOpen, setAnnouncementOpen] = React.useState(false);
   const [editProfileOpen, setEditProfileOpen] = React.useState(false);
+  const [recipientSearch, setRecipientSearch] = React.useState("");
+  const [sentMessages, setSentMessages] = React.useState<
+    {
+      id: string;
+      title?: string;
+      kind?: string;
+      body: string;
+      recipientIds: string[];
+      createdAt?: unknown;
+    }[]
+  >([]);
+  const [sentError, setSentError] = React.useState("");
+  const [sentLoading, setSentLoading] = React.useState(true);
+  React.useEffect(() => {
+    if (!db || !user) return;
+    return onSnapshot(
+      query(collection(db, "messages"), where("senderId", "==", user.uid)),
+      (snapshot) => {
+        setSentMessages(
+          snapshot.docs
+            .map(
+              (item) =>
+                ({ id: item.id, ...item.data() }) as {
+                  id: string;
+                  title?: string;
+                  kind?: string;
+                  body: string;
+                  recipientIds: string[];
+                  createdAt?: unknown;
+                },
+            )
+            .sort(
+              (a, b) =>
+                timestampMillis(b.createdAt) - timestampMillis(a.createdAt),
+            ),
+        );
+        setSentError("");
+        setSentLoading(false);
+      },
+      (cause) => {
+        setSentError("Unable to load sent messages (" + cause.code + ").");
+        setSentLoading(false);
+      },
+    );
+  }, [user]);
   const [messageText, setMessageText] = React.useState("");
-  const [messageAudience, setMessageAudience] = React.useState<"all" | "selected">("all");
-  const [messageRecipients, setMessageRecipients] = React.useState<MessageRecipient[]>([]);
-  const [selectedRecipientIds, setSelectedRecipientIds] = React.useState<string[]>([]);
+  const [messageAudience, setMessageAudience] = React.useState<
+    "all" | "selected"
+  >("all");
+  const [messageRecipients, setMessageRecipients] = React.useState<
+    MessageRecipient[]
+  >([]);
+  const [selectedRecipientIds, setSelectedRecipientIds] = React.useState<
+    string[]
+  >([]);
   const [loadingRecipients, setLoadingRecipients] = React.useState(false);
   const [sendingMessage, setSendingMessage] = React.useState(false);
-  const [profileName, setProfileName] = React.useState(user?.displayName || "");
+  const matchingRecipients = messageRecipients.filter((recipient) =>
+    [recipient.name, recipient.email, recipient.room]
+      .join(" ")
+      .toLowerCase()
+      .includes(recipientSearch.trim().toLowerCase()),
+  );
+  const recipientCount =
+    messageAudience === "all"
+      ? messageRecipients.length
+      : selectedRecipientIds.filter((id) =>
+          messageRecipients.some((r) => r.id === id),
+        ).length;
+  const sendDisabled =
+    sendingMessage ||
+    loadingRecipients ||
+    !messageText.trim() ||
+    recipientCount === 0;
+  const [profileName, setProfileName] = React.useState(displayName || "");
   const [profilePhone, setProfilePhone] = React.useState("");
   const [applicationNotifications, setApplicationNotifications] =
     React.useState<DashboardNotification[]>([]);
@@ -173,17 +237,108 @@ export default function Dashboard() {
   >([]);
   const [maintenanceNotifications, setMaintenanceNotifications] =
     React.useState<DashboardNotification[]>([]);
-  const [tenantReplyCounts, setTenantReplyCounts] = React.useState<Record<string, number>>({});
+  const {
+    requests: inboxRequests,
+    unreadCount: tenantReplyCount,
+    error: inboxError,
+  } = useMaintenanceInbox();
   const [occupiedRooms, setOccupiedRooms] = React.useState(0);
   const [totalRooms, setTotalRooms] = React.useState(0);
   const [monthlyRevenue, setMonthlyRevenue] = React.useState(0);
-  const [overdueTenantCount, setOverdueTenantCount] = React.useState(0);
+  const [pendingPayments, setPendingPayments] = React.useState<
+    Record<string, unknown>[]
+  >([]);
+  const [accountRequestCount, setAccountRequestCount] = React.useState(0);
+  const [billingProfiles, setBillingProfiles] = React.useState<
+    (Record<string, unknown> & { id: string })[]
+  >([]);
+  const [billingPayments, setBillingPayments] = React.useState<
+    Record<string, unknown>[]
+  >([]);
+  const [dataError, setDataError] = React.useState("");
+  const dues = billingProfiles
+    .filter((p) => p.hasRoom)
+    .map((profile) => {
+      const cycle = cycleDetails(
+        profile,
+        billingPayments.filter((p) => p.tenantId === profile.id),
+      );
+      return {
+        id: profile.id,
+        name: String(profile.name || "Tenant"),
+        amount: cycle.balance,
+        overdue:
+          cycle.balance > 0 &&
+          cycle.daysUntilDue < 0 &&
+          (!profile.leaseStartedAt ||
+            timestampMillis(profile.leaseStartedAt) <= cycle.due.getTime()),
+      };
+    })
+    .filter((d) => d.overdue);
+  const overdueTenantCount = dues.length;
+  const [maintenanceReads, setMaintenanceReads] = React.useState<Set<string>>(
+    new Set(),
+  );
+  const [notificationError, setNotificationError] = React.useState("");
+  React.useEffect(() => {
+    if (!db || !user) return;
+    return onSnapshot(
+      collection(db, "users", user.uid, "notificationReads"),
+      (snapshot) => {
+        setMaintenanceReads(new Set(snapshot.docs.map((item) => item.id)));
+        setNotificationError("");
+      },
+      (cause) =>
+        setNotificationError(
+          "Unable to load notification read status (" + cause.code + ").",
+        ),
+    );
+  }, [user]);
+  const maintenanceUnreadCount = maintenanceNotifications.filter(
+    (item) => !maintenanceReads.has("maintenance__" + item.id),
+  ).length;
+  const sortedMaintenance = [...maintenanceNotifications].sort(
+    (a, b) =>
+      Number(maintenanceReads.has("maintenance__" + a.id)) -
+        Number(maintenanceReads.has("maintenance__" + b.id)) ||
+      timestampMillis(b.createdAt) - timestampMillis(a.createdAt),
+  );
+  function openMaintenance(id?: string) {
+    setNotificationsOpen(false);
+    if (db && user && id)
+      void setDoc(
+        doc(db, "users", user.uid, "notificationReads", "maintenance__" + id),
+        { readAt: serverTimestamp() },
+      ).catch(() =>
+        setNotificationError(
+          "Request opened, but notification read status could not be saved.",
+        ),
+      );
+    router.push(
+      id
+        ? { pathname: "/landlord/requests", params: { requestId: id } }
+        : "/landlord/requests",
+    );
+  }
   const notificationCount =
     applicationNotifications.length +
     tourNotifications.length +
-    maintenanceNotifications.length;
+    maintenanceUnreadCount +
+    tenantReplyCount +
+    pendingPayments.length +
+    accountRequestCount;
   React.useEffect(() => {
     if (!db) return;
+    const stopPaymentQueue = onSnapshot(
+      query(collection(db, "payments"), where("status", "==", "pending")),
+      (snapshot) => setPendingPayments(snapshot.docs.map((d) => d.data())),
+      () => setDataError("Unable to load payment proofs."),
+    );
+    const stopAccountQueue = onSnapshot(
+      collection(db, "accountRequests"),
+      (snapshot) => setAccountRequestCount(snapshot.size),
+      () => setDataError("Unable to load account requests."),
+    );
     const stopApplications = onSnapshot(
       collection(db, "applications"),
       (snapshot) => {
@@ -195,7 +350,7 @@ export default function Dashboard() {
           records.filter((item) => !item.status || item.status === "pending"),
         );
       },
-      () => setApplicationNotifications([]),
+      () => setDataError("Unable to load applications."),
     );
     const stopTours = onSnapshot(
       collection(db, "tourRequests"),
@@ -208,7 +363,7 @@ export default function Dashboard() {
           records.filter((item) => !item.status || item.status === "pending"),
         );
       },
-      () => setTourNotifications([]),
+      () => setDataError("Unable to load tours."),
     );
     const stopMaintenance = onSnapshot(
       collection(db, "maintenanceRequests"),
@@ -218,18 +373,22 @@ export default function Dashboard() {
           ...item.data(),
         })) as DashboardNotification[];
         setMaintenanceNotifications(
-          records.filter((item) => item.status !== "completed"),
+          records.filter(
+            (item) =>
+              item.status !== "completed" && item.status !== "cancelled",
+          ),
         );
       },
-      () => setMaintenanceNotifications([]),
+      () => setDataError("Unable to load maintenance requests."),
     );
     const stopRooms = onSnapshot(
       collection(db, "rooms"),
       (snapshot) => {
         const records = snapshot.docs.map((room) => room.data());
-        const occupiedCount = records.filter((room) =>
-          room.isOccupied === true ||
-          String(room.status ?? "").toLowerCase() === "occupied",
+        const occupiedCount = records.filter(
+          (room) =>
+            room.isOccupied === true ||
+            String(room.status ?? "").toLowerCase() === "occupied",
         ).length;
         setTotalRooms(records.length);
         setOccupiedRooms(occupiedCount);
@@ -253,49 +412,33 @@ export default function Dashboard() {
     const stopApprovedPayments = onSnapshot(
       query(collection(db, "payments"), where("status", "==", "approved")),
       (snapshot) => {
+        setBillingPayments(snapshot.docs.map((d) => d.data()));
         const currentMonthTotal = snapshot.docs.reduce((total, paymentDoc) => {
           const payment = {
             id: paymentDoc.id,
             ...paymentDoc.data(),
           } as PaymentStatRecord;
           const paidAt = revenueDate(payment);
-          if (
-            !paidAt ||
-            paidAt < monthStart ||
-            paidAt >= nextMonthStart
-          ) {
+          if (!paidAt || paidAt < monthStart || paidAt >= nextMonthStart) {
             return total;
           }
           return total + paymentAmount(payment.amount);
         }, 0);
         setMonthlyRevenue(currentMonthTotal);
       },
-      () => setMonthlyRevenue(0),
+      () => setDataError("Unable to load payments."),
     );
     const stopOverduePayments = onSnapshot(
-      query(
-        collection(db, "payments"),
-        where("status", "in", ["overdue", "unpaid"]),
-      ),
-      (snapshot) => {
-        const now = Date.now();
-        const overdueTenantIds = new Set(
-          snapshot.docs
-            .map((paymentDoc) => ({
-              id: paymentDoc.id,
-              ...paymentDoc.data(),
-            }) as PaymentStatRecord)
-            .filter((payment) => {
-              const due = dueDate(payment);
-              return due !== null && due.getTime() < now;
-            })
-            .map((payment) => payment.tenantId || payment.tenantName || payment.id),
-        );
-        setOverdueTenantCount(overdueTenantIds.size);
-      },
-      () => setOverdueTenantCount(0),
+      collection(db, "users"),
+      (snapshot) =>
+        setBillingProfiles(
+          snapshot.docs.map((d) => ({ ...d.data(), id: d.id })),
+        ),
+      () => setDataError("Unable to load tenant balances."),
     );
     return () => {
+      stopPaymentQueue();
+      stopAccountQueue();
       stopApplications();
       stopTours();
       stopMaintenance();
@@ -304,23 +447,6 @@ export default function Dashboard() {
       stopOverduePayments();
     };
   }, []);
-  React.useEffect(() => {
-    const firestore = db;
-    if (!firestore) return;
-    const nextCounts: Record<string, number> = {};
-    const stops = maintenanceNotifications.map((request) =>
-      onSnapshot(
-        collection(firestore, "maintenanceRequests", request.id, "messages"),
-        (snapshot) => {
-          nextCounts[request.id] = snapshot.docs.filter((item) => item.data().senderId !== "landlord").length;
-          setTenantReplyCounts({ ...nextCounts });
-        },
-        () => undefined,
-      ),
-    );
-    return () => stops.forEach((stop) => stop());
-  }, [maintenanceNotifications]);
-  const tenantReplyCount = Object.values(tenantReplyCounts).reduce((sum, count) => sum + count, 0);
   const occupancyPercent = totalRooms
     ? Math.round((occupiedRooms / totalRooms) * 100)
     : 0;
@@ -346,6 +472,8 @@ export default function Dashboard() {
     }
   }
   async function openMessageComposer() {
+    setRecipientSearch("");
+    setMessageRecipients([]);
     setMessageOpen(true);
     setLoadingRecipients(true);
     setMessageText("");
@@ -359,7 +487,9 @@ export default function Dashboard() {
           const data = item.data();
           return {
             id: item.id,
-            name: String(data.name || data.displayName || data.email || "Tenant"),
+            name: String(
+              data.name || data.displayName || data.email || "Tenant",
+            ),
             email: String(data.email || ""),
             room: String(data.roomNumber || data.roomId || "Room not assigned"),
             isTenant:
@@ -371,7 +501,10 @@ export default function Dashboard() {
         .map(({ id, name, email, room }) => ({ id, name, email, room }));
       setMessageRecipients(recipients);
     } catch {
-      Alert.alert("Unable to load tenants", "Check your connection and try again.");
+      Alert.alert(
+        "Unable to load tenants",
+        "Check your connection and try again.",
+      );
     } finally {
       setLoadingRecipients(false);
     }
@@ -393,17 +526,26 @@ export default function Dashboard() {
     const recipientIds =
       messageAudience === "all"
         ? messageRecipients.map((recipient) => recipient.id)
-        : selectedRecipientIds;
-    if (!body) {
-      Alert.alert("Message required", "Write a message before sending.");
+        : selectedRecipientIds.filter((id) =>
+            messageRecipients.some((r) => r.id === id),
+          );
+    if (sendingMessage || loadingRecipients) return;
+    if (!body || body.length > 2000) {
+      Alert.alert("Message required", "Write a message of 1–2,000 characters.");
       return;
     }
     if (recipientIds.length === 0) {
-      Alert.alert("Choose recipients", "Select at least one tenant to message.");
+      Alert.alert(
+        "Choose recipients",
+        "Select at least one tenant to message.",
+      );
       return;
     }
     if (!db || !user) {
-      Alert.alert("Unable to send", "Sign in again and try sending the message.");
+      Alert.alert(
+        "Unable to send",
+        "Sign in again and try sending the message.",
+      );
       return;
     }
     setSendingMessage(true);
@@ -413,7 +555,7 @@ export default function Dashboard() {
         audience: messageAudience,
         recipientIds,
         senderId: user.uid,
-        senderName: user.displayName || user.email || "Landlord",
+        senderName: displayName || user.email || "Landlord",
         createdAt: serverTimestamp(),
       });
       closeMessageComposer();
@@ -446,7 +588,13 @@ export default function Dashboard() {
             accessibilityLabel="Open notifications"
           >
             <Ionicons name="notifications-outline" size={20} color="#fff" />
-            {notificationCount > 0 && <View style={styles.dot} />}
+            {notificationCount > 0 && (
+              <View style={styles.notificationBadge}>
+                <Text style={styles.notificationBadgeText}>
+                  {notificationCount > 99 ? "99+" : notificationCount}
+                </Text>
+              </View>
+            )}
           </Pressable>
           <Pressable
             onPress={openMessageComposer}
@@ -460,7 +608,7 @@ export default function Dashboard() {
             accessibilityLabel="Open profile menu"
           >
             <ProfilePictureButton
-              fallback={(user?.displayName || "CV").slice(0, 2).toUpperCase()}
+              fallback={(displayName || "CV").slice(0, 2).toUpperCase()}
               size={34}
               interactive={false}
             />
@@ -471,6 +619,17 @@ export default function Dashboard() {
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
       >
+        {!!dataError && <Text accessibilityRole="alert">{dataError}</Text>}
+        {!!accountRequestCount && (
+          <Pressable
+            style={styles.emptyNotice}
+            onPress={() => router.push("/landlord/tenants")}
+          >
+            <Text>
+              {accountRequestCount} account or move-out requests to review
+            </Text>
+          </Pressable>
+        )}
         <View style={styles.grid}>
           {stats.map((stat) => (
             <View key={stat.label} style={styles.stat}>
@@ -484,7 +643,12 @@ export default function Dashboard() {
                         ? overdueTenantCount
                         : formatPeso(monthlyRevenue)}
                 </Text>
-                <View style={[styles.statIcon, { backgroundColor: stat.iconBackground }]}>
+                <View
+                  style={[
+                    styles.statIcon,
+                    { backgroundColor: stat.iconBackground },
+                  ]}
+                >
                   <Ionicons name={stat.icon} size={20} color={stat.color} />
                 </View>
               </View>
@@ -505,6 +669,30 @@ export default function Dashboard() {
             </View>
           ))}
         </View>
+        <Pressable
+          style={styles.maintenanceShortcut}
+          onPress={() => openMaintenance()}
+          accessibilityRole="button"
+          accessibilityLabel="Open Maintenance Requests"
+        >
+          <View style={styles.quickIcon}>
+            <Ionicons name="construct-outline" size={24} color="#2864e8" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.name}>Maintenance Requests</Text>
+            <Text style={styles.detail}>
+              {maintenanceNotifications.length} active ·{" "}
+              {maintenanceUnreadCount} new requests
+            </Text>
+            <Text style={styles.emptySubtext}>
+              Review issues, reply, and update repair status.
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={22} color="#2864e8" />
+        </Pressable>
+        {!!notificationError && (
+          <Text accessibilityRole="alert">{notificationError}</Text>
+        )}
         <SectionTitle
           title="Pending Applications"
           action="See all"
@@ -513,11 +701,19 @@ export default function Dashboard() {
         {applicationNotifications.length === 0 && (
           <View style={styles.emptyNotice}>
             <View style={styles.emptyIcon}>
-              <Ionicons name="document-text-outline" size={19} color="#2864e8" />
+              <Ionicons
+                name="document-text-outline"
+                size={19}
+                color="#2864e8"
+              />
             </View>
             <View style={styles.emptyCopy}>
-              <Text style={styles.emptyNoticeText}>No tenant applications yet</Text>
-              <Text style={styles.emptySubtext}>New applications will appear here.</Text>
+              <Text style={styles.emptyNoticeText}>
+                No tenant applications yet
+              </Text>
+              <Text style={styles.emptySubtext}>
+                New applications will appear here.
+              </Text>
             </View>
           </View>
         )}
@@ -534,9 +730,10 @@ export default function Dashboard() {
                     {application.tenantName || "Tenant"}
                   </Text>
                   <Text style={styles.detail}>
-                    Applied for Room {application.roomNumber || "requested room"}
+                    Applied for Room{" "}
+                    {application.roomNumber || "requested room"}
                   </Text>
-                  <Text style={styles.type}>{type} · Oct 24</Text>
+                  <Text style={styles.type}>{type}</Text>
                 </View>
               </View>
               <Pressable
@@ -563,7 +760,23 @@ export default function Dashboard() {
             ["cash-outline", "Log Rent"],
             ["megaphone-outline", "Post Notice"],
           ].map(([icon, label]) => (
-            <Pressable key={label} style={styles.quick}>
+            <Pressable
+              key={label}
+              style={styles.quick}
+              onPress={() => {
+                if (label === "Post Notice") {
+                  setAnnouncementOpen(true);
+                  return;
+                }
+                router.push(
+                  label === "Assign Room"
+                    ? "/landlord/pending-applications"
+                    : label === "Log Rent"
+                      ? "/landlord/finance"
+                      : ("/landlord/property-settings" as any),
+                );
+              }}
+            >
               <View style={styles.quickIcon}>
                 <Ionicons
                   name={icon as keyof typeof Ionicons.glyphMap}
@@ -575,52 +788,110 @@ export default function Dashboard() {
             </Pressable>
           ))}
         </View>
+        <SectionTitle title="Sent messages & announcements" action="" />
+        {sentError ? (
+          <Text accessibilityRole="alert">{sentError}</Text>
+        ) : sentLoading ? (
+          <Text>Loading sent messages...</Text>
+        ) : sentMessages.length === 0 ? (
+          <Text style={styles.emptySubtext}>No announcements sent yet.</Text>
+        ) : (
+          sentMessages.slice(0, 10).map((message) => (
+            <View key={message.id} style={styles.replySummary}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.name}>{message.title || message.body}</Text>
+                {!!message.title && (
+                  <Text style={styles.emptySubtext}>{message.body}</Text>
+                )}
+                <Text style={styles.emptySubtext}>
+                  {message.recipientIds?.length || 0} recipients ·{" "}
+                  {timestampMillis(message.createdAt)
+                    ? new Date(
+                        timestampMillis(message.createdAt),
+                      ).toLocaleString()
+                    : "Sending..."}
+                </Text>
+              </View>
+            </View>
+          ))
+        )}
         <SectionTitle
-          title={`Tenant Replies${tenantReplyCount ? ` (${tenantReplyCount})` : ""}`}
-          action="Open requests"
-          onPress={() => router.push("/landlord/requests" as any)}
+          title={`Messages${tenantReplyCount ? ` (${tenantReplyCount})` : ""}`}
+          action="Open inbox"
+          onPress={() => router.push("/landlord/messages" as any)}
         />
-        <Pressable style={styles.replySummary} onPress={() => router.push("/landlord/requests" as any)}>
+        <Pressable
+          style={styles.replySummary}
+          onPress={() => router.push("/landlord/messages" as any)}
+        >
           <View style={styles.emptyIcon}>
             <Ionicons name="chatbubbles-outline" size={19} color="#2864e8" />
           </View>
           <View style={styles.emptyCopy}>
             <Text style={styles.emptyNoticeText}>
-              {tenantReplyCount ? `${tenantReplyCount} message${tenantReplyCount === 1 ? "" : "s"} in maintenance requests` : "No new tenant replies"}
+              {tenantReplyCount
+                ? `${tenantReplyCount} message${tenantReplyCount === 1 ? "" : "s"} in maintenance requests`
+                : inboxError
+                  ? "Unread counts unavailable for some requests"
+                  : inboxRequests.some((r) => !r.unreadAvailable)
+                    ? "Loading unread counts..."
+                    : "No new tenant replies"}
             </Text>
-            <Text style={styles.emptySubtext}>Open a request to reply to the tenant.</Text>
+            <Text style={styles.emptySubtext}>
+              Open Messages to read and reply to your tenants.
+            </Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color="#71809a" />
         </Pressable>
         <SectionTitle
-          title="Immediate Action · Overdue (0)"
-          action="Total ₱0"
+          title={`Immediate Action · Overdue (${dues.length})`}
+          action={`Total ${peso(dues.reduce((sum, d) => sum + d.amount, 0))}`}
         />
         <View style={styles.overdue}>
           {dues.length === 0 && (
             <View style={styles.emptyOverdue}>
               <View style={styles.overdueIcon}>
-                <Ionicons name="checkmark-circle-outline" size={20} color="#079268" />
+                <Ionicons
+                  name="checkmark-circle-outline"
+                  size={20}
+                  color="#079268"
+                />
               </View>
               <View>
                 <Text style={styles.overdueTitle}>All caught up</Text>
-                <Text style={styles.emptySubtext}>No overdue payments to follow up.</Text>
+                <Text style={styles.emptySubtext}>
+                  No overdue payments to follow up.
+                </Text>
               </View>
             </View>
           )}
-          {dues.map(([name, amount]) => (
-            <View style={styles.due} key={name}>
+          {dues.map(({ id, name, amount }) => (
+            <View style={styles.due} key={id}>
               <View>
                 <Text style={styles.name}>{name}</Text>
-                <Text style={styles.late}>{amount}</Text>
+                <Text style={styles.late}>{peso(amount)}</Text>
               </View>
               <Pressable
                 style={styles.remind}
                 onPress={() =>
-                  Alert.alert(
-                    "Reminder sent",
-                    `A payment reminder was sent to ${name}.`,
-                  )
+                  void createNotification(id, {
+                    type: "rent_reminder",
+                    title: "Payment reminder",
+                    body: `You have ${peso(amount)} outstanding for the current billing period. Please review Payments.`,
+                    route: "/tenant/payments",
+                  })
+                    .then(() =>
+                      Alert.alert(
+                        "Reminder saved",
+                        "Eligible tenants will see the reminder in the app.",
+                      ),
+                    )
+                    .catch(() =>
+                      Alert.alert(
+                        "Could not send reminder",
+                        "Please try again.",
+                      ),
+                    )
                 }
               >
                 <Text style={styles.remindText}>Remind</Text>
@@ -650,7 +921,8 @@ export default function Dashboard() {
                 <Ionicons name="close" size={21} color="#536783" />
               </Pressable>
             </View>
-            {notificationCount === 0 ? (
+            {notificationCount === 0 &&
+            maintenanceNotifications.length === 0 ? (
               <Text style={styles.emptyNoticeText}>
                 No applications, tour requests, or maintenance requests yet.
               </Text>
@@ -725,14 +997,68 @@ export default function Dashboard() {
                     />
                   </Pressable>
                 ))}
-                {maintenanceNotifications.map((item) => (
+                {!!pendingPayments.length && (
+                  <Pressable
+                    style={styles.emptyNotice}
+                    onPress={() => {
+                      setNotificationsOpen(false);
+                      router.push("/landlord/finance");
+                    }}
+                  >
+                    <Text>
+                      {pendingPayments.length} payment proofs awaiting review
+                    </Text>
+                  </Pressable>
+                )}
+                {!!accountRequestCount && (
+                  <Pressable
+                    style={styles.emptyNotice}
+                    onPress={() => {
+                      setNotificationsOpen(false);
+                      router.push("/landlord/tenants");
+                    }}
+                  >
+                    <Text>
+                      {accountRequestCount} account requests awaiting review
+                    </Text>
+                  </Pressable>
+                )}
+                {inboxRequests
+                  .filter((item) => item.unreadAvailable && item.unread > 0)
+                  .map((item) => (
+                    <Pressable
+                      key={"reply-" + item.id}
+                      style={styles.notificationItem}
+                      onPress={() => {
+                        setNotificationsOpen(false);
+                        router.push({
+                          pathname: "/landlord/messages",
+                          params: { requestId: item.id },
+                        });
+                      }}
+                      accessibilityRole="button"
+                    >
+                      <Ionicons
+                        name="chatbubbles-outline"
+                        size={21}
+                        color="#2864e8"
+                      />
+                      <View style={styles.notificationCopy}>
+                        <Text style={styles.notificationTitle}>
+                          New tenant message
+                        </Text>
+                        <Text style={styles.notificationText}>
+                          {item.tenantName || "Tenant"} · {item.title} ·{" "}
+                          {item.unread} unread
+                        </Text>
+                      </View>
+                    </Pressable>
+                  ))}
+                {sortedMaintenance.map((item) => (
                   <Pressable
                     key={`maintenance-${item.id}`}
                     style={styles.notificationItem}
-                    onPress={() => {
-                      setNotificationsOpen(false);
-                      router.push("/landlord/requests" as any);
-                    }}
+                    onPress={() => openMaintenance(item.id)}
                   >
                     <Ionicons
                       name="construct-outline"
@@ -741,10 +1067,13 @@ export default function Dashboard() {
                     />
                     <View style={styles.notificationCopy}>
                       <Text style={styles.notificationTitle}>
-                        New maintenance request
+                        {maintenanceReads.has("maintenance__" + item.id)
+                          ? "Maintenance request"
+                          : "New maintenance request"}
                       </Text>
                       <Text style={styles.notificationText}>
-                        {item.tenantName || "A tenant"} reported: {item.title || "Maintenance issue"}.
+                        {item.tenantName || "A tenant"} reported:{" "}
+                        {item.title || "Maintenance issue"}.
                       </Text>
                     </View>
                     <Ionicons
@@ -767,154 +1096,197 @@ export default function Dashboard() {
       >
         <View style={styles.messageBackdrop}>
           <View style={styles.messageModal}>
-            <View style={styles.messageModalHeader}>
-              <View>
-                <Text style={styles.messageModalTitle}>Message tenants</Text>
-                <Text style={styles.messageModalSubtitle}>
-                  Send an update to assigned tenants.
-                </Text>
+            <ScrollView keyboardShouldPersistTaps="handled">
+              <View style={styles.messageModalHeader}>
+                <View>
+                  <Text style={styles.messageModalTitle}>Message tenants</Text>
+                  <Text style={styles.messageModalSubtitle}>
+                    Send an update to assigned tenants.
+                  </Text>
+                </View>
+                <Pressable
+                  onPress={closeMessageComposer}
+                  accessibilityLabel="Close message composer"
+                  style={styles.closeMessageButton}
+                >
+                  <Ionicons name="close" size={20} color="#536783" />
+                </Pressable>
               </View>
-              <Pressable
-                onPress={closeMessageComposer}
-                accessibilityLabel="Close message composer"
-                style={styles.closeMessageButton}
-              >
-                <Ionicons name="close" size={20} color="#536783" />
-              </Pressable>
-            </View>
-            <Text style={styles.inputLabel}>Message</Text>
-            <TextInput
-              style={styles.messageInput}
-              value={messageText}
-              onChangeText={setMessageText}
-              placeholder="Write your message..."
-              placeholderTextColor="#91a0b3"
-              multiline
-              maxLength={2000}
-              textAlignVertical="top"
-            />
-            <View style={styles.messageAudience}>
-              <Pressable
-                onPress={() => setMessageAudience("all")}
-                style={[
-                  styles.audienceOption,
-                  messageAudience === "all" && styles.audienceOptionActive,
-                ]}
-              >
-                <Ionicons
-                  name="people-outline"
-                  size={16}
-                  color={messageAudience === "all" ? "#fff" : "#536783"}
-                />
-                <Text
+              <Text style={styles.inputLabel}>Message</Text>
+              <TextInput
+                style={styles.messageInput}
+                value={messageText}
+                onChangeText={setMessageText}
+                placeholder="Write your message..."
+                placeholderTextColor="#91a0b3"
+                multiline
+                maxLength={2000}
+                textAlignVertical="top"
+              />
+              <Text style={styles.characterCount}>
+                {messageText.length} / 2,000 characters
+              </Text>
+              <View style={styles.messageAudience}>
+                <Pressable
+                  onPress={() => setMessageAudience("all")}
                   style={[
-                    styles.audienceText,
-                    messageAudience === "all" && styles.audienceTextActive,
+                    styles.audienceOption,
+                    messageAudience === "all" && styles.audienceOptionActive,
                   ]}
                 >
-                  Everyone
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={() => setMessageAudience("selected")}
-                style={[
-                  styles.audienceOption,
-                  messageAudience === "selected" && styles.audienceOptionActive,
-                ]}
-              >
-                <Ionicons
-                  name="person-outline"
-                  size={16}
-                  color={messageAudience === "selected" ? "#fff" : "#536783"}
-                />
-                <Text
+                  <Ionicons
+                    name="people-outline"
+                    size={16}
+                    color={messageAudience === "all" ? "#fff" : "#536783"}
+                  />
+                  <Text
+                    style={[
+                      styles.audienceText,
+                      messageAudience === "all" && styles.audienceTextActive,
+                    ]}
+                  >
+                    Everyone
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => setMessageAudience("selected")}
                   style={[
-                    styles.audienceText,
-                    messageAudience === "selected" && styles.audienceTextActive,
+                    styles.audienceOption,
+                    messageAudience === "selected" &&
+                      styles.audienceOptionActive,
                   ]}
                 >
-                  Choose tenants
-                </Text>
-              </Pressable>
-            </View>
-            {messageAudience === "all" ? (
-              <View style={styles.recipientSummary}>
-                <Ionicons name="information-circle-outline" size={17} color="#2864e8" />
-                <Text style={styles.recipientSummaryText}>
-                  {loadingRecipients
-                    ? "Loading tenant list..."
-                    : `This message will go to all ${messageRecipients.length} assigned tenant${messageRecipients.length === 1 ? "" : "s"}.`}
-                </Text>
+                  <Ionicons
+                    name="person-outline"
+                    size={16}
+                    color={messageAudience === "selected" ? "#fff" : "#536783"}
+                  />
+                  <Text
+                    style={[
+                      styles.audienceText,
+                      messageAudience === "selected" &&
+                        styles.audienceTextActive,
+                    ]}
+                  >
+                    Choose tenants
+                  </Text>
+                </Pressable>
               </View>
-            ) : (
-              <View style={styles.recipientPicker}>
-                <Text style={styles.recipientHeading}>
-                  Select tenants ({selectedRecipientIds.length})
-                </Text>
-                {loadingRecipients ? (
-                  <Text style={styles.recipientEmpty}>Loading tenant list...</Text>
-                ) : messageRecipients.length === 0 ? (
-                  <Text style={styles.recipientEmpty}>No assigned tenants found.</Text>
-                ) : (
-                  <ScrollView style={styles.recipientList}>
-                    {messageRecipients.map((recipient) => {
-                      const selected = selectedRecipientIds.includes(recipient.id);
-                      return (
-                        <Pressable
-                          key={recipient.id}
-                          onPress={() => toggleRecipient(recipient.id)}
-                          style={styles.recipientRow}
-                          accessibilityRole="checkbox"
-                          accessibilityState={{ checked: selected }}
-                        >
-                          <View
-                            style={[
-                              styles.recipientCheckbox,
-                              selected && styles.recipientCheckboxSelected,
-                            ]}
+              {messageAudience === "all" ? (
+                <View style={styles.recipientSummary}>
+                  <Ionicons
+                    name="information-circle-outline"
+                    size={17}
+                    color="#2864e8"
+                  />
+                  <Text style={styles.recipientSummaryText}>
+                    {loadingRecipients
+                      ? "Loading tenant list..."
+                      : `This message will go to all ${messageRecipients.length} assigned tenant${messageRecipients.length === 1 ? "" : "s"}.`}
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.recipientPicker}>
+                  <Text style={styles.recipientHeading}>
+                    Select tenants ({selectedRecipientIds.length})
+                  </Text>
+                  <TextInput
+                    value={recipientSearch}
+                    onChangeText={setRecipientSearch}
+                    placeholder="Search name, room, or email"
+                    accessibilityLabel="Search tenants"
+                    style={styles.recipientSearch}
+                  />
+                  {loadingRecipients ? (
+                    <Text style={styles.recipientEmpty}>
+                      Loading tenant list...
+                    </Text>
+                  ) : matchingRecipients.length === 0 ? (
+                    <Text style={styles.recipientEmpty}>
+                      {messageRecipients.length
+                        ? "No tenants match your search."
+                        : "No assigned tenants found."}
+                    </Text>
+                  ) : (
+                    <ScrollView style={styles.recipientList}>
+                      {matchingRecipients.map((recipient) => {
+                        const selected = selectedRecipientIds.includes(
+                          recipient.id,
+                        );
+                        return (
+                          <Pressable
+                            key={recipient.id}
+                            onPress={() => toggleRecipient(recipient.id)}
+                            style={styles.recipientRow}
+                            accessibilityRole="checkbox"
+                            accessibilityState={{ checked: selected }}
                           >
-                            {selected && <Ionicons name="checkmark" size={14} color="#fff" />}
-                          </View>
-                          <View style={styles.recipientInfo}>
-                            <Text style={styles.recipientName} numberOfLines={1}>
-                              {recipient.name}
-                            </Text>
-                            <Text style={styles.recipientDetail} numberOfLines={1}>
-                              {recipient.room}{recipient.email ? ` · ${recipient.email}` : ""}
-                            </Text>
-                          </View>
-                        </Pressable>
-                      );
-                    })}
-                  </ScrollView>
-                )}
+                            <View
+                              style={[
+                                styles.recipientCheckbox,
+                                selected && styles.recipientCheckboxSelected,
+                              ]}
+                            >
+                              {selected && (
+                                <Ionicons
+                                  name="checkmark"
+                                  size={14}
+                                  color="#fff"
+                                />
+                              )}
+                            </View>
+                            <View style={styles.recipientInfo}>
+                              <Text
+                                style={styles.recipientName}
+                                numberOfLines={1}
+                              >
+                                {recipient.name}
+                              </Text>
+                              <Text
+                                style={styles.recipientDetail}
+                                numberOfLines={1}
+                              >
+                                {recipient.room}
+                                {recipient.email ? ` · ${recipient.email}` : ""}
+                              </Text>
+                            </View>
+                          </Pressable>
+                        );
+                      })}
+                    </ScrollView>
+                  )}
+                </View>
+              )}
+              <View style={styles.messageModalActions}>
+                <Pressable
+                  onPress={closeMessageComposer}
+                  style={styles.cancelMessageButton}
+                  disabled={sendingMessage}
+                >
+                  <Text style={styles.cancelMessageText}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  onPress={sendMessage}
+                  style={[
+                    styles.sendMessageButton,
+                    sendDisabled && styles.sendMessageDisabled,
+                  ]}
+                  disabled={sendDisabled}
+                >
+                  <Ionicons name="send-outline" size={15} color="#fff" />
+                  <Text style={styles.sendMessageText}>
+                    {sendingMessage ? "Sending..." : "Send message"}
+                  </Text>
+                </Pressable>
               </View>
-            )}
-            <View style={styles.messageModalActions}>
-              <Pressable
-                onPress={closeMessageComposer}
-                style={styles.cancelMessageButton}
-                disabled={sendingMessage}
-              >
-                <Text style={styles.cancelMessageText}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                onPress={sendMessage}
-                style={[
-                  styles.sendMessageButton,
-                  (sendingMessage || loadingRecipients) && styles.sendMessageDisabled,
-                ]}
-                disabled={sendingMessage || loadingRecipients}
-              >
-                <Ionicons name="send-outline" size={15} color="#fff" />
-                <Text style={styles.sendMessageText}>
-                  {sendingMessage ? "Sending..." : "Send message"}
-                </Text>
-              </Pressable>
-            </View>
+            </ScrollView>
           </View>
         </View>
       </Modal>
+      <AnnouncementComposer
+        visible={announcementOpen}
+        onClose={() => setAnnouncementOpen(false)}
+      />
       <Modal
         visible={profileOpen}
         transparent
@@ -931,12 +1303,12 @@ export default function Dashboard() {
           >
             <View style={styles.profileHeading}>
               <ProfilePictureButton
-                fallback={(user?.displayName || "CV").slice(0, 2).toUpperCase()}
+                fallback={(displayName || "CV").slice(0, 2).toUpperCase()}
                 size={42}
               />
               <View>
                 <Text style={styles.profileName}>
-                  {user?.displayName || "Landlord"}
+                  {displayName || "Landlord"}
                 </Text>
                 <Text style={styles.profileEmail}>
                   {user?.email || "Administrator"}
@@ -947,7 +1319,7 @@ export default function Dashboard() {
               style={styles.menuItem}
               onPress={() => {
                 setProfileOpen(false);
-                setProfileName(user?.displayName || "");
+                setProfileName(displayName || "");
                 setEditProfileOpen(true);
               }}
             >
@@ -957,6 +1329,16 @@ export default function Dashboard() {
                 color="#536783"
               />
               <Text style={styles.menuText}>Profile Settings</Text>
+            </Pressable>
+            <Pressable
+              style={styles.menuItem}
+              onPress={() => {
+                setProfileOpen(false);
+                router.push("/landlord/property-settings" as any);
+              }}
+            >
+              <Ionicons name="settings-outline" size={22} color="#536783" />
+              <Text style={styles.menuText}>Property Settings</Text>
             </Pressable>
             <Pressable style={styles.menuItem} onPress={logout}>
               <Ionicons name="log-out-outline" size={22} color="#e94762" />
@@ -980,9 +1362,18 @@ export default function Dashboard() {
               </Pressable>
             </View>
             <Text style={styles.inputLabel}>Full Name</Text>
-            <TextInput style={styles.profileInput} value={profileName} onChangeText={setProfileName} />
+            <TextInput
+              style={styles.profileInput}
+              value={profileName}
+              onChangeText={setProfileName}
+            />
             <Text style={styles.inputLabel}>Contact Number</Text>
-            <TextInput style={styles.profileInput} value={profilePhone} onChangeText={setProfilePhone} keyboardType="phone-pad" />
+            <TextInput
+              style={styles.profileInput}
+              value={profilePhone}
+              onChangeText={setProfilePhone}
+              keyboardType="phone-pad"
+            />
             <Pressable style={styles.profileSave} onPress={saveProfile}>
               <Text style={styles.profileSaveText}>Save Profile</Text>
             </Pressable>
@@ -1020,6 +1411,30 @@ function SectionTitle({
 
 const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: "#f3f7fd" },
+  maintenanceShortcut: {
+    backgroundColor: "white",
+    borderRadius: 16,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: "#dbe5f4",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    marginBottom: 16,
+  },
+  notificationBadge: {
+    position: "absolute",
+    top: -4,
+    right: -4,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 4,
+    backgroundColor: "#ef4444",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  notificationBadgeText: { color: "white", fontSize: 10, fontWeight: "700" },
   header: {
     minHeight: 106,
     backgroundColor: "#2864e8",
@@ -1068,16 +1483,33 @@ const styles = StyleSheet.create({
   messageBackdrop: {
     flex: 1,
     backgroundColor: "rgba(15, 23, 42, 0.45)",
-    justifyContent: "flex-end",
+    justifyContent: Platform.OS === "web" ? "center" : "flex-end",
+    alignItems: "center",
+    padding: Platform.OS === "web" ? 16 : 0,
   },
   messageModal: {
     width: "100%",
+    maxWidth: Platform.OS === "web" ? 520 : undefined,
+    borderRadius: Platform.OS === "web" ? 20 : undefined,
     maxHeight: "90%",
     backgroundColor: "#fff",
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     padding: 20,
     paddingBottom: 28,
+  },
+  characterCount: {
+    textAlign: "right",
+    color: "#71809a",
+    fontSize: 12,
+    marginTop: 6,
+  },
+  recipientSearch: {
+    borderWidth: 1,
+    borderColor: "#dbe5f4",
+    borderRadius: 10,
+    padding: 12,
+    marginVertical: 8,
   },
   messageModalHeader: {
     flexDirection: "row",
@@ -1140,7 +1572,12 @@ const styles = StyleSheet.create({
   },
   recipientSummaryText: { flex: 1, color: "#42536c", fontSize: 12 },
   recipientPicker: { marginTop: 12 },
-  recipientHeading: { color: "#253149", fontSize: 12, fontWeight: "700", marginBottom: 5 },
+  recipientHeading: {
+    color: "#253149",
+    fontSize: 12,
+    fontWeight: "700",
+    marginBottom: 5,
+  },
   recipientList: { maxHeight: 210 },
   recipientEmpty: { color: "#71809a", fontSize: 12, paddingVertical: 14 },
   recipientRow: {
@@ -1161,11 +1598,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  recipientCheckboxSelected: { backgroundColor: "#2864e8", borderColor: "#2864e8" },
+  recipientCheckboxSelected: {
+    backgroundColor: "#2864e8",
+    borderColor: "#2864e8",
+  },
   recipientInfo: { flex: 1 },
   recipientName: { color: "#253149", fontSize: 13, fontWeight: "600" },
   recipientDetail: { color: "#71809a", fontSize: 11, marginTop: 2 },
-  messageModalActions: { flexDirection: "row", justifyContent: "flex-end", gap: 9, marginTop: 16 },
+  messageModalActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 9,
+    marginTop: 16,
+  },
   cancelMessageButton: {
     minHeight: 42,
     minWidth: 82,
@@ -1273,7 +1718,13 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 1,
   },
-  applicationPerson: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 10 },
+  applicationPerson: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
   applicationIcon: {
     width: 38,
     height: 38,
@@ -1500,7 +1951,12 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     marginTop: 180,
   },
-  inputLabel: { fontSize: 11, color: "#536783", marginTop: 12, marginBottom: 5 },
+  inputLabel: {
+    fontSize: 11,
+    color: "#536783",
+    marginTop: 12,
+    marginBottom: 5,
+  },
   profileInput: {
     height: 42,
     borderWidth: 1,
@@ -1509,6 +1965,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     color: "#253149",
   },
-  profileSave: { backgroundColor: "#173b36", borderRadius: 8, alignItems: "center", paddingVertical: 11, marginTop: 16 },
+  profileSave: {
+    backgroundColor: "#173b36",
+    borderRadius: 8,
+    alignItems: "center",
+    paddingVertical: 11,
+    marginTop: 16,
+  },
   profileSaveText: { color: "#fff", fontSize: 12, fontWeight: "700" },
 });

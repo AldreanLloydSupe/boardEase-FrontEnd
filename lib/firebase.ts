@@ -3,6 +3,7 @@ import { getApps, initializeApp, type FirebaseApp } from "firebase/app";
 import * as firebaseAuth from "firebase/auth";
 import { getAuth, initializeAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
+import { Platform } from "react-native";
 
 const firebaseConfig = {
   apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
@@ -19,6 +20,8 @@ const app = isFirebaseConfigured
   : null;
 
 function createFirebaseAuth(firebaseApp: FirebaseApp) {
+  // Browser Auth restores local persistence across reloads; native uses AsyncStorage.
+  if (Platform.OS === "web") return getAuth(firebaseApp);
   try {
     const storage = ReactNativeAsyncStorage;
     // Firebase exposes this helper through its React Native build condition.

@@ -1,50 +1,23 @@
-# Welcome to your Expo app 👋
+# BoardEase frontend
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Expo tenant and landlord app using Firebase Authentication and Firestore.
 
-## Get started
-
-1. Install dependencies
-
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```powershell
+npm install
+npx expo start
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+Copy `.env.example` to `.env` and fill in the project Firebase values. See the sibling backend README for rules deployment and landlord custom claims. After installing the Clipboard dependency, restart Expo; rebuild your custom development client if it does not include that native module.
 
-## Learn more
+Assigned tenants use Home, Payments, QR, Requests, and Profile. Applicants use Rooms, Applied, Saved, and Account. The layouts guard those routes independently.
 
-To learn more about developing your project with Expo, look at the following resources:
+From the landlord dashboard, use Property Settings to configure actual caretaker and GCash receiver details, rules, and notices. Room approval/move-out uses transactions; payment proofs require landlord review. Photos are small shared data URLs saved in Firestore. Notifications and reminder calculations work while the app is open.
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+```powershell
+npm run typecheck
+npm run lint
+npm test
+npx expo export --platform web
+```
 
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+The backend emulator suite verifies access rules and tenant/landlord workflow permissions. No live tenant account or payment should be used as test data.

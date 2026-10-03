@@ -1,43 +1,28 @@
-import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
-
+import {
+  doc,
+  getDoc,
+  runTransaction,
+  serverTimestamp,
+} from "firebase/firestore";
 import { db } from "./firebase";
+import { resolveRoom } from "./tenancy-data";
 
-export type RoomVacatePayload = {
-  roomNumber: string;
-  userUpdate: {
-    hasRoom: boolean;
-    roomId: string;
-    roomNumber: string;
-    roomType: string;
-    roomRent: string;
-  };
-  roomUpdate: {
-    status: string;
-    tenant: string;
-    tenantId: string;
-    updatedAt: ReturnType<typeof serverTimestamp>;
-  };
-};
-
-export function buildRoomVacatePayload(
-  roomNumber: string,
-  roomType = "",
-): RoomVacatePayload {
-  const normalizedRoom = roomNumber?.trim() || "";
-
+export function buildRoomVacatePayload(roomNumber: string) {
   return {
-    roomNumber: normalizedRoom,
+    roomNumber,
     userUpdate: {
       hasRoom: false,
       roomId: "",
       roomNumber: "",
       roomType: "",
       roomRent: "",
+      applicationId: "",
     },
     roomUpdate: {
       status: "Available",
       tenant: "",
       tenantId: "",
+      applicationId: "",
       updatedAt: serverTimestamp(),
     },
   };
@@ -47,27 +32,40 @@ export async function vacateTenantRoom(
   tenantId: string,
   providedRoomNumber?: string,
 ) {
-  if (!db || !tenantId) {
-    throw new Error("Tenant details are required to vacate the room.");
-  }
-
-  const userDoc = doc(db, "users", tenantId);
-  const userSnapshot = await getDoc(userDoc);
-  const currentRoomNumber =
-    String(userSnapshot.data()?.roomNumber || userSnapshot.data()?.roomId || "")
-      .trim();
-  const finalRoomNumber = (providedRoomNumber || currentRoomNumber).trim();
-
-  if (!finalRoomNumber) {
-    return { updated: false, roomNumber: "" };
-  }
-
-  const payload = buildRoomVacatePayload(finalRoomNumber);
-
-  await setDoc(userDoc, payload.userUpdate, { merge: true });
-  await setDoc(doc(db, "rooms", finalRoomNumber), payload.roomUpdate, {
-    merge: true,
+  const firestore = db;
+  if (!firestore || !tenantId) throw new Error("Tenant details are required.");
+  const userRef = doc(firestore, "users", tenantId);
+  const initial = (await getDoc(userRef)).data();
+  if (!initial?.hasRoom) return { updated: false, roomNumber: "" };
+  const number = String(initial.roomNumber || providedRoomNumber || "");
+  const roomRef = await resolveRoom(number, initial.roomId);
+  await runTransaction(firestore, async (transaction) => {
+    const user = await transaction.get(userRef);
+    const room = await transaction.get(roomRef);
+    if (
+      !user.exists() ||
+      !room.exists() ||
+      room.data()?.tenantId !== tenantId ||
+      user.data()?.roomId !== initial.roomId
+    )
+      throw new Error(
+        "Assignment changed or room ownership does not match. Refresh before retrying.",
+      );
+    const applicationId = user.data()?.applicationId;
+    const applicationRef = applicationId
+      ? doc(firestore, "applications", applicationId)
+      : null;
+    const application = applicationRef
+      ? await transaction.get(applicationRef)
+      : null;
+    const payload = buildRoomVacatePayload(number);
+    transaction.update(userRef, payload.userUpdate);
+    transaction.update(roomRef, payload.roomUpdate);
+    if (applicationRef && application?.exists())
+      transaction.update(applicationRef, {
+        status: "vacated",
+        updatedAt: serverTimestamp(),
+      });
   });
-
-  return { updated: true, roomNumber: finalRoomNumber };
+  return { updated: true, roomNumber: number };
 }
