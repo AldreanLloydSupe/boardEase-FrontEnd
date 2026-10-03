@@ -48,7 +48,12 @@ service cloud.firestore {
           request.resource.data.keys().hasOnly(['readAt']) && request.resource.data.readAt == request.time;
       }
     }
-    match /rooms/{id} { allow read: if signedIn(); allow write: if isLandlord(); }
+    match /rooms/{id} {
+      allow read: if isLandlord() ||
+        (signedIn() && resource.data.status in ['available', 'Available']) ||
+        (signedIn() && resource.data.tenantId == request.auth.uid);
+      allow write: if isLandlord();
+    }
 
     function canReadRoomMeters(roomId) {
       return isLandlord() || (signedIn() &&

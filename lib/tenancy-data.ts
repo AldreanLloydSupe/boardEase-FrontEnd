@@ -78,7 +78,7 @@ export async function approveTenancy(applicationId: string) {
       approvedAt: serverTimestamp(),
     });
     transaction.update(roomRef, {
-      status: "Occupied",
+      status: "occupied",
       tenantId: data.tenantId,
       tenant: tenant.data()?.name || data.tenantName,
       applicationId,

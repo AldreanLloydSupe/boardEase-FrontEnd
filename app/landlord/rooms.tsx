@@ -234,7 +234,6 @@ export default function Rooms() {
       number: normalizedNumber,
       type: normalizedType,
       rent: normalizedRent,
-      price: normalizedRent,
       amenities: selectedAmenities.length > 0 ? selectedAmenities : [],
       guidelines: normalizedGuidelines,
       image: imageUri,
@@ -285,7 +284,7 @@ export default function Rooms() {
               throw new Error("This room was already created.");
             tx.set(saved, {
               ...roomData,
-              status: "Available",
+              status: "available",
               createdBy: user?.uid || "",
               createdAt: serverTimestamp(),
             });

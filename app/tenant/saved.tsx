@@ -9,7 +9,7 @@ import { db } from "@/lib/firebase";
 import { roomFromFirestore, roomKey, type TenantRoom } from "@/lib/room-data";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { collection, onSnapshot } from "firebase/firestore";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
 import React from "react";
 import {
     Image,
@@ -38,14 +38,21 @@ export default function SavedRooms() {
     if (!db) {
       return;
     }
-    return onSnapshot(
-      collection(db, "rooms"),
-      (snapshot) =>
-        setRooms(
-          snapshot.docs.map((item) => roomFromFirestore(item.id, item.data())),
-        ),
-      () => setRooms([]),
-    );
+    const firestore = db;
+    const records = new Map<string, TenantRoom>();
+    const publish = () => setRooms([...records.values()]);
+    const subscribe = (status: "available" | "Available") =>
+      onSnapshot(
+        query(collection(firestore, "rooms"), where("status", "==", status)),
+        (snapshot) => {
+          for (const item of snapshot.docs)
+            records.set(item.id, roomFromFirestore(item.id, item.data()));
+          publish();
+        },
+        () => publish(),
+      );
+    const stops = [subscribe("available"), subscribe("Available")];
+    return () => stops.forEach((stop) => stop());
   }, []);
 
   async function removeFavorite(number: string) {

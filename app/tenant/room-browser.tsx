@@ -6,7 +6,7 @@ import { db } from "@/lib/firebase";
 import { roomFromFirestore, roomKey, type TenantRoom } from "@/lib/room-data";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { collection, onSnapshot } from "firebase/firestore";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
 import React from "react";
 import {
   Animated,
@@ -91,21 +91,22 @@ export default function RoomBrowser() {
     if (!db) {
       return;
     }
-    return onSnapshot(
-      collection(db, "rooms"),
-      (snapshot) => {
-        setRooms(
-          snapshot.docs
-            .map((item) => roomFromFirestore(item.id, item.data()))
-            .filter((room) => room.status === "available"),
-        );
-        setIsLoadingRooms(false);
-      },
-      () => {
-        setRooms([]);
-        setIsLoadingRooms(false);
-      },
-    );
+    const firestore = db;
+    const records = new Map<string, TenantRoom>();
+    const publish = () => setRooms([...records.values()].filter((room) => room.status === "available"));
+    const subscribe = (status: "available" | "Available") =>
+      onSnapshot(
+        query(collection(firestore, "rooms"), where("status", "==", status)),
+        (snapshot) => {
+          for (const item of snapshot.docs)
+            records.set(item.id, roomFromFirestore(item.id, item.data()));
+          publish();
+          setIsLoadingRooms(false);
+        },
+        () => setIsLoadingRooms(false),
+      );
+    const stops = [subscribe("available"), subscribe("Available")];
+    return () => stops.forEach((stop) => stop());
   }, []);
 
   React.useEffect(() => {

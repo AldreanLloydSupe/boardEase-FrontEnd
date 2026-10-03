@@ -19,7 +19,7 @@ export function buildRoomVacatePayload(roomNumber: string) {
       applicationId: "",
     },
     roomUpdate: {
-      status: "Available",
+      status: "available",
       tenant: "",
       tenantId: "",
       applicationId: "",
