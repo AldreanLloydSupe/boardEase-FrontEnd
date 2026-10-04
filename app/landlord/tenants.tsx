@@ -1,21 +1,22 @@
-import { cycleDetails, peso, timestampMillis } from "@/lib/billing";
 import { AppAlert as Alert } from "@/components/app-alert";
 import { LandlordNavigation } from "@/components/landlord-navigation";
+import { LandlordPageHeader } from "@/components/landlord-page-header";
+import { cycleDetails, peso, timestampMillis } from "@/lib/billing";
 import { db } from "@/lib/firebase";
 import { createNotification } from "@/lib/notification-data";
 import { vacateTenantRoom } from "@/lib/room-vacate";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { collection, doc, onSnapshot, deleteDoc } from "firebase/firestore";
+import { collection, deleteDoc, doc, onSnapshot } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import {
-  Image,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
+    Image,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -247,29 +248,10 @@ export default function Tenants() {
   }
   return (
     <SafeAreaView style={styles.page}>
-      <View style={styles.header}>
-        <View style={styles.headerBrand}>
-          <View style={styles.headerLogo}>
-            <Ionicons name="business" size={24} color="#fff" />
-          </View>
-          <View style={styles.headerCopy}>
-            <Text style={styles.kicker}>BOARDEASE</Text>
-            <Text style={styles.title}>Tenants</Text>
-            <Text style={styles.subtitle}>
-              {
-                allTenants.filter((tenant) => tenant.status === "ACTIVE LEASE")
-                  .length
-              }{" "}
-              Active Tenants · {overdueCount} Overdue ·{" "}
-              {
-                allTenants.filter((tenant) => tenant.status.includes("PENDING"))
-                  .length
-              }{" "}
-              Pending Applications
-            </Text>
-          </View>
-        </View>
-      </View>
+      <LandlordPageHeader
+        title="Tenants"
+        subtitle={`${allTenants.filter((tenant) => tenant.status === "ACTIVE LEASE").length} Active Tenants · ${overdueCount} Overdue · ${allTenants.filter((tenant) => tenant.status.includes("PENDING")).length} Pending Applications`}
+      />
       <ScrollView contentContainerStyle={styles.content}>
         {!!loadError && <Text accessibilityRole="alert">{loadError}</Text>}
         {accountRequests.map((request) => (

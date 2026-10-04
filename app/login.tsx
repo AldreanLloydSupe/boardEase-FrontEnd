@@ -1,19 +1,21 @@
 import { AppAlert as Alert } from "@/components/app-alert";
+import { LandlordDashboardSkeleton } from "@/components/landlord-dashboard-skeleton";
 import { RoomBrowserSkeleton } from "@/components/room-browser-skeleton";
+import { TenantHomeSkeleton } from "@/components/tenant-home-skeleton";
 import { useAuth } from "@/lib/auth-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Link, router } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
-  Animated,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
+    Animated,
+    KeyboardAvoidingView,
+    Platform,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
 } from "react-native";
 
 export default function Login() {
@@ -27,6 +29,7 @@ export default function Login() {
   const [loadingSkeleton, setLoadingSkeleton] = useState(true);
   const [successDelay, setSuccessDelay] = useState(false);
   const [roomBrowserDestination, setRoomBrowserDestination] = useState(false);
+  const [tenantHomeDestination, setTenantHomeDestination] = useState(false);
   const pulseAnim = useRef(new Animated.Value(0.4)).current;
 
   useEffect(() => {
@@ -70,6 +73,7 @@ export default function Login() {
       }
       const session = await signIn(email, password);
       setRoomBrowserDestination(session.role === "user" && !session.hasRoom);
+      setTenantHomeDestination(session.role === "user" && session.hasRoom);
       setSuccessDelay(true);
       setTimeout(() => {
         router.replace(
@@ -108,38 +112,12 @@ export default function Login() {
     return <RoomBrowserSkeleton />;
   }
 
+  if (successDelay && tenantHomeDestination) {
+    return <TenantHomeSkeleton />;
+  }
+
   if (successDelay) {
-    return (
-      <View style={styles.dashboardSkeletonPage}>
-        <View style={styles.dashboardSkeletonHeader}>
-          <Animated.View
-            style={[styles.skeletonHeaderTitle, { opacity: pulseAnim }]}
-          />
-          <Animated.View
-            style={[styles.skeletonHeaderSubtitle, { opacity: pulseAnim }]}
-          />
-        </View>
-        <View style={styles.dashboardSkeletonContent}>
-          <Animated.View
-            style={[styles.skeletonCardLarge, { opacity: pulseAnim }]}
-          />
-          <View style={styles.skeletonGrid}>
-            <Animated.View
-              style={[styles.skeletonCardSmall, { opacity: pulseAnim }]}
-            />
-            <Animated.View
-              style={[styles.skeletonCardSmall, { opacity: pulseAnim }]}
-            />
-            <Animated.View
-              style={[styles.skeletonCardSmall, { opacity: pulseAnim }]}
-            />
-            <Animated.View
-              style={[styles.skeletonCardSmall, { opacity: pulseAnim }]}
-            />
-          </View>
-        </View>
-      </View>
-    );
+    return <LandlordDashboardSkeleton />;
   }
 
   if (loadingSkeleton) {

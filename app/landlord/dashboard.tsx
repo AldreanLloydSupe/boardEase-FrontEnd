@@ -1,36 +1,38 @@
-import { cycleDetails, peso, timestampMillis } from "@/lib/billing";
-import { createNotification } from "@/lib/notification-data";
-import { AppAlert as Alert } from "@/components/app-alert";
 import { AnnouncementComposer } from "@/components/announcement-composer";
-import { useMaintenanceInbox } from "@/lib/use-maintenance-inbox";
+import { AppAlert as Alert } from "@/components/app-alert";
+import { LandlordDashboardSkeleton } from "@/components/landlord-dashboard-skeleton";
 import { LandlordNavigation } from "@/components/landlord-navigation";
+import { LandlordPageHeader } from "@/components/landlord-page-header";
 import { ProfilePictureButton } from "@/components/profile-picture-button";
 import { useAuth } from "@/lib/auth-context";
+import { cycleDetails, peso, timestampMillis } from "@/lib/billing";
 import { db } from "@/lib/firebase";
+import { createNotification } from "@/lib/notification-data";
+import { useMaintenanceInbox } from "@/lib/use-maintenance-inbox";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import {
-  addDoc,
-  collection,
-  doc,
-  setDoc,
-  getDocs,
-  onSnapshot,
-  query,
-  serverTimestamp,
-  where,
+    addDoc,
+    collection,
+    doc,
+    getDocs,
+    onSnapshot,
+    query,
+    serverTimestamp,
+    setDoc,
+    where,
 } from "firebase/firestore";
 import React from "react";
 import {
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    Modal,
+    Platform,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -256,6 +258,15 @@ export default function Dashboard() {
     Record<string, unknown>[]
   >([]);
   const [dataError, setDataError] = React.useState("");
+  const [dashboardSourcesReady, setDashboardSourcesReady] = React.useState<
+    Set<string>
+  >(new Set());
+  function markDashboardSourceReady(source: string) {
+    setDashboardSourcesReady((ready) => {
+      if (ready.has(source)) return ready;
+      return new Set(ready).add(source);
+    });
+  }
   const dues = billingProfiles
     .filter((p) => p.hasRoom)
     .map((profile) => {
@@ -349,8 +360,12 @@ export default function Dashboard() {
         setApplicationNotifications(
           records.filter((item) => !item.status || item.status === "pending"),
         );
+        markDashboardSourceReady("applications");
       },
-      () => setDataError("Unable to load applications."),
+      () => {
+        setDataError("Unable to load applications.");
+        markDashboardSourceReady("applications");
+      },
     );
     const stopTours = onSnapshot(
       collection(db, "tourRequests"),
@@ -378,8 +393,12 @@ export default function Dashboard() {
               item.status !== "completed" && item.status !== "cancelled",
           ),
         );
+        markDashboardSourceReady("maintenance");
       },
-      () => setDataError("Unable to load maintenance requests."),
+      () => {
+        setDataError("Unable to load maintenance requests.");
+        markDashboardSourceReady("maintenance");
+      },
     );
     const stopRooms = onSnapshot(
       collection(db, "rooms"),
@@ -392,10 +411,12 @@ export default function Dashboard() {
         ).length;
         setTotalRooms(records.length);
         setOccupiedRooms(occupiedCount);
+        markDashboardSourceReady("rooms");
       },
       () => {
         setTotalRooms(0);
         setOccupiedRooms(0);
+        markDashboardSourceReady("rooms");
       },
     );
     const currentDate = new Date();
@@ -425,16 +446,25 @@ export default function Dashboard() {
           return total + paymentAmount(payment.amount);
         }, 0);
         setMonthlyRevenue(currentMonthTotal);
+        markDashboardSourceReady("payments");
       },
-      () => setDataError("Unable to load payments."),
+      () => {
+        setDataError("Unable to load payments.");
+        markDashboardSourceReady("payments");
+      },
     );
     const stopOverduePayments = onSnapshot(
       collection(db, "users"),
-      (snapshot) =>
+      (snapshot) => {
         setBillingProfiles(
           snapshot.docs.map((d) => ({ ...d.data(), id: d.id })),
-        ),
-      () => setDataError("Unable to load tenant balances."),
+        );
+        markDashboardSourceReady("tenantBalances");
+      },
+      () => {
+        setDataError("Unable to load tenant balances.");
+        markDashboardSourceReady("tenantBalances");
+      },
     );
     return () => {
       stopPaymentQueue();
@@ -569,19 +599,16 @@ export default function Dashboard() {
       setSendingMessage(false);
     }
   }
+  if (db && dashboardSourcesReady.size < 5 && !dataError) {
+    return <LandlordDashboardSkeleton />;
+  }
+
   return (
     <SafeAreaView style={styles.page} edges={["top", "bottom"]}>
-      <View style={styles.header}>
-        <View style={styles.headerBrand}>
-          <View style={styles.headerLogo}>
-            <Ionicons name="business" size={24} color="#fff" />
-          </View>
-          <View>
-            <Text style={styles.breadcrumb}>BOARDEASE</Text>
-            <Text style={styles.headerTitle}>Dashboard</Text>
-          </View>
-        </View>
-        <View style={styles.headerActions}>
+      <LandlordPageHeader
+        title="Dashboard"
+        rightAction={
+          <View style={styles.headerActions}>
           <Pressable
             onPress={() => setNotificationsOpen(true)}
             style={styles.bell}
@@ -613,8 +640,9 @@ export default function Dashboard() {
               interactive={false}
             />
           </Pressable>
-        </View>
-      </View>
+          </View>
+        }
+      />
       <ScrollView
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}

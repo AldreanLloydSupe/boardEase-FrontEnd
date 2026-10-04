@@ -16,6 +16,7 @@ import { router } from "expo-router";
 import {
   addDoc,
   collection,
+  deleteDoc,
   doc,
   onSnapshot,
   query,
@@ -43,6 +44,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 type ApplicationRecord = {
   id: string;
+  tenantId?: string;
   roomNumber: string;
   roomType: string;
   price: string;
@@ -137,6 +139,42 @@ export default function Applications() {
       Alert.alert("Unable to cancel tour", "Please try again.");
     }
   }
+  function deleteApplication(application: ApplicationRecord) {
+    const status = String(application.status || "").toLowerCase();
+    if (
+      !db ||
+      !user ||
+      application.tenantId !== user.uid ||
+      !["approved", "cancelled"].includes(status)
+    ) return;
+    const firestore = db;
+    Alert.alert(
+      "Delete application?",
+      "This will permanently remove the application from your list.",
+      [
+        { text: "Keep application", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await deleteDoc(doc(firestore, "applications", application.id));
+            } catch (error) {
+              const code =
+                typeof error === "object" && error !== null && "code" in error
+                  ? String(error.code)
+                  : "unknown";
+              console.error("Application deletion failed:", code);
+              Alert.alert(
+                "Unable to delete application",
+                `Request failed (${code}). Please try again.`,
+              );
+            }
+          },
+        },
+      ],
+    );
+  }
   const hasApplication = storedApplications.length > 0;
   if (hasRoom && (profileLoading || profileError || !profile.roomNumber))
     return (
@@ -151,6 +189,14 @@ export default function Applications() {
         tenantId={user?.uid || ""}
         roomNumber={String(profile.roomNumber || "")}
         roomType={String(profile.roomType || "Room")}
+        applications={storedApplications.filter(
+          (application) =>
+            application.tenantId === user?.uid &&
+            ["approved", "cancelled"].includes(
+              String(application.status || "").toLowerCase(),
+            ),
+        )}
+        onDeleteApplication={deleteApplication}
       />
     );
   }
@@ -197,6 +243,7 @@ export default function Applications() {
                   " ",
                 )}
                 code={`APP-${application.id.slice(-8).toUpperCase()}`}
+                onDelete={() => deleteApplication(application)}
                 onPress={() =>
                   router.push({
                     pathname: "/tenant/application-details",
@@ -305,11 +352,15 @@ function CareRequests({
   tenantId,
   roomNumber,
   roomType,
+  applications,
+  onDeleteApplication,
 }: {
   tenantName: string;
   tenantId: string;
   roomNumber: string;
   roomType: string;
+  applications: ApplicationRecord[];
+  onDeleteApplication: (application: ApplicationRecord) => void;
 }) {
   const { settings } = usePropertySettings();
   const [loadError, setLoadError] = React.useState("");
@@ -518,6 +569,34 @@ function CareRequests({
       />
       <ScrollView contentContainerStyle={styles.requestContent}>
         {!!loadError && <Text accessibilityRole="alert">{loadError}</Text>}
+        {applications.length > 0 && (
+          <>
+            <Text style={styles.sectionHeading}>Applications</Text>
+            {applications.map((application) => (
+              <ApplicationCard
+                key={application.id}
+                image={application.image || ""}
+                room={`Room ${application.roomNumber} - ${application.roomType}`}
+                price={application.price}
+                location={[
+                  application.propertyName,
+                  application.location,
+                  application.floor ? `Floor ${application.floor}` : "",
+                  application.unit ? `Unit ${application.unit}` : "",
+                ].filter(Boolean).join(" · ") || "Location unavailable"}
+                status={String(application.status || "")}
+                code={`APP-${application.id.slice(-8).toUpperCase()}`}
+                onDelete={() => onDeleteApplication(application)}
+                onPress={() =>
+                  router.push({
+                    pathname: "/tenant/application-details",
+                    params: { applicationId: application.id },
+                  })
+                }
+              />
+            ))}
+          </>
+        )}
         <View style={styles.requestTitleRow}>
           <Text style={styles.sectionHeading}>Requests</Text>
           <Pressable
@@ -1191,6 +1270,7 @@ function ApplicationCard({
   location,
   status,
   code,
+  onDelete,
   onPress,
 }: {
   image: string;
@@ -1199,11 +1279,14 @@ function ApplicationCard({
   location: string;
   status: string;
   code: string;
+  onDelete: () => void;
   onPress: () => void;
 }) {
-  const approved = status.toLowerCase() === "approved";
+  const normalizedStatus = status.toLowerCase();
+  const approved = normalizedStatus === "approved";
+  const canDelete = approved || normalizedStatus === "cancelled";
   return (
-    <Pressable style={styles.card} onPress={onPress}>
+    <View style={styles.card}>
       {image ? <Image source={{ uri: image }} style={styles.image} /> : null}
       <View style={styles.cardMain}>
         <View style={styles.cardTop}>
@@ -1219,31 +1302,46 @@ function ApplicationCard({
           >
             {status}
           </Text>
-          <Text style={styles.code}>#{code}</Text>
+          <View style={styles.applicationCardActions}>
+            {canDelete && (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Delete application"
+                hitSlop={8}
+                style={styles.deleteApplicationButton}
+                onPress={onDelete}
+              >
+                <Ionicons name="trash-outline" size={16} color="#b42318" />
+              </Pressable>
+            )}
+            <Text style={styles.code}>#{code}</Text>
+          </View>
         </View>
-        <Text style={styles.room}>{room}</Text>
-        <Text style={styles.house}>{location}</Text>
-        <View style={styles.meta}>
-          <Text style={styles.metaLabel}>Monthly Rent</Text>
-          <Text style={styles.metaValue}>₱{price} /month</Text>
-        </View>
-        {approved ? (
-          <Text style={styles.approvedNote}>
-            Your application was approved. View your assignment in Home.
-          </Text>
-        ) : (
-          <Text style={styles.small}>
-            Review status updates will appear here.
-          </Text>
-        )}
-        <View style={styles.cardAction}>
-          <Text style={styles.cardActionText}>
-            {approved ? "View Assignment" : "View Details"} →
-          </Text>
-          <Ionicons name="chevron-forward" size={17} color="#fff" />
-        </View>
+        <Pressable onPress={onPress}>
+          <Text style={styles.room}>{room}</Text>
+          <Text style={styles.house}>{location}</Text>
+          <View style={styles.meta}>
+            <Text style={styles.metaLabel}>Monthly Rent</Text>
+            <Text style={styles.metaValue}>₱{price} /month</Text>
+          </View>
+          {approved ? (
+            <Text style={styles.approvedNote}>
+              Your application was approved. View your assignment in Home.
+            </Text>
+          ) : (
+            <Text style={styles.small}>
+              Review status updates will appear here.
+            </Text>
+          )}
+          <View style={styles.cardAction}>
+            <Text style={styles.cardActionText}>
+              {approved ? "View Assignment" : "View Details"} →
+            </Text>
+            <Ionicons name="chevron-forward" size={17} color="#fff" />
+          </View>
+        </Pressable>
       </View>
-    </Pressable>
+    </View>
   );
 }
 
@@ -1354,6 +1452,19 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+  },
+  applicationCardActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  deleteApplicationButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: "#fff1f0",
+    alignItems: "center",
+    justifyContent: "center",
   },
   status: {
     borderRadius: 12,

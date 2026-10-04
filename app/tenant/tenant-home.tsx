@@ -1,4 +1,5 @@
 import { MeterReadings } from "@/components/meter-readings";
+import { TenantHomeSkeleton } from "@/components/tenant-home-skeleton";
 import { AssignedTenantNav } from "@/components/tenant-navigation";
 import { TenantPageHeader } from "@/components/tenant-page-header";
 import { useAuth } from "@/lib/auth-context";
@@ -90,6 +91,8 @@ export default function TenantHome() {
   const roomLabel = tenantRoom.number
     ? `Room ${tenantRoom.number} - ${tenantRoom.type}`
     : "No room assigned";
+  if (loading && !error) return <TenantHomeSkeleton />;
+
   return (
     <SafeAreaView style={styles.page}>
       <TenantPageHeader title="Home" backHref="/tenant/account" />

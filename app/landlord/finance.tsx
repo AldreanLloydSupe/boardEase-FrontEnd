@@ -1,33 +1,34 @@
+import { AppAlert as Alert } from "@/components/app-alert";
+import DateTimePicker from "@/components/date-time-picker";
+import { LandlordNavigation } from "@/components/landlord-navigation";
+import { LandlordPageHeader } from "@/components/landlord-page-header";
 import { RevenueChart } from "@/components/revenue-chart";
 import { paymentAmount as amountValue, paymentTime } from "@/lib/finance-chart";
-import { AppAlert as Alert } from "@/components/app-alert";
-import { LandlordNavigation } from "@/components/landlord-navigation";
 import { db } from "@/lib/firebase";
 import { createNotification } from "@/lib/notification-data";
 import { Ionicons } from "@expo/vector-icons";
-import DateTimePicker from "@/components/date-time-picker";
 import type { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { router } from "expo-router";
 import {
-  collection,
-  doc,
-  onSnapshot,
-  updateDoc,
-  serverTimestamp,
-  type DocumentData,
+    collection,
+    doc,
+    onSnapshot,
+    serverTimestamp,
+    updateDoc,
+    type DocumentData,
 } from "firebase/firestore";
 import React from "react";
 import {
-  ActivityIndicator,
-  Image,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Image,
+    Modal,
+    Platform,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -183,17 +184,7 @@ export default function Finance() {
 
   return (
     <SafeAreaView style={styles.page}>
-      <View style={styles.header}>
-        <View style={styles.headerBrand}>
-          <View style={styles.headerLogo}>
-            <Ionicons name="business" size={24} color="#fff" />
-          </View>
-          <View style={styles.headerCopy}>
-            <Text style={styles.kicker}>BOARDEASE</Text>
-            <Text style={styles.title}>Financial Overview</Text>
-          </View>
-        </View>
-      </View>
+      <LandlordPageHeader title="Financial Overview" />
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
         <Pressable
           style={styles.period}

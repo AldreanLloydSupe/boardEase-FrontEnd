@@ -103,7 +103,8 @@ service cloud.firestore {
         resource.data.status in ['rejected','cancelled','vacated'] &&
         request.resource.data.roomId == resource.data.roomId && availableRequest(id) &&
         request.resource.data.keys().hasOnly(['tenantId','tenantName','tenantEmail','roomId','roomNumber','roomType','price','image','status','createdAt']));
-      allow delete: if isLandlord();
+      allow delete: if isLandlord() ||
+        (owns(resource.data) && resource.data.status in ['approved','cancelled']);
     }
     match /tourRequests/{id} {
       allow get: if ownMissingDocument('tourRequests', id);

@@ -1,22 +1,22 @@
-import { backOrReplace } from "@/lib/navigation";
-import { sharedImage } from "@/lib/image-data";
 import { AppAlert as Alert } from "@/components/app-alert";
 import { LandlordNavigation } from "@/components/landlord-navigation";
+import { LandlordPageHeader } from "@/components/landlord-page-header";
 import { useAuth } from "@/lib/auth-context";
 import { db } from "@/lib/firebase";
+import { sharedImage } from "@/lib/image-data";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import {
+  collection,
   doc,
-  getDocs,
   getDoc,
+  getDocs,
+  onSnapshot,
   query,
   runTransaction,
-  where,
-  collection,
-  onSnapshot,
   serverTimestamp,
+  where,
 } from "firebase/firestore";
 import React, { useState } from "react";
 import {
@@ -321,24 +321,15 @@ export default function Rooms() {
   }
   return (
     <SafeAreaView style={styles.page}>
-      <View style={styles.header}>
-        <Pressable onPress={() => backOrReplace(router, "/landlord/dashboard")}>
-          <Ionicons name="arrow-back" size={22} color="#fff" />
-        </Pressable>
-        <View style={styles.headerTitle}>
-          <View style={styles.headerLogo}>
-            <Ionicons name="business" size={23} color="#fff" />
-          </View>
-          <View>
-            <Text style={styles.kicker}>BOARDEASE</Text>
-            <Text style={styles.title}>Rooms</Text>
-          </View>
-        </View>
-        <Pressable style={styles.addButton} onPress={openAddModal}>
-          <Ionicons name="add" size={17} color="#fff" />
-          <Text style={styles.addText}>Add Room</Text>
-        </Pressable>
-      </View>
+      <LandlordPageHeader
+        title="Rooms"
+        rightAction={
+          <Pressable style={styles.addButton} onPress={openAddModal}>
+            <Ionicons name="add" size={17} color="#fff" />
+            <Text style={styles.addText}>Add Room</Text>
+          </Pressable>
+        }
+      />
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.overview}>Overview</Text>
         <Text style={styles.caption}>24 total units across 3 floors</Text>

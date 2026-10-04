@@ -1,9 +1,10 @@
-import { backOrReplace } from "@/lib/navigation";
 import { AppAlert as Alert } from "@/components/app-alert";
-import { usePropertySettings } from "@/lib/use-property-settings";
+import { LandlordPageHeader } from "@/components/landlord-page-header";
 import { db } from "@/lib/firebase";
-import { doc, serverTimestamp, setDoc } from "firebase/firestore";
+import { backOrReplace } from "@/lib/navigation";
+import { usePropertySettings } from "@/lib/use-property-settings";
 import { router } from "expo-router";
+import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 import React from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -11,17 +12,24 @@ export default function PropertySettings() {
   const { settings, error, loading } = usePropertySettings();
   if (loading)
     return (
-      <SafeAreaView>
-        <Text>Loading property settings…</Text>
+      <SafeAreaView style={{ flex: 1, backgroundColor: "#f3f7fd" }}>
+        <LandlordPageHeader
+          title="Property settings"
+          showBack
+          onBack={() => backOrReplace(router, "/landlord/dashboard")}
+        />
+        <Text style={{ padding: 20 }}>Loading property settings…</Text>
       </SafeAreaView>
     );
   if (error)
     return (
-      <SafeAreaView>
+      <SafeAreaView style={{ flex: 1, backgroundColor: "#f3f7fd" }}>
+        <LandlordPageHeader
+          title="Property settings"
+          showBack
+          onBack={() => backOrReplace(router, "/landlord/dashboard")}
+        />
         <Text accessibilityRole="alert">{error}</Text>
-        <Pressable onPress={() => backOrReplace(router, "/landlord/dashboard")}>
-          <Text>Back</Text>
-        </Pressable>
       </SafeAreaView>
     );
   return <SettingsForm initial={settings} />;
@@ -92,6 +100,11 @@ function SettingsForm({ initial }: { initial: Record<string, unknown> }) {
   ];
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#f3f7fd" }}>
+      <LandlordPageHeader
+        title="Property settings"
+        showBack
+        onBack={() => backOrReplace(router, "/landlord/dashboard")}
+      />
       <ScrollView
         contentContainerStyle={{
           padding: 20,
@@ -101,15 +114,6 @@ function SettingsForm({ initial }: { initial: Record<string, unknown> }) {
           alignSelf: "center",
         }}
       >
-        <Pressable
-          onPress={() => backOrReplace(router, "/landlord/dashboard")}
-          style={{ paddingVertical: 12 }}
-        >
-          <Text style={{ color: "#2864e8" }}>Back to dashboard</Text>
-        </Pressable>
-        <Text style={{ fontSize: 24, fontWeight: "700" }}>
-          Property settings
-        </Text>
         {fields.map(([key, label]) => (
           <View key={key}>
             <Text style={{ marginBottom: 6 }}>{label}</Text>

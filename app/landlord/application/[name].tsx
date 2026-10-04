@@ -1,19 +1,20 @@
-import { backOrReplace } from "@/lib/navigation";
 import { AppAlert as Alert } from "@/components/app-alert";
-import { approveTenancy } from "@/lib/tenancy-data";
+import { LandlordPageHeader } from "@/components/landlord-page-header";
 import { db } from "@/lib/firebase";
+import { backOrReplace } from "@/lib/navigation";
 import { createNotification } from "@/lib/notification-data";
+import { approveTenancy } from "@/lib/tenancy-data";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { doc, getDoc, serverTimestamp, updateDoc } from "firebase/firestore";
 import React from "react";
 import {
-  Pressable,
-  Linking,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
+    Linking,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -152,18 +153,14 @@ export default function ApplicationReview() {
   }
   return (
     <SafeAreaView style={styles.page}>
-      <View style={styles.header}>
-        <Pressable onPress={() => backOrReplace(router, "/landlord/pending-applications")}>
-          <Ionicons name="arrow-back" size={21} color="#172033" />
-        </Pressable>
-        <View style={styles.headerLogo}>
-          <Ionicons name="business" size={22} color="#fff" />
-        </View>
-        <View style={styles.headerText}>
-          <Text style={styles.title}>Review Applicant</Text>
-        </View>
-        <Text style={styles.pending}>{status.toUpperCase()}</Text>
-      </View>
+      <LandlordPageHeader
+        title="Review Applicant"
+        showBack
+        onBack={() => backOrReplace(router, "/landlord/pending-applications")}
+        rightAction={
+          <Text style={styles.pending}>{status.toUpperCase()}</Text>
+        }
+      />
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.profile}>
           <View style={styles.initials}>

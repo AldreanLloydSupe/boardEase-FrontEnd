@@ -1,37 +1,38 @@
 import { AppAlert as Alert } from "@/components/app-alert";
+import { LandlordNavigation } from "@/components/landlord-navigation";
+import { LandlordPageHeader } from "@/components/landlord-page-header";
 import { useAuth } from "@/lib/auth-context";
+import { timestampMillis } from "@/lib/billing";
+import { db } from "@/lib/firebase";
+import { createNotification } from "@/lib/notification-data";
 import { useMaintenanceInbox } from "@/lib/use-maintenance-inbox";
 import { usePropertySettings } from "@/lib/use-property-settings";
-import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { router, useLocalSearchParams } from "expo-router";
 import {
-  collection,
-  doc,
-  onSnapshot,
-  orderBy,
-  addDoc,
-  serverTimestamp,
-  setDoc,
-  updateDoc,
-  query,
+    addDoc,
+    collection,
+    doc,
+    onSnapshot,
+    orderBy,
+    query,
+    serverTimestamp,
+    setDoc,
+    updateDoc,
 } from "firebase/firestore";
 import React from "react";
 import {
-  Image,
-  Linking,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
+    Image,
+    Linking,
+    Modal,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { LandlordNavigation } from "@/components/landlord-navigation";
-import { db } from "@/lib/firebase";
-import { timestampMillis } from "@/lib/billing";
-import { createNotification } from "@/lib/notification-data";
 
 type MaintenanceRequest = {
   id: string;
@@ -210,23 +211,19 @@ export default function LandlordRequests() {
 
   return (
     <SafeAreaView style={styles.page}>
+      <LandlordPageHeader
+        title="Maintenance Requests"
+        subtitle="Review tenant requests and update their progress."
+        showBack
+        onBack={() => {
+          if (router.canGoBack()) router.back();
+          else router.replace("/landlord/dashboard");
+        }}
+        rightAction={
+          <Ionicons name="construct-outline" size={24} color="#fff" />
+        }
+      />
       <ScrollView contentContainerStyle={styles.content}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Go back"
-          onPress={() => {
-            if (router.canGoBack()) router.back();
-            else router.replace("/landlord/dashboard");
-          }}
-          style={({ pressed }) => [
-            styles.backButton,
-            pressed && { opacity: 0.65 },
-          ]}
-        >
-          <Ionicons name="arrow-back" size={20} color="#2864e8" />
-          <Text style={styles.backLabel}>Back</Text>
-        </Pressable>
-        <Text style={styles.brand}>BOARDEASE</Text>
         {!!(loadError || inbox.error) && (
           <View style={styles.card}>
             <Text accessibilityRole="alert">{loadError || inbox.error}</Text>
@@ -246,15 +243,6 @@ export default function LandlordRequests() {
             </Pressable>
           </View>
         )}
-        <View style={styles.headingRow}>
-          <View>
-            <Text style={styles.title}>Maintenance Requests</Text>
-            <Text style={styles.subtitle}>
-              Review tenant requests and update their progress.
-            </Text>
-          </View>
-          <Ionicons name="construct-outline" size={24} color="#2864e8" />
-        </View>
         {requests.length === 0 ? (
           <View style={styles.empty}>
             <Ionicons

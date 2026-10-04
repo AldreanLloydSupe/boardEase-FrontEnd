@@ -1,19 +1,20 @@
-import React from "react";
+import { LandlordNavigation } from "@/components/landlord-navigation";
+import { LandlordPageHeader } from "@/components/landlord-page-header";
+import { useMaintenanceInbox } from "@/lib/use-maintenance-inbox";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams } from "expo-router";
+import React from "react";
 import {
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  useWindowDimensions,
-  View,
+    ActivityIndicator,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    useWindowDimensions,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { LandlordNavigation } from "@/components/landlord-navigation";
-import { useMaintenanceInbox } from "@/lib/use-maintenance-inbox";
 
 import { Conversation } from "@/components/conversation";
 import { db } from "@/lib/firebase";
@@ -78,13 +79,10 @@ export default function LandlordMessages() {
     .sort((a, b) => (b.lastMessageAt || 0) - (a.lastMessageAt || 0));
   return (
     <SafeAreaView style={styles.page} edges={["top", "bottom"]}>
-      <View style={styles.heading}>
-        <Text style={styles.brand}>BOARDEASE</Text>
-        <Text style={styles.title}>Messages</Text>
-        <Text style={styles.muted}>
-          Tenant conversations · {inbox.unreadCount} unread
-        </Text>
-      </View>
+      <LandlordPageHeader
+        title="Messages"
+        subtitle={`Tenant conversations · ${inbox.unreadCount} unread`}
+      />
       {!!tenantError && (
         <Text accessibilityRole="alert" style={styles.errorText}>
           {tenantError}

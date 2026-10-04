@@ -1,23 +1,24 @@
-import React from "react";
+import { LandlordNavigation } from "@/components/landlord-navigation";
+import { LandlordPageHeader } from "@/components/landlord-page-header";
+import { MeterReadings } from "@/components/meter-readings";
+import { TenantManagement } from "@/components/tenant-management";
+import { cycleDetails, peso, timestampMillis } from "@/lib/billing";
+import { db } from "@/lib/firebase";
+import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { collection, doc, onSnapshot, query, where } from "firebase/firestore";
+import React from "react";
 import {
-  ActivityIndicator,
-  Image,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
+    ActivityIndicator,
+    Image,
+    Modal,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
-import { db } from "@/lib/firebase";
-import { cycleDetails, peso, timestampMillis } from "@/lib/billing";
-import { TenantManagement } from "@/components/tenant-management";
-import { LandlordNavigation } from "@/components/landlord-navigation";
-import { MeterReadings } from "@/components/meter-readings";
 
 function date(value: unknown) {
   const time = timestampMillis(value);
@@ -149,10 +150,8 @@ function TenantDetailsView({
   );
   return (
     <SafeAreaView style={styles.page}>
+      <LandlordPageHeader title="Tenant Details" showBack onBack={back} />
       <ScrollView contentContainerStyle={styles.content}>
-        {action("Back", back, "arrow-back")}
-        <Text style={styles.brand}>BOARDEASE</Text>
-        <Text style={styles.title}>Tenant Details</Text>
         {Object.values(errors).map((error) => (
           <Text key={error} accessibilityRole="alert" style={styles.error}>
             {error}

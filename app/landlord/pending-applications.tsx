@@ -1,28 +1,29 @@
-import { backOrReplace } from "@/lib/navigation";
 import { AppAlert as Alert } from "@/components/app-alert";
-import { Ionicons } from "@expo/vector-icons";
-import {
-  collection,
-  doc,
-  onSnapshot,
-  serverTimestamp,
-  updateDoc,
-} from "firebase/firestore";
-import { createNotification } from "@/lib/notification-data";
-import { router } from "expo-router";
 import { LandlordNavigation } from "@/components/landlord-navigation";
+import { LandlordPageHeader } from "@/components/landlord-page-header";
+import { db } from "@/lib/firebase";
+import { backOrReplace } from "@/lib/navigation";
+import { createNotification } from "@/lib/notification-data";
+import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
+import {
+    collection,
+    doc,
+    onSnapshot,
+    serverTimestamp,
+    updateDoc,
+} from "firebase/firestore";
 import React from "react";
 import {
-  ActivityIndicator,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
+    ActivityIndicator,
+    Modal,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { db } from "@/lib/firebase";
 
 type Application = {
   id: string;
@@ -135,13 +136,14 @@ export default function PendingApplications() {
   }
   return (
     <SafeAreaView style={styles.page}>
-      <View style={styles.header}>
-        <Pressable onPress={() => backOrReplace(router, "/landlord/dashboard")}>
-          <Ionicons name="arrow-back" size={22} color="#172033" />
-        </Pressable>
-        <Text style={styles.title}>Pending Applications</Text>
-        <Ionicons name="notifications-outline" size={21} color="#536783" />
-      </View>
+      <LandlordPageHeader
+        title="Pending Applications"
+        showBack
+        onBack={() => backOrReplace(router, "/landlord/dashboard")}
+        rightAction={
+          <Ionicons name="notifications-outline" size={21} color="#fff" />
+        }
+      />
       <ScrollView contentContainerStyle={styles.content}>
         {!!error && <Text accessibilityRole="alert">{error}</Text>}
         <View style={styles.summary}>
