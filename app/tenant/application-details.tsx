@@ -1,7 +1,12 @@
-import { useTenantData } from "@/lib/use-tenant-data";
-import { usePropertySettings } from "@/lib/use-property-settings";
+import { AppAlert as Alert } from "@/components/app-alert";
+import { TenantPageHeader } from "@/components/tenant-page-header";
+import { useAuth } from "@/lib/auth-context";
 import { peso, timestampMillis } from "@/lib/billing";
 import { db } from "@/lib/firebase";
+import { usePropertySettings } from "@/lib/use-property-settings";
+import { useTenantData } from "@/lib/use-tenant-data";
+import { Ionicons } from "@expo/vector-icons";
+import { useLocalSearchParams } from "expo-router";
 import {
   doc,
   onSnapshot,
@@ -9,11 +14,6 @@ import {
   updateDoc,
 } from "firebase/firestore";
 import React from "react";
-import { AppAlert as Alert } from "@/components/app-alert";
-import { TenantPageHeader } from "@/components/tenant-page-header";
-import { useAuth } from "@/lib/auth-context";
-import { Ionicons } from "@expo/vector-icons";
-import { useLocalSearchParams } from "expo-router";
 import {
   Image,
   Linking,
@@ -60,6 +60,15 @@ export default function ApplicationDetails() {
   const type = String(application?.roomType || "Room");
   const price = peso(application?.price);
   const image = String(application?.image || "");
+  const location = [
+    application?.propertyName,
+    application?.location,
+    application?.floor ? `Floor ${String(application.floor)}` : "",
+    application?.unit ? `Unit ${String(application.unit)}` : "",
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join(" · ");
   const status = String(application?.status || "Loading")
     .replaceAll("_", " ")
     .toUpperCase();
@@ -125,7 +134,7 @@ export default function ApplicationDetails() {
         <View style={styles.roomCard}>
           <Text style={styles.kicker}>{type.toUpperCase()}</Text>
           <Text style={styles.roomTitle}>Room {room}</Text>
-          <Text style={styles.house}>BoardEase Boarding House</Text>
+          <Text style={styles.house}>{location || "Location unavailable"}</Text>
           <View style={styles.row}>
             <Text style={styles.label}>Monthly rent</Text>
             <Text style={styles.value}>{price}</Text>

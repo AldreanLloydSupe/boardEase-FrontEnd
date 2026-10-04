@@ -1,15 +1,15 @@
-import { usePropertySettings } from "@/lib/use-property-settings";
 import { AppAlert as Alert } from "@/components/app-alert";
-import { useTenantData } from "@/lib/use-tenant-data";
-import { timestampMillis } from "@/lib/billing";
-import { sharedImage } from "@/lib/image-data";
 import {
   ApplicantTenantNav,
   AssignedTenantNav,
 } from "@/components/tenant-navigation";
 import { TenantPageHeader } from "@/components/tenant-page-header";
 import { useAuth } from "@/lib/auth-context";
+import { timestampMillis } from "@/lib/billing";
 import { db } from "@/lib/firebase";
+import { sharedImage } from "@/lib/image-data";
+import { usePropertySettings } from "@/lib/use-property-settings";
+import { useTenantData } from "@/lib/use-tenant-data";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
@@ -47,6 +47,10 @@ type ApplicationRecord = {
   roomType: string;
   price: string;
   image?: string;
+  propertyName?: string;
+  location?: string;
+  floor?: string;
+  unit?: string;
   status?: string;
 };
 
@@ -182,6 +186,12 @@ export default function Applications() {
                 image={application.image || ""}
                 room={`Room ${application.roomNumber} - ${application.roomType}`}
                 price={application.price}
+                location={[
+                  application.propertyName,
+                  application.location,
+                  application.floor ? `Floor ${application.floor}` : "",
+                  application.unit ? `Unit ${application.unit}` : "",
+                ].filter(Boolean).join(" · ") || "Location unavailable"}
                 status={String(application.status || "pending").replaceAll(
                   "_",
                   " ",
@@ -1178,6 +1188,7 @@ function ApplicationCard({
   image,
   room,
   price,
+  location,
   status,
   code,
   onPress,
@@ -1185,6 +1196,7 @@ function ApplicationCard({
   image: string;
   room: string;
   price: string;
+  location: string;
   status: string;
   code: string;
   onPress: () => void;
@@ -1210,10 +1222,10 @@ function ApplicationCard({
           <Text style={styles.code}>#{code}</Text>
         </View>
         <Text style={styles.room}>{room}</Text>
-        <Text style={styles.house}>BoardEase Boarding House</Text>
+        <Text style={styles.house}>{location}</Text>
         <View style={styles.meta}>
           <Text style={styles.metaLabel}>Monthly Rent</Text>
-          <Text style={styles.metaValue}>₱{price} /mo</Text>
+          <Text style={styles.metaValue}>₱{price} /month</Text>
         </View>
         {approved ? (
           <Text style={styles.approvedNote}>

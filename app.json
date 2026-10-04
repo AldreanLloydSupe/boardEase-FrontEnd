@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "boardEase",
-    "slug": "boardEase",
+    "name": "BoardEase",
+    "slug": "BoardEase",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",

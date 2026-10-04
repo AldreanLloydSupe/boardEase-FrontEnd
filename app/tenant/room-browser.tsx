@@ -77,6 +77,7 @@ export default function RoomBrowser() {
       router.push({
         pathname: "/tenant/room-details",
         params: {
+          id: room.id,
           number: room.number,
           type: room.type,
           price: room.price,

@@ -1,13 +1,13 @@
 import { AppAlert as Alert } from "@/components/app-alert";
+import DateTimePicker from "@/components/date-time-picker";
 import { TenantPageHeader } from "@/components/tenant-page-header";
 import { useAuth } from "@/lib/auth-context";
 import { getFavoriteRooms, setFavoriteRooms } from "@/lib/favorite-rooms";
 import { db } from "@/lib/firebase";
 import { createApplication, createTourRequest } from "@/lib/request-data";
 import { Ionicons } from "@expo/vector-icons";
-import DateTimePicker from "@/components/date-time-picker";
 import { router, useLocalSearchParams } from "expo-router";
-import { collection, getDocs, query, where } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, query, where } from "firebase/firestore";
 import React from "react";
 import {
   Image,
@@ -25,14 +25,39 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function RoomDetails() {
   const params = useLocalSearchParams<{
+    id?: string;
     number?: string;
     type?: string;
     price?: string;
     image?: string;
   }>();
-  const number = params.number ?? "201";
-  const type = params.type ?? "Twin Sharing";
-  const price = params.price ?? "3,500";
+  const [roomRecord, setRoomRecord] = React.useState<Record<string, unknown> | null>(null);
+  React.useEffect(() => {
+    let active = true;
+    setRoomRecord(null);
+    if (!db || !params.id) return;
+    getDoc(doc(db, "rooms", params.id))
+      .then((snapshot) => {
+        if (active) setRoomRecord(snapshot.exists() ? snapshot.data() : null);
+      })
+      .catch(() => {
+        if (active) setRoomRecord(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [params.id]);
+  const number = String(roomRecord?.number ?? params.number ?? "");
+  const type = String(roomRecord?.type ?? params.type ?? "Room");
+  const price = String(roomRecord?.price ?? roomRecord?.rent ?? params.price ?? "0");
+  const property = String(
+    roomRecord?.propertyName ?? roomRecord?.property ?? "",
+  ).trim();
+  const location = String(
+    roomRecord?.location ?? roomRecord?.address ?? "",
+  ).trim();
+  const floor = roomRecord?.floor ? `Floor ${String(roomRecord.floor)}` : "";
+  const locationLabel = [property, location, floor].filter(Boolean).join(" · ");
   const { user } = useAuth();
   const [tourModalVisible, setTourModalVisible] = React.useState(false);
   const [selectedDate, setSelectedDate] = React.useState<Date | null>(null);
@@ -178,9 +203,9 @@ export default function RoomDetails() {
             <Text style={styles.title}>
               Room {number} - {type}
             </Text>
-            <Text style={styles.location}>
-              BoardEase Boarding House · 2nd Floor
-            </Text>
+            {!!locationLabel && (
+              <Text style={styles.location}>{locationLabel}</Text>
+            )}
           </View>
           <Text style={styles.available}>AVAILABLE</Text>
         </View>

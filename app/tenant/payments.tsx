@@ -1,20 +1,20 @@
-import { usePropertySettings } from "@/lib/use-property-settings";
 import { AppAlert as Alert } from "@/components/app-alert";
-import { useTenantData } from "@/lib/use-tenant-data";
-import { cycleDetails, peso, timestampMillis } from "@/lib/billing";
-import { sharedImage } from "@/lib/image-data";
-import * as Clipboard from "expo-clipboard";
-import { TenantPageHeader } from "@/components/tenant-page-header";
-import { AssignedTenantNav } from "@/components/tenant-navigation";
-import { useAuth } from "@/lib/auth-context";
-import { db } from "@/lib/firebase";
-import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@/components/date-time-picker";
+import { AssignedTenantNav } from "@/components/tenant-navigation";
+import { TenantPageHeader } from "@/components/tenant-page-header";
+import { useAuth } from "@/lib/auth-context";
+import { cycleDetails, peso, timestampMillis } from "@/lib/billing";
+import { db } from "@/lib/firebase";
+import { sharedImage } from "@/lib/image-data";
+import { usePropertySettings } from "@/lib/use-property-settings";
+import { useTenantData } from "@/lib/use-tenant-data";
+import { Ionicons } from "@expo/vector-icons";
 import type { DateTimePickerEvent } from "@react-native-community/datetimepicker";
+import * as Clipboard from "expo-clipboard";
 import * as FileSystem from "expo-file-system/legacy";
 import * as ImagePicker from "expo-image-picker";
 import * as Sharing from "expo-sharing";
-import { doc, runTransaction, serverTimestamp } from "firebase/firestore";
+import { doc, onSnapshot, runTransaction, serverTimestamp } from "firebase/firestore";
 import React from "react";
 import {
   ActivityIndicator,
@@ -43,6 +43,17 @@ type Receipt = {
 export default function TenantPayments() {
   const { user } = useAuth();
   const { profile, payments, loading, error } = useTenantData();
+  const [assignedRoom, setAssignedRoom] = React.useState<Record<string, unknown> | null>(null);
+  const roomId = String(profile.roomId || "");
+  React.useEffect(() => {
+    setAssignedRoom(null);
+    if (!db || !roomId) return;
+    return onSnapshot(
+      doc(db, "rooms", roomId),
+      (snapshot) => setAssignedRoom(snapshot.exists() ? snapshot.data() : null),
+      () => setAssignedRoom(null),
+    );
+  }, [roomId]);
   const { settings, error: settingsError } = usePropertySettings();
   const receiverNumber = String(settings.gcashNumber || "");
   const receiverName = String(settings.gcashName || "");
@@ -300,20 +311,6 @@ export default function TenantPayments() {
           <Text accessibilityRole="alert">{settingsError}</Text>
         )}
         {loading && <ActivityIndicator />}
-        <View style={styles.propertyRow}>
-          <View style={styles.dot} />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.property}>
-              {profile.roomNumber
-                ? `ROOM ${profile.roomNumber} · ${profile.roomType || "Room"}`
-                : "No room assigned"}
-            </Text>
-            <Text style={styles.tenant}>
-              {String(profile.name || user?.displayName || "Tenant")}
-            </Text>
-          </View>
-          <Text style={styles.cycle}>Cycle: {cycle.period}</Text>
-        </View>
 
         <View style={styles.card}>
           <View style={styles.rowBetween}>

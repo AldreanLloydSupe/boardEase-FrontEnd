@@ -1,24 +1,23 @@
-import { useAuth } from "@/lib/auth-context";
 import { MeterReadings } from "@/components/meter-readings";
-import { useTenantData } from "@/lib/use-tenant-data";
+import { AssignedTenantNav } from "@/components/tenant-navigation";
+import { TenantPageHeader } from "@/components/tenant-page-header";
+import { useAuth } from "@/lib/auth-context";
+import { cycleDetails, peso, timestampMillis } from "@/lib/billing";
+import { db } from "@/lib/firebase";
 import { useNotifications } from "@/lib/use-notifications";
 import { usePropertySettings } from "@/lib/use-property-settings";
-import { cycleDetails, peso, timestampMillis } from "@/lib/billing";
-import { TenantPageHeader } from "@/components/tenant-page-header";
-import { AssignedTenantNav } from "@/components/tenant-navigation";
-import { db } from "@/lib/firebase";
+import { useTenantData } from "@/lib/use-tenant-data";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { collection, doc, onSnapshot, query, where } from "firebase/firestore";
 import React from "react";
 import {
-  Pressable,
   Modal,
-  Linking,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  View,
+  View
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -49,10 +48,29 @@ export default function TenantHome() {
   const [pending, setPending] = React.useState(0);
   const [requestError, setRequestError] = React.useState("");
   const cycle = cycleDetails(profile, payments);
+  const roomId = String(profile.roomId || "");
+  const [assignedRoom, setAssignedRoom] = React.useState<Record<string, unknown> | null>(null);
+  React.useEffect(() => {
+    setAssignedRoom(null);
+    if (!db || !roomId) return;
+    return onSnapshot(
+      doc(db, "rooms", roomId),
+      (snapshot) => setAssignedRoom(snapshot.exists() ? snapshot.data() : null),
+      () => setAssignedRoom(null),
+    );
+  }, [roomId]);
   const tenantRoom = {
-    number: String(profile.roomNumber || ""),
-    type: String(profile.roomType || "Room"),
+    number: String(assignedRoom?.number ?? profile.roomNumber ?? ""),
+    type: String(assignedRoom?.type ?? profile.roomType ?? "Room"),
   };
+  const roomLocation = [
+    assignedRoom?.propertyName ?? assignedRoom?.property,
+    assignedRoom?.location ?? assignedRoom?.address,
+    assignedRoom?.floor ? `Floor ${String(assignedRoom.floor)}` : "",
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join(" · ");
   React.useEffect(() => {
     if (!db || !user) return;
     return onSnapshot(
@@ -100,7 +118,7 @@ export default function TenantHome() {
             <View>
               <Text style={styles.cardLabel}>YOUR ROOM</Text>
               <Text style={styles.roomTitle}>{roomLabel}</Text>
-              <Text style={styles.muted}>BoardEase Boarding House</Text>
+              {!!roomLocation && <Text style={styles.muted}>{roomLocation}</Text>}
             </View>
             <Text style={styles.lease}>● Active Lease</Text>
           </View>
@@ -257,23 +275,6 @@ export default function TenantHome() {
           </View>
         </View>
       </Modal>
-      <View style={styles.bottomBar}>
-        <Text style={styles.bottomText}>
-          {String(settings.caretakerName || "Caretaker")}
-        </Text>
-        <Pressable
-          style={styles.call}
-          disabled={!settings.caretakerPhone}
-          onPress={() =>
-            void Linking.openURL(
-              `tel:${String(settings.caretakerPhone || "").replace(/[^+0-9]/g, "")}`,
-            ).catch(() => setRequestError("This device cannot place a call."))
-          }
-        >
-          <Ionicons name="call" size={13} color="#fff" />
-          <Text style={styles.callText}>Call</Text>
-        </Pressable>
-      </View>
       <AssignedTenantNav active="Home" />
     </SafeAreaView>
   );

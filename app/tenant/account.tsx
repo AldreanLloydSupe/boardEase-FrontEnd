@@ -1,31 +1,31 @@
-import { usePropertySettings } from "@/lib/use-property-settings";
 import { AppAlert as Alert } from "@/components/app-alert";
 import { ProfilePictureButton } from "@/components/profile-picture-button";
 import {
-  ApplicantTenantNav,
-  AssignedTenantNav,
+    ApplicantTenantNav,
+    AssignedTenantNav,
 } from "@/components/tenant-navigation";
 import { TenantPageHeader } from "@/components/tenant-page-header";
 import { useAuth } from "@/lib/auth-context";
 import { auth, db } from "@/lib/firebase";
+import { usePropertySettings } from "@/lib/use-property-settings";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import {
-  EmailAuthProvider,
-  reauthenticateWithCredential,
-  updatePassword,
+    EmailAuthProvider,
+    reauthenticateWithCredential,
+    updatePassword,
 } from "firebase/auth";
 import { doc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
 import React from "react";
 import {
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  TextInput,
-  View,
+    Modal,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Switch,
+    Text,
+    TextInput,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -311,8 +311,10 @@ export default function Account() {
     );
   }
 
-  const roomLabel = profile.roomNumber
-    ? `Room ${profile.roomNumber} - ${profile.roomType}`
+  const roomLabel = hasRoom
+    ? profile.roomNumber
+      ? `Room ${profile.roomNumber} - ${profile.roomType}`
+      : "Room assignment pending"
     : "No room assigned";
 
   return (

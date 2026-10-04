@@ -1,4 +1,5 @@
 import { AppAlert as Alert } from "@/components/app-alert";
+import { RoomBrowserSkeleton } from "@/components/room-browser-skeleton";
 import { useAuth } from "@/lib/auth-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Link, router } from "expo-router";
@@ -25,6 +26,7 @@ export default function Login() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, boolean>>({});
   const [loadingSkeleton, setLoadingSkeleton] = useState(true);
   const [successDelay, setSuccessDelay] = useState(false);
+  const [roomBrowserDestination, setRoomBrowserDestination] = useState(false);
   const pulseAnim = useRef(new Animated.Value(0.4)).current;
 
   useEffect(() => {
@@ -67,6 +69,7 @@ export default function Login() {
         return;
       }
       const session = await signIn(email, password);
+      setRoomBrowserDestination(session.role === "user" && !session.hasRoom);
       setSuccessDelay(true);
       setTimeout(() => {
         router.replace(
@@ -99,6 +102,10 @@ export default function Login() {
         error instanceof Error ? error.message : "Please try again.",
       );
     }
+  }
+
+  if (successDelay && roomBrowserDestination) {
+    return <RoomBrowserSkeleton />;
   }
 
   if (successDelay) {
