@@ -1,16 +1,17 @@
-import {
-  collection,
-  doc,
-  getDocs,
-  query,
-  runTransaction,
-  serverTimestamp,
-  where,
-} from "firebase/firestore";
 import type { User } from "firebase/auth";
+import {
+    collection,
+    doc,
+    getDocs,
+    query,
+    runTransaction,
+    serverTimestamp,
+    where,
+} from "firebase/firestore";
 import { db } from "./firebase";
 import { resolveRoom } from "./tenancy-data";
 export type RoomRequest = {
+  roomId?: string;
   roomNumber: string;
   roomType: string;
   price: string;
@@ -24,7 +25,7 @@ async function createRequest(
 ) {
   const firestore = db;
   if (!firestore) throw new Error("Firebase is not configured.");
-  const roomRef = await resolveRoom(room.roomNumber);
+  const roomRef = await resolveRoom(room.roomNumber, room.roomId);
   const existing = await getDocs(
     query(
       collection(firestore, kind),

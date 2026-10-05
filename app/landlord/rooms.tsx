@@ -8,27 +8,27 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  onSnapshot,
-  query,
-  runTransaction,
-  serverTimestamp,
-  where,
+    collection,
+    doc,
+    getDoc,
+    getDocs,
+    onSnapshot,
+    query,
+    runTransaction,
+    serverTimestamp,
+    where,
 } from "firebase/firestore";
 import React, { useState } from "react";
 import {
-  Animated,
-  Image,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
+    Animated,
+    Image,
+    Modal,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -45,15 +45,6 @@ type Room = {
   image?: string;
 };
 
-const AMENITIES = [
-  "WiFi",
-  "Aircon",
-  "Private Bath",
-  "Balcony",
-  "Study Desk",
-  "Water Dispenser",
-];
-
 export default function Rooms() {
   const { user } = useAuth();
   const [isLoadingRooms, setIsLoadingRooms] = useState(true);
@@ -66,7 +57,8 @@ export default function Rooms() {
   const [type, setType] = useState("");
   const [rent, setRent] = useState("");
   const [guidelines, setGuidelines] = useState("");
-  const [selectedAmenities, setSelectedAmenities] = useState<string[]>([]);
+  const [amenityInput, setAmenityInput] = useState("");
+  const [amenities, setAmenities] = useState<string[]>([]);
   const [imageUri, setImageUri] = useState("");
 
   const [filter, setFilter] = useState<
@@ -116,7 +108,8 @@ export default function Rooms() {
     setType(room.type);
     setRent(room.rent);
     setGuidelines(room.guidelines || "");
-    setSelectedAmenities(room.amenities || []);
+    setAmenities(room.amenities || []);
+    setAmenityInput("");
     setImageUri(room.image || "");
     setModalOpen(true);
   };
@@ -127,7 +120,8 @@ export default function Rooms() {
     setType("");
     setRent("");
     setGuidelines("");
-    setSelectedAmenities([]);
+    setAmenityInput("");
+    setAmenities([]);
     setImageUri("");
     setModalOpen(true);
   };
@@ -192,6 +186,17 @@ export default function Rooms() {
     }
   };
 
+  function addAmenity() {
+    const amenity = amenityInput.trim();
+    if (!amenity) return;
+    setAmenities((current) =>
+      current.some((item) => item.toLowerCase() === amenity.toLowerCase())
+        ? current
+        : [...current, amenity],
+    );
+    setAmenityInput("");
+  }
+
   async function saveRoom() {
     if (isAddingRoom) return;
     if (!number.trim() || !type.trim() || !rent.trim()) {
@@ -217,6 +222,16 @@ export default function Rooms() {
     }
     const normalizedRent = String(parsedRent);
     const normalizedGuidelines = guidelines.trim();
+    const pendingAmenity = amenityInput.trim();
+    const normalizedAmenities = [...amenities];
+    if (
+      pendingAmenity &&
+      !normalizedAmenities.some(
+        (amenity) => amenity.toLowerCase() === pendingAmenity.toLowerCase(),
+      )
+    ) {
+      normalizedAmenities.push(pendingAmenity);
+    }
 
     if (
       rooms.some(
@@ -234,7 +249,7 @@ export default function Rooms() {
       number: normalizedNumber,
       type: normalizedType,
       rent: normalizedRent,
-      amenities: selectedAmenities.length > 0 ? selectedAmenities : [],
+      amenities: normalizedAmenities,
       guidelines: normalizedGuidelines,
       image: imageUri,
     };
@@ -564,32 +579,40 @@ export default function Rooms() {
                 numberOfLines={3}
               />
               <Text style={styles.inputLabel}>Amenities</Text>
+              <View style={styles.amenityInputRow}>
+                <TextInput
+                  style={[styles.input, styles.amenityInput]}
+                  value={amenityInput}
+                  onChangeText={setAmenityInput}
+                  onSubmitEditing={addAmenity}
+                  returnKeyType="done"
+                  placeholder="e.g. Wi-Fi, air conditioner"
+                />
+                <Pressable
+                  style={styles.addAmenityButton}
+                  onPress={addAmenity}
+                  accessibilityRole="button"
+                  accessibilityLabel="Add amenity"
+                >
+                  <Ionicons name="add" size={22} color="#fff" />
+                  <Text style={styles.addAmenityText}>Add</Text>
+                </Pressable>
+              </View>
               <View style={styles.amenitiesContainer}>
-                {AMENITIES.map((amenity) => (
+                {amenities.map((amenity, index) => (
                   <Pressable
-                    key={amenity}
-                    style={[
-                      styles.amenityChip,
-                      selectedAmenities.includes(amenity) &&
-                        styles.amenityChipSelected,
-                    ]}
-                    onPress={() => {
-                      setSelectedAmenities((prev) =>
-                        prev.includes(amenity)
-                          ? prev.filter((a) => a !== amenity)
-                          : [...prev, amenity],
-                      );
-                    }}
+                    key={`${amenity}-${index}`}
+                    style={styles.amenityChip}
+                    onPress={() =>
+                      setAmenities((current) =>
+                        current.filter((_, itemIndex) => itemIndex !== index),
+                      )
+                    }
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove ${amenity}`}
                   >
-                    <Text
-                      style={[
-                        styles.amenityChipText,
-                        selectedAmenities.includes(amenity) &&
-                          styles.amenityChipTextSelected,
-                      ]}
-                    >
-                      {amenity}
-                    </Text>
+                    <Text style={styles.amenityChipText}>{amenity}</Text>
+                    <Ionicons name="close" size={14} color="#526174" />
                   </Pressable>
                 ))}
               </View>
@@ -1066,6 +1089,23 @@ const styles = StyleSheet.create({
     textAlignVertical: "top",
     paddingTop: 12,
   },
+  amenityInputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  amenityInput: { flex: 1, minWidth: 0 },
+  addAmenityButton: {
+    height: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 3,
+    backgroundColor: "#2864e8",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+  },
+  addAmenityText: { color: "#fff", fontSize: 13, fontWeight: "600" },
   amenitiesContainer: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -1073,6 +1113,9 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   amenityChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 16,
@@ -1080,17 +1123,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e4e9f0",
   },
-  amenityChipSelected: {
-    backgroundColor: "#2864e8",
-    borderColor: "#2864e8",
-  },
   amenityChipText: {
     fontSize: 12,
     color: "#526174",
     fontWeight: "500",
-  },
-  amenityChipTextSelected: {
-    color: "#fff",
   },
   saveButton: {
     height: 46,

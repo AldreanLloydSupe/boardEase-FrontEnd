@@ -34,7 +34,7 @@ export function LandlordDashboardSkeleton() {
           <Animated.View style={[styles.title, { opacity: pulseAnim }]} />
         </View>
         <Animated.View style={[styles.headerAction, { opacity: pulseAnim }]} />
-        <Animated.View style={[styles.headerAction, { opacity: pulseAnim }]} />
+        <Animated.View style={[styles.headerNotice, { opacity: pulseAnim }]} />
         <Animated.View style={[styles.avatar, { opacity: pulseAnim }]} />
       </View>
       <ScrollView contentContainerStyle={styles.content}>
@@ -76,7 +76,7 @@ export function LandlordDashboardSkeleton() {
         ))}
         <Animated.View style={[styles.quickHeading, { opacity: pulseAnim }]} />
         <View style={styles.quickActions}>
-          {[0, 1, 2].map((item) => (
+          {[0, 1].map((item) => (
             <View key={item} style={styles.quickAction}>
               <Animated.View style={[styles.quickIcon, { opacity: pulseAnim }]} />
               <Animated.View style={[styles.quickLabel, { opacity: pulseAnim }]} />
@@ -123,6 +123,7 @@ const styles = StyleSheet.create({
   brand: { width: 72, height: 8, borderRadius: 4, backgroundColor: "#9bbaf6" },
   title: { width: 78, height: 17, borderRadius: 4, backgroundColor: "#578af0" },
   headerAction: { width: 34, height: 38, borderRadius: 10, backgroundColor: "#578af0" },
+  headerNotice: { width: 94, height: 38, borderRadius: 10, backgroundColor: "#578af0" },
   avatar: { width: 34, height: 34, borderRadius: 17, backgroundColor: "#9bbaf6" },
   content: { padding: 16, paddingBottom: 24 },
   stats: { flexDirection: "row", flexWrap: "wrap", gap: 12 },

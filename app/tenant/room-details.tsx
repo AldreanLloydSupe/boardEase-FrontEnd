@@ -5,21 +5,22 @@ import { useAuth } from "@/lib/auth-context";
 import { getFavoriteRooms, setFavoriteRooms } from "@/lib/favorite-rooms";
 import { db } from "@/lib/firebase";
 import { createApplication, createTourRequest } from "@/lib/request-data";
+import { roomFromFirestore } from "@/lib/room-data";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { collection, doc, getDoc, getDocs, query, where } from "firebase/firestore";
 import React from "react";
 import {
-  Image,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
+    Image,
+    KeyboardAvoidingView,
+    Modal,
+    Platform,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -58,6 +59,9 @@ export default function RoomDetails() {
   ).trim();
   const floor = roomRecord?.floor ? `Floor ${String(roomRecord.floor)}` : "";
   const locationLabel = [property, location, floor].filter(Boolean).join(" · ");
+  const amenities = roomRecord
+    ? roomFromFirestore(String(params.id ?? ""), roomRecord).amenities
+    : [];
   const { user } = useAuth();
   const [tourModalVisible, setTourModalVisible] = React.useState(false);
   const [selectedDate, setSelectedDate] = React.useState<Date | null>(null);
@@ -150,7 +154,13 @@ export default function RoomDetails() {
         throw new Error("Please log in again before requesting a tour.");
       await createTourRequest(
         user,
-        { roomNumber: number, roomType: type, price, image: params.image },
+        {
+          roomId: params.id,
+          roomNumber: number,
+          roomType: type,
+          price,
+          image: params.image,
+        },
         `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, "0")}-${String(selectedDate.getDate()).padStart(2, "0")}`,
         tourNote.trim(),
       );
@@ -229,25 +239,22 @@ export default function RoomDetails() {
           />
         </Section>
         <Section title="Room Inclusions & Amenities">
-          <View style={styles.chips}>
-            {[
-              "Aircon",
-              "High-Speed WiFi",
-              "Study Area",
-              "Shared Bath",
-              "CCTV & Biometrics",
-              "Laundry Area",
-            ].map((item) => (
-              <View style={styles.chip} key={item}>
-                <Ionicons
-                  name="checkmark-circle-outline"
-                  size={15}
-                  color="#16805d"
-                />
-                <Text style={styles.chipText}>{item}</Text>
-              </View>
-            ))}
-          </View>
+          {amenities.length ? (
+            <View style={styles.chips}>
+              {amenities.map((amenity, index) => (
+                <View style={styles.chip} key={`${amenity}-${index}`}>
+                  <Ionicons
+                    name="checkmark-circle-outline"
+                    size={15}
+                    color="#16805d"
+                  />
+                  <Text style={styles.chipText}>{amenity}</Text>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <Text style={styles.body}>No amenities listed for this room.</Text>
+          )}
         </Section>
         <Section title="House Guidelines">
           <Text style={styles.body}>
@@ -295,6 +302,7 @@ export default function RoomDetails() {
               await new Promise((resolve) => setTimeout(resolve, 800));
 
               const application = await createApplication(user, {
+                roomId: params.id,
                 roomNumber: number,
                 roomType: type,
                 price,

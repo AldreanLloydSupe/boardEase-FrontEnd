@@ -179,20 +179,18 @@ export default function ApplicationReview() {
         </View>
         <View style={styles.contactRow}>
           <Action
-            icon="call-outline"
-            label="Call"
+            icon="chatbubble-outline"
+            label="Message"
             onPress={() => {
-              if (tenantPhone !== "Not provided")
-                void Linking.openURL(
-                  `tel:${tenantPhone.replace(/[^+0-9]/g, "")}`,
-                ).catch(() =>
-                  Alert.alert(
-                    "Cannot call",
-                    "This device cannot place a call.",
-                  ),
-                );
-              else
-                Alert.alert("Phone unavailable", "No phone number is on file.");
+              const tenantId = application.tenantId || (tenantProfile.id as string | undefined);
+              if (!tenantId) {
+                Alert.alert("Tenant unavailable", "No tenant record is linked to this application.");
+                return;
+              }
+              router.push({
+                pathname: "/landlord/messages",
+                params: { tenantId },
+              } as any);
             }}
           />
           <Action

@@ -51,8 +51,6 @@ export default function Account() {
   const [applicationUpdates, setApplicationUpdates] = React.useState(true);
   const [tourUpdates, setTourUpdates] = React.useState(true);
   const [reminderTiming, setReminderTiming] = React.useState("3 days before");
-  const [verificationStatus, setVerificationStatus] =
-    React.useState("Not submitted");
   const [feedback, setFeedback] = React.useState("");
   const [editOpen, setEditOpen] = React.useState(false);
   const [timingOpen, setTimingOpen] = React.useState(false);
@@ -101,7 +99,6 @@ export default function Account() {
         roomRent: String(data.roomRent || ""),
         rentDueDay: Number(data.rentDueDay || 5),
       }));
-      setVerificationStatus(String(data.verificationStatus || "Not submitted"));
       setNotifications(data.notificationsEnabled !== false);
       setPaymentReminders(data.paymentReminders !== false);
       setMaintenanceUpdates(data.maintenanceUpdates !== false);
@@ -420,7 +417,6 @@ export default function Account() {
             value={profile.emergencyPhone || "Not provided"}
           />
 
-          <Info label="ID Verification" value={verificationStatus} />
         </DropdownSection>
 
         {/* SETTINGS & PREFERENCES DROPDOWN */}
@@ -581,18 +577,6 @@ export default function Account() {
               thumbColor={tourUpdates ? "#2864e8" : "#f4f4f4"}
             />
           </Setting>
-
-          <Setting
-            icon="shield-checkmark-outline"
-            label="Privacy & ID Verification"
-            onPress={() =>
-              Alert.alert(
-                "Privacy & verification",
-                `ID status: ${verificationStatus}\n\nOnly you and management can access your profile. Contact management to review your ID or request data deletion.`,
-                [{ text: "OK" }],
-              )
-            }
-          />
 
           <Setting
             icon="trash-outline"

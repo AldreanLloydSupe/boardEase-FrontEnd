@@ -357,14 +357,7 @@ function TenantDetailsView({
                   </View>
                 ))}
             </Section>
-            <Section title="Verification">
-              <Info
-                label="ID status"
-                value={tenant.verificationStatus || "Not submitted"}
-              />
-              <Text style={styles.muted}>
-                Private records are available only to authorized management.
-              </Text>
+            <Section title="Applications">
               {action(
                 "Review application records",
                 () => router.push("/landlord/pending-applications"),

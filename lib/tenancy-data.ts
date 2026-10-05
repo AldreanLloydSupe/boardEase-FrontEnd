@@ -1,17 +1,24 @@
 import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  query,
-  runTransaction,
-  serverTimestamp,
-  where,
+    collection,
+    doc,
+    getDoc,
+    getDocs,
+    query,
+    runTransaction,
+    serverTimestamp,
+    where,
 } from "firebase/firestore";
 import { db } from "./firebase";
 
 export async function resolveRoom(number: string, id?: string) {
   if (!db) throw new Error("Firebase is unavailable.");
+  if (id) {
+    const ref = doc(db, "rooms", id);
+    const snapshot = await getDoc(ref);
+    if (snapshot.exists() && String(snapshot.data().number) === number)
+      return ref;
+    throw new Error("This room no longer exists. Refresh the room list.");
+  }
   const matches = await getDocs(
     query(collection(db, "rooms"), where("number", "==", number)),
   );
@@ -20,12 +27,6 @@ export async function resolveRoom(number: string, id?: string) {
       "Multiple rooms share this number. Ask management to reconcile them before assigning.",
     );
   if (matches.size === 1) return matches.docs[0].ref;
-  if (id) {
-    const ref = doc(db, "rooms", id);
-    const snapshot = await getDoc(ref);
-    if (snapshot.exists() && String(snapshot.data().number) === number)
-      return ref;
-  }
   throw new Error("This room no longer exists. Refresh the room list.");
 }
 

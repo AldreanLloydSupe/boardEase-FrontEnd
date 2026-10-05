@@ -6,6 +6,7 @@
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
     "promote-admin": "node ./scripts/promote-admin.mjs",
+    "remove-verification-status": "node ./scripts/remove-verification-status.mjs",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",

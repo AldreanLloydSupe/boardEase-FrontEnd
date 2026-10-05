@@ -31,3 +31,16 @@ export function roomFromFirestore(
 }
 
 export const roomKey = (room: TenantRoom) => room.id || room.number;
+
+export function normalizeRoomStatus(status?: string): "available" | "occupied" {
+  const value = String(status ?? "available").trim().toLowerCase();
+  return value === "occupied" ? "occupied" : "available";
+}
+
+export function roomStatusLabel(status?: string): "Available" | "Occupied" {
+  return normalizeRoomStatus(status) === "occupied" ? "Occupied" : "Available";
+}
+
+export function isRoomBrowserVisible(status?: string): boolean {
+  return ["available", "occupied"].includes(normalizeRoomStatus(status));
+}

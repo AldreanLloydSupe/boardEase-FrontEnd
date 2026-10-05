@@ -8,20 +8,20 @@ import { useTenantData } from "@/lib/use-tenant-data";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams } from "expo-router";
 import {
-  doc,
-  onSnapshot,
-  serverTimestamp,
-  updateDoc,
+    doc,
+    onSnapshot,
+    serverTimestamp,
+    updateDoc,
 } from "firebase/firestore";
 import React from "react";
 import {
-  Image,
-  Linking,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
+    Image,
+    Linking,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -151,10 +151,6 @@ export default function ApplicationDetails() {
             value={String(profile.phone || "Not provided")}
           />
           <Info label="Email Address" value={user?.email || ""} />
-          <Info
-            label="Identity Document"
-            value={String(profile.verificationStatus || "Not submitted")}
-          />
         </View>
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Requested rent</Text>

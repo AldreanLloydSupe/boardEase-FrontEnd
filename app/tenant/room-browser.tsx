@@ -1,22 +1,29 @@
-import { TenantPageHeader } from "@/components/tenant-page-header";
 import { ApplicantTenantNav } from "@/components/tenant-navigation";
+import { TenantPageHeader } from "@/components/tenant-page-header";
 import { useAuth } from "@/lib/auth-context";
 import { getFavoriteRooms, setFavoriteRooms } from "@/lib/favorite-rooms";
 import { db } from "@/lib/firebase";
-import { roomFromFirestore, roomKey, type TenantRoom } from "@/lib/room-data";
+import {
+    isRoomBrowserVisible,
+    normalizeRoomStatus,
+    roomFromFirestore,
+    roomKey,
+    roomStatusLabel,
+    type TenantRoom,
+} from "@/lib/room-data";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import React from "react";
 import {
-  Animated,
-  Image,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
+    Animated,
+    Image,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -94,8 +101,9 @@ export default function RoomBrowser() {
     }
     const firestore = db;
     const records = new Map<string, TenantRoom>();
-    const publish = () => setRooms([...records.values()].filter((room) => room.status === "available"));
-    const subscribe = (status: "available" | "Available") =>
+    const publish = () =>
+      setRooms([...records.values()].filter((room) => isRoomBrowserVisible(room.status)));
+    const subscribe = (status: string) =>
       onSnapshot(
         query(collection(firestore, "rooms"), where("status", "==", status)),
         (snapshot) => {
@@ -106,7 +114,7 @@ export default function RoomBrowser() {
         },
         () => setIsLoadingRooms(false),
       );
-    const stops = [subscribe("available"), subscribe("Available")];
+    const stops = [subscribe("available"), subscribe("Available"), subscribe("occupied"), subscribe("Occupied")];
     return () => stops.forEach((stop) => stop());
   }, []);
 
@@ -198,6 +206,8 @@ export default function RoomBrowser() {
           ) : (
             <View style={styles.roomsGrid}>
             {visibleRooms.map((room) => {
+              const isOccupied = normalizeRoomStatus(room.status) === "occupied";
+              const statusLabel = roomStatusLabel(room.status);
               return (
               <Pressable
                 style={styles.card}
@@ -235,8 +245,10 @@ export default function RoomBrowser() {
                     <Text style={styles.roomTitle}>
                       Room {room.number} - {room.type}
                     </Text>
-                    <View style={styles.availableBadge}>
-                      <Text style={styles.available}>Available</Text>
+                    <View style={isOccupied ? styles.occupiedBadge : styles.availableBadge}>
+                      <Text style={isOccupied ? styles.occupied : styles.available}>
+                        {statusLabel}
+                      </Text>
                     </View>
                   </View>
                   
@@ -358,8 +370,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 4,
   },
+  occupiedBadge: {
+    backgroundColor: "#f3f5f8",
+    borderRadius: 12,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+  },
   available: {
     color: "#109968",
+    fontSize: 10,
+    fontWeight: "600",
+  },
+  occupied: {
+    color: "#536783",
     fontSize: 10,
     fontWeight: "600",
   },

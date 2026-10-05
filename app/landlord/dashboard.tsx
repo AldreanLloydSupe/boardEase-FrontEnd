@@ -12,27 +12,25 @@ import { useMaintenanceInbox } from "@/lib/use-maintenance-inbox";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import {
-    addDoc,
-    collection,
-    doc,
-    getDocs,
-    onSnapshot,
-    query,
-    serverTimestamp,
-    setDoc,
-    where,
+  collection,
+  doc,
+  getDocs,
+  onSnapshot,
+  query,
+  serverTimestamp,
+  setDoc,
+  where,
 } from "firebase/firestore";
 import React from "react";
 import {
-    Modal,
-    Platform,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -142,7 +140,7 @@ type DashboardNotification = {
   details?: string;
   createdAt?: unknown;
 };
-type MessageRecipient = {
+type TenantRecipient = {
   id: string;
   name: string;
   email: string;
@@ -153,10 +151,8 @@ export default function Dashboard() {
   const { user, displayName, signOut, updateUserProfile } = useAuth();
   const [profileOpen, setProfileOpen] = React.useState(false);
   const [notificationsOpen, setNotificationsOpen] = React.useState(false);
-  const [messageOpen, setMessageOpen] = React.useState(false);
   const [announcementOpen, setAnnouncementOpen] = React.useState(false);
   const [editProfileOpen, setEditProfileOpen] = React.useState(false);
-  const [recipientSearch, setRecipientSearch] = React.useState("");
   const [sentMessages, setSentMessages] = React.useState<
     {
       id: string;
@@ -201,35 +197,11 @@ export default function Dashboard() {
       },
     );
   }, [user]);
-  const [messageText, setMessageText] = React.useState("");
-  const [messageAudience, setMessageAudience] = React.useState<
-    "all" | "selected"
-  >("all");
-  const [messageRecipients, setMessageRecipients] = React.useState<
-    MessageRecipient[]
+  const [tenantRecipients, setTenantRecipients] = React.useState<
+    TenantRecipient[]
   >([]);
-  const [selectedRecipientIds, setSelectedRecipientIds] = React.useState<
-    string[]
-  >([]);
-  const [loadingRecipients, setLoadingRecipients] = React.useState(false);
-  const [sendingMessage, setSendingMessage] = React.useState(false);
-  const matchingRecipients = messageRecipients.filter((recipient) =>
-    [recipient.name, recipient.email, recipient.room]
-      .join(" ")
-      .toLowerCase()
-      .includes(recipientSearch.trim().toLowerCase()),
-  );
-  const recipientCount =
-    messageAudience === "all"
-      ? messageRecipients.length
-      : selectedRecipientIds.filter((id) =>
-          messageRecipients.some((r) => r.id === id),
-        ).length;
-  const sendDisabled =
-    sendingMessage ||
-    loadingRecipients ||
-    !messageText.trim() ||
-    recipientCount === 0;
+  const [loadingTenantRecipients, setLoadingTenantRecipients] =
+    React.useState(false);
   const [profileName, setProfileName] = React.useState(displayName || "");
   const [profilePhone, setProfilePhone] = React.useState("");
   const [applicationNotifications, setApplicationNotifications] =
@@ -501,14 +473,10 @@ export default function Dashboard() {
       Alert.alert("Unable to update profile", "Please try again.");
     }
   }
-  async function openMessageComposer() {
-    setRecipientSearch("");
-    setMessageRecipients([]);
-    setMessageOpen(true);
-    setLoadingRecipients(true);
-    setMessageText("");
-    setMessageAudience("all");
-    setSelectedRecipientIds([]);
+  async function openAnnouncementComposer() {
+    setAnnouncementOpen(true);
+    setTenantRecipients([]);
+    setLoadingTenantRecipients(true);
     try {
       if (!db) throw new Error("Firebase is not available.");
       const snapshot = await getDocs(collection(db, "users"));
@@ -529,74 +497,14 @@ export default function Dashboard() {
         })
         .filter((recipient) => recipient.isTenant)
         .map(({ id, name, email, room }) => ({ id, name, email, room }));
-      setMessageRecipients(recipients);
+      setTenantRecipients(recipients);
     } catch {
       Alert.alert(
         "Unable to load tenants",
         "Check your connection and try again.",
       );
     } finally {
-      setLoadingRecipients(false);
-    }
-  }
-  function closeMessageComposer() {
-    setMessageOpen(false);
-    setMessageText("");
-    setSelectedRecipientIds([]);
-  }
-  function toggleRecipient(recipientId: string) {
-    setSelectedRecipientIds((current) =>
-      current.includes(recipientId)
-        ? current.filter((id) => id !== recipientId)
-        : [...current, recipientId],
-    );
-  }
-  async function sendMessage() {
-    const body = messageText.trim();
-    const recipientIds =
-      messageAudience === "all"
-        ? messageRecipients.map((recipient) => recipient.id)
-        : selectedRecipientIds.filter((id) =>
-            messageRecipients.some((r) => r.id === id),
-          );
-    if (sendingMessage || loadingRecipients) return;
-    if (!body || body.length > 2000) {
-      Alert.alert("Message required", "Write a message of 1–2,000 characters.");
-      return;
-    }
-    if (recipientIds.length === 0) {
-      Alert.alert(
-        "Choose recipients",
-        "Select at least one tenant to message.",
-      );
-      return;
-    }
-    if (!db || !user) {
-      Alert.alert(
-        "Unable to send",
-        "Sign in again and try sending the message.",
-      );
-      return;
-    }
-    setSendingMessage(true);
-    try {
-      await addDoc(collection(db, "messages"), {
-        body,
-        audience: messageAudience,
-        recipientIds,
-        senderId: user.uid,
-        senderName: displayName || user.email || "Landlord",
-        createdAt: serverTimestamp(),
-      });
-      closeMessageComposer();
-      Alert.alert(
-        "Message sent",
-        `Your message was sent to ${recipientIds.length} tenant${recipientIds.length === 1 ? "" : "s"}.`,
-      );
-    } catch {
-      Alert.alert("Unable to send message", "Please try again.");
-    } finally {
-      setSendingMessage(false);
+      setLoadingTenantRecipients(false);
     }
   }
   if (db && dashboardSourcesReady.size < 5 && !dataError) {
@@ -624,11 +532,12 @@ export default function Dashboard() {
             )}
           </Pressable>
           <Pressable
-            onPress={openMessageComposer}
-            style={styles.bell}
-            accessibilityLabel="Message tenants"
+            onPress={openAnnouncementComposer}
+            style={styles.noticeButton}
+            accessibilityLabel="Post notice"
           >
-            <Ionicons name="mail-outline" size={19} color="#fff" />
+            <Ionicons name="megaphone-outline" size={17} color="#fff" />
+            <Text style={styles.noticeButtonText}></Text>
           </Pressable>
           <Pressable
             onPress={() => setProfileOpen(true)}
@@ -786,16 +695,11 @@ export default function Dashboard() {
           {[
             ["person-add-outline", "Assign Room"],
             ["cash-outline", "Log Rent"],
-            ["megaphone-outline", "Post Notice"],
           ].map(([icon, label]) => (
             <Pressable
               key={label}
               style={styles.quick}
               onPress={() => {
-                if (label === "Post Notice") {
-                  setAnnouncementOpen(true);
-                  return;
-                }
                 router.push(
                   label === "Assign Room"
                     ? "/landlord/pending-applications"
@@ -816,7 +720,11 @@ export default function Dashboard() {
             </Pressable>
           ))}
         </View>
-        <SectionTitle title="Sent messages & announcements" action="" />
+        <SectionTitle
+          title="Sent messages & announcements"
+          action="Post Notice"
+          onPress={openAnnouncementComposer}
+        />
         {sentError ? (
           <Text accessibilityRole="alert">{sentError}</Text>
         ) : sentLoading ? (
@@ -1116,204 +1024,11 @@ export default function Dashboard() {
           </Pressable>
         </Pressable>
       </Modal>
-      <Modal
-        visible={messageOpen}
-        transparent
-        animationType="slide"
-        onRequestClose={closeMessageComposer}
-      >
-        <View style={styles.messageBackdrop}>
-          <View style={styles.messageModal}>
-            <ScrollView keyboardShouldPersistTaps="handled">
-              <View style={styles.messageModalHeader}>
-                <View>
-                  <Text style={styles.messageModalTitle}>Message tenants</Text>
-                  <Text style={styles.messageModalSubtitle}>
-                    Send an update to assigned tenants.
-                  </Text>
-                </View>
-                <Pressable
-                  onPress={closeMessageComposer}
-                  accessibilityLabel="Close message composer"
-                  style={styles.closeMessageButton}
-                >
-                  <Ionicons name="close" size={20} color="#536783" />
-                </Pressable>
-              </View>
-              <Text style={styles.inputLabel}>Message</Text>
-              <TextInput
-                style={styles.messageInput}
-                value={messageText}
-                onChangeText={setMessageText}
-                placeholder="Write your message..."
-                placeholderTextColor="#91a0b3"
-                multiline
-                maxLength={2000}
-                textAlignVertical="top"
-              />
-              <Text style={styles.characterCount}>
-                {messageText.length} / 2,000 characters
-              </Text>
-              <View style={styles.messageAudience}>
-                <Pressable
-                  onPress={() => setMessageAudience("all")}
-                  style={[
-                    styles.audienceOption,
-                    messageAudience === "all" && styles.audienceOptionActive,
-                  ]}
-                >
-                  <Ionicons
-                    name="people-outline"
-                    size={16}
-                    color={messageAudience === "all" ? "#fff" : "#536783"}
-                  />
-                  <Text
-                    style={[
-                      styles.audienceText,
-                      messageAudience === "all" && styles.audienceTextActive,
-                    ]}
-                  >
-                    Everyone
-                  </Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => setMessageAudience("selected")}
-                  style={[
-                    styles.audienceOption,
-                    messageAudience === "selected" &&
-                      styles.audienceOptionActive,
-                  ]}
-                >
-                  <Ionicons
-                    name="person-outline"
-                    size={16}
-                    color={messageAudience === "selected" ? "#fff" : "#536783"}
-                  />
-                  <Text
-                    style={[
-                      styles.audienceText,
-                      messageAudience === "selected" &&
-                        styles.audienceTextActive,
-                    ]}
-                  >
-                    Choose tenants
-                  </Text>
-                </Pressable>
-              </View>
-              {messageAudience === "all" ? (
-                <View style={styles.recipientSummary}>
-                  <Ionicons
-                    name="information-circle-outline"
-                    size={17}
-                    color="#2864e8"
-                  />
-                  <Text style={styles.recipientSummaryText}>
-                    {loadingRecipients
-                      ? "Loading tenant list..."
-                      : `This message will go to all ${messageRecipients.length} assigned tenant${messageRecipients.length === 1 ? "" : "s"}.`}
-                  </Text>
-                </View>
-              ) : (
-                <View style={styles.recipientPicker}>
-                  <Text style={styles.recipientHeading}>
-                    Select tenants ({selectedRecipientIds.length})
-                  </Text>
-                  <TextInput
-                    value={recipientSearch}
-                    onChangeText={setRecipientSearch}
-                    placeholder="Search name, room, or email"
-                    accessibilityLabel="Search tenants"
-                    style={styles.recipientSearch}
-                  />
-                  {loadingRecipients ? (
-                    <Text style={styles.recipientEmpty}>
-                      Loading tenant list...
-                    </Text>
-                  ) : matchingRecipients.length === 0 ? (
-                    <Text style={styles.recipientEmpty}>
-                      {messageRecipients.length
-                        ? "No tenants match your search."
-                        : "No assigned tenants found."}
-                    </Text>
-                  ) : (
-                    <ScrollView style={styles.recipientList}>
-                      {matchingRecipients.map((recipient) => {
-                        const selected = selectedRecipientIds.includes(
-                          recipient.id,
-                        );
-                        return (
-                          <Pressable
-                            key={recipient.id}
-                            onPress={() => toggleRecipient(recipient.id)}
-                            style={styles.recipientRow}
-                            accessibilityRole="checkbox"
-                            accessibilityState={{ checked: selected }}
-                          >
-                            <View
-                              style={[
-                                styles.recipientCheckbox,
-                                selected && styles.recipientCheckboxSelected,
-                              ]}
-                            >
-                              {selected && (
-                                <Ionicons
-                                  name="checkmark"
-                                  size={14}
-                                  color="#fff"
-                                />
-                              )}
-                            </View>
-                            <View style={styles.recipientInfo}>
-                              <Text
-                                style={styles.recipientName}
-                                numberOfLines={1}
-                              >
-                                {recipient.name}
-                              </Text>
-                              <Text
-                                style={styles.recipientDetail}
-                                numberOfLines={1}
-                              >
-                                {recipient.room}
-                                {recipient.email ? ` · ${recipient.email}` : ""}
-                              </Text>
-                            </View>
-                          </Pressable>
-                        );
-                      })}
-                    </ScrollView>
-                  )}
-                </View>
-              )}
-              <View style={styles.messageModalActions}>
-                <Pressable
-                  onPress={closeMessageComposer}
-                  style={styles.cancelMessageButton}
-                  disabled={sendingMessage}
-                >
-                  <Text style={styles.cancelMessageText}>Cancel</Text>
-                </Pressable>
-                <Pressable
-                  onPress={sendMessage}
-                  style={[
-                    styles.sendMessageButton,
-                    sendDisabled && styles.sendMessageDisabled,
-                  ]}
-                  disabled={sendDisabled}
-                >
-                  <Ionicons name="send-outline" size={15} color="#fff" />
-                  <Text style={styles.sendMessageText}>
-                    {sendingMessage ? "Sending..." : "Send message"}
-                  </Text>
-                </Pressable>
-              </View>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
       <AnnouncementComposer
         visible={announcementOpen}
         onClose={() => setAnnouncementOpen(false)}
+        recipients={tenantRecipients}
+        loadingRecipients={loadingTenantRecipients}
       />
       <Modal
         visible={profileOpen}
@@ -1508,160 +1223,17 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     position: "relative",
   },
-  messageBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(15, 23, 42, 0.45)",
-    justifyContent: Platform.OS === "web" ? "center" : "flex-end",
+  noticeButton: {
+    height: 40,
+    flexDirection: "row",
     alignItems: "center",
-    padding: Platform.OS === "web" ? 16 : 0,
-  },
-  messageModal: {
-    width: "100%",
-    maxWidth: Platform.OS === "web" ? 520 : undefined,
-    borderRadius: Platform.OS === "web" ? 20 : undefined,
-    maxHeight: "90%",
-    backgroundColor: "#fff",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 20,
-    paddingBottom: 28,
-  },
-  characterCount: {
-    textAlign: "right",
-    color: "#71809a",
-    fontSize: 12,
-    marginTop: 6,
-  },
-  recipientSearch: {
-    borderWidth: 1,
-    borderColor: "#dbe5f4",
+    justifyContent: "center",
+    gap: 5,
+    paddingHorizontal: 10,
     borderRadius: 10,
-    padding: 12,
-    marginVertical: 8,
+    backgroundColor: "rgba(255,255,255,0.16)",
   },
-  messageModalHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingBottom: 14,
-    borderBottomWidth: 1,
-    borderColor: "#edf1f7",
-  },
-  messageModalTitle: { fontSize: 18, fontWeight: "700", color: "#172033" },
-  messageModalSubtitle: { fontSize: 12, color: "#71809a", marginTop: 3 },
-  closeMessageButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: "#f3f7fd",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  messageInput: {
-    minHeight: 100,
-    maxHeight: 170,
-    borderWidth: 1,
-    borderColor: "#d4e0f0",
-    borderRadius: 8,
-    padding: 12,
-    color: "#253149",
-    backgroundColor: "#fbfcff",
-    fontSize: 14,
-    marginTop: 6,
-  },
-  messageAudience: {
-    flexDirection: "row",
-    gap: 8,
-    backgroundColor: "#f3f7fd",
-    borderRadius: 8,
-    padding: 4,
-    marginTop: 14,
-  },
-  audienceOption: {
-    flex: 1,
-    minHeight: 40,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    borderRadius: 6,
-  },
-  audienceOptionActive: { backgroundColor: "#2864e8" },
-  audienceText: { fontSize: 12, color: "#536783", fontWeight: "600" },
-  audienceTextActive: { color: "#fff" },
-  recipientSummary: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-    backgroundColor: "#eaf1ff",
-    borderRadius: 8,
-    padding: 11,
-    marginTop: 11,
-  },
-  recipientSummaryText: { flex: 1, color: "#42536c", fontSize: 12 },
-  recipientPicker: { marginTop: 12 },
-  recipientHeading: {
-    color: "#253149",
-    fontSize: 12,
-    fontWeight: "700",
-    marginBottom: 5,
-  },
-  recipientList: { maxHeight: 210 },
-  recipientEmpty: { color: "#71809a", fontSize: 12, paddingVertical: 14 },
-  recipientRow: {
-    minHeight: 54,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    borderBottomWidth: 1,
-    borderColor: "#edf1f7",
-    paddingVertical: 8,
-  },
-  recipientCheckbox: {
-    width: 21,
-    height: 21,
-    borderWidth: 1,
-    borderColor: "#b8c7db",
-    borderRadius: 5,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  recipientCheckboxSelected: {
-    backgroundColor: "#2864e8",
-    borderColor: "#2864e8",
-  },
-  recipientInfo: { flex: 1 },
-  recipientName: { color: "#253149", fontSize: 13, fontWeight: "600" },
-  recipientDetail: { color: "#71809a", fontSize: 11, marginTop: 2 },
-  messageModalActions: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    gap: 9,
-    marginTop: 16,
-  },
-  cancelMessageButton: {
-    minHeight: 42,
-    minWidth: 82,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "#d4e0f0",
-    borderRadius: 8,
-    paddingHorizontal: 14,
-  },
-  cancelMessageText: { color: "#536783", fontSize: 12, fontWeight: "600" },
-  sendMessageButton: {
-    minHeight: 42,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 7,
-    backgroundColor: "#2864e8",
-    borderRadius: 8,
-    paddingHorizontal: 16,
-  },
-  sendMessageDisabled: { opacity: 0.55 },
-  sendMessageText: { color: "#fff", fontSize: 12, fontWeight: "700" },
+  noticeButtonText: { color: "#fff", fontSize: 11, fontWeight: "700" },
   dot: {
     position: "absolute",
     right: 3,
