@@ -1,12 +1,12 @@
+import { useAuth } from "@/lib/auth-context";
 import { Redirect, Stack, useSegments } from "expo-router";
 import { ActivityIndicator, View } from "react-native";
-import { useAuth } from "@/lib/auth-context";
 
 export default function TenantLayout() {
   const { user, role, hasRoom, loading } = useAuth();
   const segments = useSegments();
   const page = String(segments[1] || "");
-  const assignedOnly = ["tenant-home", "payments", "qr"].includes(page);
+  const assignedOnly = ["tenant-home", "payments"].includes(page);
   const applicantOnly = ["room-browser", "room-details", "saved"].includes(
     page,
   );

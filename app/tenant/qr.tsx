@@ -84,7 +84,6 @@ export default function QRScanner() {
         edges={["top", "bottom"]}
         pointerEvents="box-none"
       >
-        <TenantPageHeader title="Scan QR Code" backHref={safeBackHref} />
 
         <View style={styles.footer}>
           <Text style={styles.footerText}>
