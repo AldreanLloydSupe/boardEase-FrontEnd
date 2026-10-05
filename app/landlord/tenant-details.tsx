@@ -130,6 +130,8 @@ function TenantDetailsView({
   }, [tenantId]);
   const cycle = cycleDetails(tenant || {}, payments);
   const receipt = payments.find((payment) => payment.id === receiptId);
+  const tenantEmail =
+    tenant?.email ?? tenant?.tenantEmail ?? tenant?.contactEmail ?? "Not provided";
   const back = () =>
     router.canGoBack() ? router.back() : router.replace("/landlord/tenants");
   const message = () =>
@@ -210,7 +212,7 @@ function TenantDetailsView({
             <Section title="Personal Information">
               <Info label="Full name" value={tenant.name} />
               <Info label="Phone" value={tenant.phone} />
-              <Info label="Email" value={tenant.email} />
+              <Info label="Email" value={tenantEmail} />
               <Info label="Emergency contact" value={tenant.emergencyContact} />
               <Info label="Emergency phone" value={tenant.emergencyPhone} />
             </Section>

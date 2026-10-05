@@ -1,12 +1,12 @@
 import type { User } from "firebase/auth";
 import {
-    collection,
-    doc,
-    getDocs,
-    query,
-    runTransaction,
-    serverTimestamp,
-    where,
+  collection,
+  doc,
+  getDocs,
+  query,
+  runTransaction,
+  serverTimestamp,
+  where,
 } from "firebase/firestore";
 import { db } from "./firebase";
 import { resolveRoom } from "./tenancy-data";
@@ -66,10 +66,6 @@ async function createRequest(
       roomType: data.type || "Room",
       price: String(data.rent ?? data.price ?? ""),
       image: data.image || "",
-      propertyName: String(data.propertyName ?? data.property ?? ""),
-      location: String(data.location ?? data.address ?? ""),
-      floor: String(data.floor ?? ""),
-      unit: String(data.unit ?? data.unitNumber ?? data.number ?? ""),
       ...extras,
       status: "pending",
       createdAt: serverTimestamp(),

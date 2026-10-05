@@ -296,9 +296,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           throw new Error(firebaseSetupMessage);
         }
         await updateProfile(auth.currentUser, { displayName: profile.name });
-        await setDoc(doc(db, "users", auth.currentUser.uid), profile, {
-          merge: true,
-        });
+        await setDoc(
+          doc(db, "users", auth.currentUser.uid),
+          {
+            ...profile,
+            email: auth.currentUser.email ?? "",
+          },
+          { merge: true },
+        );
         setUser(auth.currentUser);
         setDisplayName(profile.name);
       },
