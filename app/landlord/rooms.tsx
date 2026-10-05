@@ -470,6 +470,17 @@ export default function Rooms() {
                       </Text>
                     </View>
                   </View>
+                  <View style={styles.amenitiesList}>
+                    {room.amenities && room.amenities.length > 0 ? (
+                      <Text style={styles.amenitiesText} numberOfLines={1}>
+                        {room.amenities.join(" • ")}
+                      </Text>
+                    ) : (
+                      <Text style={styles.amenitiesTextEmpty}>
+                        No amenities listed
+                      </Text>
+                    )}
+                  </View>
                   <View
                     style={[
                       styles.roomAction,
@@ -1024,6 +1035,19 @@ const styles = StyleSheet.create({
   rentBox: { alignItems: "flex-end", flexShrink: 0 },
   rent: { fontSize: 12, fontWeight: "700", color: "#2458c7" },
   month: { fontSize: 9, fontWeight: "400", color: "#71809a" },
+  amenitiesList: {
+    marginBottom: 10,
+  },
+  amenitiesText: {
+    fontSize: 10,
+    color: "#526174",
+    fontWeight: "500",
+  },
+  amenitiesTextEmpty: {
+    fontSize: 10,
+    color: "#9aa8ba",
+    fontStyle: "italic",
+  },
   roomAction: {
     minHeight: 34,
     borderRadius: 7,

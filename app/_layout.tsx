@@ -1,4 +1,5 @@
 import { AppAlertProvider } from "@/components/app-alert";
+import { OfflineBanner } from "@/components/offline-banner";
 
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -32,6 +33,7 @@ export default function RootLayout() {
             options={{ presentation: "modal", title: "Modal" }}
           />
         </Stack>
+        <OfflineBanner />
         <StatusBar style="dark" />
       </AppAlertProvider>
     </AuthProvider>

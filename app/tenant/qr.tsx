@@ -5,7 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { router } from "expo-router";
 import React from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function QRScanner() {
@@ -51,10 +51,25 @@ export default function QRScanner() {
     data: string;
   }) => {
     setScanned(true);
-    Alert.alert("QR Code Scanned!", `Type: ${type}\nData: ${data}`, [
-      { text: "Scan Again", onPress: () => setScanned(false) },
-      { text: "Close", onPress: () => router.replace(safeBackHref as any) },
-    ]);
+    if (data.startsWith("http://") || data.startsWith("https://")) {
+      Linking.openURL(data).catch(() => {
+        Alert.alert("Error", "Could not open the link provided by the QR code.", [
+          { text: "Scan Again", onPress: () => setScanned(false) },
+          { text: "Close", onPress: () => router.replace(safeBackHref as any) },
+        ]);
+      });
+    } else if (data.startsWith("ROOM:")) {
+      const roomId = data.replace("ROOM:", "");
+      router.push({
+        pathname: "/tenant/room-details",
+        params: { id: roomId },
+      } as any);
+    } else {
+      Alert.alert("Invalid QR Code", "We couldn't recognize this QR code.", [
+        { text: "Scan Again", onPress: () => setScanned(false) },
+        { text: "Close", onPress: () => router.replace(safeBackHref as any) },
+      ]);
+    }
   };
 
   return (
@@ -84,6 +99,21 @@ export default function QRScanner() {
         edges={["top", "bottom"]}
         pointerEvents="box-none"
       >
+        <View style={styles.header}>
+          <Pressable
+            style={styles.backButton}
+            onPress={() => router.replace(safeBackHref as any)}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+          >
+            <Ionicons name="close" size={28} color="#fff" />
+          </Pressable>
+          <View style={styles.titleGroup}>
+            <Ionicons name="qr-code-outline" size={20} color="#fff" />
+            <Text style={styles.title}>Scan QR</Text>
+          </View>
+          <View style={{ width: 44 }} />
+        </View>
 
         <View style={styles.footer}>
           <Text style={styles.footerText}>

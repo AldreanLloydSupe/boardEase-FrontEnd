@@ -6,6 +6,7 @@ import { getFavoriteRooms, setFavoriteRooms } from "@/lib/favorite-rooms";
 import { db } from "@/lib/firebase";
 import { createApplication, createTourRequest } from "@/lib/request-data";
 import { roomFromFirestore } from "@/lib/room-data";
+import { usePropertySettings } from "@/lib/use-property-settings";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { collection, doc, getDoc, getDocs, query, where } from "firebase/firestore";
@@ -25,6 +26,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function RoomDetails() {
+  const { settings } = usePropertySettings();
   const params = useLocalSearchParams<{
     id?: string;
     number?: string;
@@ -258,8 +260,10 @@ export default function RoomDetails() {
         </Section>
         <Section title="House Guidelines">
           <Text style={styles.body}>
-            Quiet hours are observed from 10:00 PM to 6:00 AM. Visitors must
-            register with the landlord.
+            {String(
+              settings.houseRules ||
+                "Quiet hours are observed from 10:00 PM to 6:00 AM. Visitors must register with the landlord.",
+            )}
           </Text>
         </Section>
       </ScrollView>
