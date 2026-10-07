@@ -6,6 +6,7 @@ import {
 } from "@/components/tenant-navigation";
 import { TenantPageHeader } from "@/components/tenant-page-header";
 import { useAuth } from "@/lib/auth-context";
+import { useAppTheme } from "@/lib/theme-context";
 import { auth, db } from "@/lib/firebase";
 import { usePropertySettings } from "@/lib/use-property-settings";
 import { Ionicons } from "@expo/vector-icons";
@@ -41,6 +42,7 @@ type Profile = {
 };
 
 export default function Account() {
+  const { darkMode } = useAppTheme();
   const { user, hasRoom, signOut, resetPassword, updateUserProfile } =
     useAuth();
 
@@ -315,11 +317,11 @@ export default function Account() {
     : "No room assigned";
 
   return (
-    <SafeAreaView style={styles.page}>
+    <SafeAreaView style={[styles.page, darkMode && darkStyles.page]}>
       <TenantPageHeader title="Account" />
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, darkMode && darkStyles.content]}
       >
         {!!feedback && (
           <Text accessibilityRole="alert" style={styles.modalHint}>
@@ -327,14 +329,14 @@ export default function Account() {
           </Text>
         )}
         {/* PROFILE HEADER */}
-        <View style={styles.profile}>
+        <View style={[styles.profile, darkMode && darkStyles.card]}>
           <ProfilePictureButton
             fallback={profile.name.slice(0, 2).toUpperCase()}
             size={49}
           />
 
           <View style={styles.profileDetails}>
-            <Text style={styles.name}>{profile.name}</Text>
+            <Text style={[styles.name, darkMode && darkStyles.primaryText]}>{profile.name}</Text>
 
             <Text style={styles.green}>
               Tenant ·{" "}
@@ -343,7 +345,7 @@ export default function Account() {
                 : "No room assigned"}
             </Text>
 
-            <Text style={styles.email}>{user?.email || ""}</Text>
+            <Text style={[styles.email, darkMode && darkStyles.secondaryText]}>{user?.email || ""}</Text>
           </View>
 
           <Pressable

@@ -3,6 +3,8 @@ import { TenantPageHeader } from "@/components/tenant-page-header";
 import { useAuth } from "@/lib/auth-context";
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import { db } from "@/lib/firebase";
+import { doc, getDoc } from "firebase/firestore";
 import { router } from "expo-router";
 import React from "react";
 import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
@@ -13,6 +15,18 @@ export default function QRScanner() {
   const safeBackHref = hasRoom ? "/tenant/tenant-home" : "/tenant/room-browser";
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = React.useState(false);
+  const askForCamera = async () => {
+    const result = await requestPermission();
+    if (!result.granted) {
+      Alert.alert(
+        "Camera permission denied",
+        result.canAskAgain
+          ? "Allow camera access to scan a room QR code."
+          : "Enable camera access for BoardEase in your device settings to scan room QR codes.",
+        [{ text: "OK" }, ...(!result.canAskAgain ? [{ text: "Settings", onPress: () => { void Linking.openSettings(); } }] : [])],
+      );
+    }
+  };
 
   if (!permission) {
     return <View style={styles.container} />;
@@ -29,7 +43,7 @@ export default function QRScanner() {
             We need your permission to use the camera to scan QR codes for
             payments or boarding house links.
           </Text>
-          <Pressable style={styles.permissionBtn} onPress={requestPermission}>
+          <Pressable style={styles.permissionBtn} onPress={askForCamera}>
             <Text style={styles.permissionBtnText}>Allow Camera Access</Text>
           </Pressable>
           <Pressable
@@ -43,13 +57,13 @@ export default function QRScanner() {
     );
   }
 
-  const handleBarcodeScanned = ({
-    type,
+  const handleBarcodeScanned = async ({
     data,
   }: {
     type: string;
     data: string;
   }) => {
+    if (scanned) return;
     setScanned(true);
     if (data.startsWith("http://") || data.startsWith("https://")) {
       Linking.openURL(data).catch(() => {
@@ -65,10 +79,25 @@ export default function QRScanner() {
         params: { id: roomId },
       } as any);
     } else {
-      Alert.alert("Invalid QR Code", "We couldn't recognize this QR code.", [
-        { text: "Scan Again", onPress: () => setScanned(false) },
-        { text: "Close", onPress: () => router.replace(safeBackHref as any) },
-      ]);
+      try {
+        const payload: unknown = JSON.parse(data);
+        if (!payload || typeof payload !== "object") throw new Error("Invalid QR");
+        const roomPayload = payload as { type?: unknown; roomId?: unknown; roomNumber?: unknown };
+        if (roomPayload.type !== "BOARDING_ROOM" || typeof roomPayload.roomId !== "string" || !roomPayload.roomId.trim()) throw new Error("Invalid QR");
+        if (!db) throw new Error("Room services are unavailable right now.");
+        const roomSnapshot = await getDoc(doc(db, "rooms", roomPayload.roomId));
+        if (!roomSnapshot.exists()) throw new Error("This room is no longer listed.");
+        router.push({ pathname: "/tenant/room-details", params: { id: roomPayload.roomId, number: String(roomSnapshot.data().number ?? roomPayload.roomNumber ?? "") } } as any);
+        return;
+      } catch (error) {
+        Alert.alert("Invalid QR Code", error instanceof SyntaxError || (error instanceof Error && error.message === "Invalid QR")
+          ? "This code is not a valid BoardEase room QR code."
+          : error instanceof Error ? error.message : "We couldn't load this room.", [
+          { text: "Scan Again", onPress: () => setScanned(false) },
+          { text: "Close", onPress: () => router.replace(safeBackHref as any) },
+        ]);
+        return;
+      }
     }
   };
 

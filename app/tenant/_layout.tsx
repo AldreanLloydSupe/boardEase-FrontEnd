@@ -7,7 +7,7 @@ export default function TenantLayout() {
   const segments = useSegments();
   const page = String(segments[1] || "");
   const assignedOnly = ["tenant-home", "payments"].includes(page);
-  const applicantOnly = ["room-browser", "room-details", "saved"].includes(
+  const applicantOnly = ["room-browser", "saved"].includes(
     page,
   );
   if (loading)

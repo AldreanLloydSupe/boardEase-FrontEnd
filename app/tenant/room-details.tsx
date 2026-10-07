@@ -9,7 +9,7 @@ import { roomFromFirestore } from "@/lib/room-data";
 import { usePropertySettings } from "@/lib/use-property-settings";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
-import { collection, doc, getDoc, getDocs, query, where } from "firebase/firestore";
+import { collection, doc, getDocs, onSnapshot, query, where } from "firebase/firestore";
 import React from "react";
 import {
     Image,
@@ -41,15 +41,12 @@ export default function RoomDetails() {
     setRoomRecord(null);
     /* eslint-enable react-hooks/set-state-in-effect */
     if (!db || !params.id) return;
-    getDoc(doc(db, "rooms", params.id))
-      .then((snapshot) => {
-        if (active) setRoomRecord(snapshot.exists() ? snapshot.data() : null);
-      })
-      .catch(() => {
-        if (active) setRoomRecord(null);
-      });
+    const unsubscribe = onSnapshot(doc(db, "rooms", params.id), (snapshot) => {
+      if (active) setRoomRecord(snapshot.exists() ? snapshot.data() : null);
+    }, () => { if (active) setRoomRecord(null); });
     return () => {
       active = false;
+      unsubscribe();
     };
   }, [params.id]);
   const number = String(roomRecord?.number ?? params.number ?? "");
@@ -67,6 +64,8 @@ export default function RoomDetails() {
     ? roomFromFirestore(String(params.id ?? ""), roomRecord).amenities
     : [];
   const { user } = useAuth();
+  const isOccupied = String(roomRecord?.status ?? "available").toLowerCase() === "occupied";
+  const isAssignedTenant = Boolean(user?.uid && roomRecord?.tenantId === user.uid);
   const [tourModalVisible, setTourModalVisible] = React.useState(false);
   const [selectedDate, setSelectedDate] = React.useState<Date | null>(null);
   const [showDatePicker, setShowDatePicker] = React.useState(false);
@@ -221,10 +220,16 @@ export default function RoomDetails() {
               <Text style={styles.location}>{locationLabel}</Text>
             )}
           </View>
-          <Text style={styles.available}>AVAILABLE</Text>
+          <Text style={[styles.available, isOccupied && styles.occupiedBadge]}>{isOccupied ? "OCCUPIED" : "AVAILABLE"}</Text>
         </View>
 
-        <View style={styles.priceCard}>
+        {isOccupied ? (
+          <View style={styles.priceCard}>
+            <Text style={styles.note}>Current tenant</Text>
+            <Text style={styles.price}>{String(roomRecord?.tenantName ?? roomRecord?.tenant ?? "Assigned tenant")}</Text>
+            {isAssignedTenant ? <Text style={styles.note}>This room is assigned to your account.</Text> : null}
+          </View>
+        ) : <View style={styles.priceCard}>
           <Text style={styles.price}>
             ₱{price}
             <Text style={styles.month}> / month</Text>
@@ -232,10 +237,11 @@ export default function RoomDetails() {
           <Text style={styles.note}>
             Includes basic utilities · Subject to lease terms
           </Text>
-        </View>
+        </View>}
 
         <Section title="Occupancy & Bed Allocation">
-          <InfoRow icon="people-outline" label="Occupancy" value={type} />
+          <InfoRow icon="people-outline" label="Room type" value={type} />
+          <InfoRow icon="people-outline" label="Capacity" value={String(roomRecord?.capacity ?? type)} />
           <InfoRow
             icon="bed-outline"
             label="Bed allocation"
@@ -271,6 +277,12 @@ export default function RoomDetails() {
       </ScrollView>
 
       <View style={styles.actions}>
+        {isOccupied ? (
+          isAssignedTenant ? <Pressable style={styles.applyButton} onPress={() => router.push("/tenant/applications" as any)}>
+            <Ionicons name="build-outline" size={18} color="#fff" />
+            <Text style={styles.applyText}>Submit Maintenance Request</Text>
+          </Pressable> : <Text style={styles.note}>This room is currently occupied.</Text>
+        ) : <>
         <Pressable
           style={[
             styles.tourButton,
@@ -352,6 +364,7 @@ export default function RoomDetails() {
                 : "Apply for this Room"}
           </Text>
         </Pressable>
+        </>}
       </View>
 
       <Modal
@@ -538,6 +551,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
   },
+  occupiedBadge: { backgroundColor: "#fff0ee", color: "#b54135" },
   priceCard: {
     backgroundColor: "#fff",
     borderRadius: 12,

@@ -3,10 +3,12 @@ import { LandlordNavigation } from "@/components/landlord-navigation";
 import { LandlordPageHeader } from "@/components/landlord-page-header";
 import { useAuth } from "@/lib/auth-context";
 import { db } from "@/lib/firebase";
-import { uploadImageDataUrl } from "@/lib/firebase-storage";
 import { sharedImage } from "@/lib/image-data";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
+import * as FileSystem from "expo-file-system/legacy";
+import * as Sharing from "expo-sharing";
+import QRCode from "react-native-qrcode-svg";
 import { router } from "expo-router";
 import {
     collection,
@@ -53,6 +55,9 @@ export default function Rooms() {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingRoomId, setEditingRoomId] = useState<string | null>(null);
+  const [qrRoom, setQrRoom] = useState<Room | null>(null);
+  const [isSavingQr, setIsSavingQr] = useState(false);
+  const qrCodeRef = React.useRef<{ toDataURL: (callback: (value: string) => void) => void } | null>(null);
 
   const [number, setNumber] = useState("");
   const [type, setType] = useState("");
@@ -176,7 +181,7 @@ export default function Rooms() {
         base64: true,
       });
 
-      if (!result.canceled && result.assets[0].base64) {
+      if (!result.canceled && result.assets[0]?.base64) {
         setImageUri(sharedImage(result.assets[0]));
       }
     } catch (error) {
@@ -246,14 +251,13 @@ export default function Rooms() {
       return;
     }
 
-    let storedImage = imageUri;
     const roomData = {
       number: normalizedNumber,
       type: normalizedType,
       rent: normalizedRent,
       amenities: normalizedAmenities,
       guidelines: normalizedGuidelines,
-      image: storedImage,
+      image: imageUri,
     };
 
     setIsAddingRoom(true);
@@ -261,10 +265,6 @@ export default function Rooms() {
     try {
       if (db) {
         if (editingRoomId) {
-          storedImage = imageUri.startsWith("data:image/")
-            ? await uploadImageDataUrl(`room-images/${editingRoomId}/cover`, imageUri)
-            : imageUri;
-          roomData.image = storedImage;
           const matches = await getDocs(
             query(
               collection(db, "rooms"),
@@ -300,10 +300,6 @@ export default function Rooms() {
               "This room number already exists. Refresh before adding another room.",
             );
           const saved = doc(firestore, "rooms", "room_" + normalizedNumber);
-          storedImage = imageUri.startsWith("data:image/")
-            ? await uploadImageDataUrl(`room-images/${saved.id}/cover`, imageUri)
-            : imageUri;
-          roomData.image = storedImage;
           await runTransaction(firestore, async (tx) => {
             if ((await tx.get(saved)).exists())
               throw new Error("This room was already created.");
@@ -342,6 +338,26 @@ export default function Rooms() {
       );
     } finally {
       setIsAddingRoom(false);
+    }
+  }
+  async function saveRoomQr() {
+    if (!qrRoom || isSavingQr) return;
+    setIsSavingQr(true);
+    try {
+      // The rendered QR component exposes toDataURL; generate a standalone PNG for sharing or saving.
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const qr = qrCodeRef.current;
+        if (!qr) return reject(new Error("The room QR code is not ready yet."));
+        qr.toDataURL((value: string) => value ? resolve(value) : reject(new Error("Could not create the QR image.")));
+      });
+      const uri = `${FileSystem.cacheDirectory}room-${qrRoom.number.replace(/[^A-Za-z0-9_-]/g, "_")}-qr.png`;
+      await FileSystem.writeAsStringAsync(uri, base64, { encoding: FileSystem.EncodingType.Base64 });
+      if (!(await Sharing.isAvailableAsync())) throw new Error("Sharing is not available on this device.");
+      await Sharing.shareAsync(uri, { mimeType: "image/png", dialogTitle: `Room ${qrRoom.number} QR Code` });
+    } catch (error) {
+      Alert.alert("Unable to save QR code", error instanceof Error ? error.message : "Please try again.");
+    } finally {
+      setIsSavingQr(false);
     }
   }
   return (
@@ -519,6 +535,10 @@ export default function Rooms() {
                         : "Occupied · Assigned"}
                     </Text>
                   </View>
+                  <Pressable accessibilityRole="button" accessibilityLabel={`View or print QR code for room ${room.number}`} style={styles.qrButton} onPress={() => setQrRoom(room)}>
+                    <Ionicons name="qr-code-outline" size={16} color="#2458c7" />
+                    <Text style={styles.qrButtonText}>View / Print QR Code</Text>
+                  </Pressable>
                 </View>
               </View>
             ))
@@ -659,6 +679,20 @@ export default function Rooms() {
                 </Text>
               </Pressable>
             </ScrollView>
+          </View>
+        </View>
+      </Modal>
+      <Modal visible={!!qrRoom} transparent animationType="fade" onRequestClose={() => setQrRoom(null)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.qrModal}>
+            <View style={styles.modalTitleRow}>
+              <View><Text style={styles.modalTitle}>Room QR Code</Text><Text style={styles.qrSubtitle}>Room {qrRoom?.number} · {qrRoom?.type}</Text></View>
+              <Pressable onPress={() => setQrRoom(null)} accessibilityLabel="Close QR code"><Ionicons name="close" size={23} color="#536783" /></Pressable>
+            </View>
+            {qrRoom ? <View style={styles.qrCodeFrame}><QRCode getRef={(ref) => { qrCodeRef.current = ref; }} value={JSON.stringify({ type: "BOARDING_ROOM", roomId: qrRoom.id, roomNumber: qrRoom.number })} size={220} backgroundColor="#ffffff" color="#172033" /></View> : null}
+            <Text style={styles.qrHint}>Scan this code to view the latest room details.</Text>
+            <Pressable style={[styles.qrSaveButton, isSavingQr && { opacity: 0.65 }]} onPress={saveRoomQr} disabled={isSavingQr}><Ionicons name="download-outline" size={18} color="#fff" /><Text style={styles.qrSaveText}>{isSavingQr ? "Preparing…" : "Save / Share QR Code"}</Text></Pressable>
+            <Pressable style={styles.qrCloseButton} onPress={() => setQrRoom(null)}><Text style={styles.qrCloseText}>Close</Text></Pressable>
           </View>
         </View>
       </Modal>
@@ -1075,6 +1109,16 @@ const styles = StyleSheet.create({
     color: "#394b61",
     textAlign: "center",
   },
+  qrButton: { marginTop: 9, minHeight: 36, borderRadius: 7, borderWidth: 1, borderColor: "#cbd9f3", backgroundColor: "#f5f8ff", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 },
+  qrButtonText: { color: "#2458c7", fontSize: 11, fontWeight: "700" },
+  qrModal: { width: "100%", maxWidth: 390, backgroundColor: "#fff", borderRadius: 16, padding: 20, alignItems: "stretch" },
+  qrSubtitle: { color: "#71809a", fontSize: 13, marginTop: 4 },
+  qrCodeFrame: { alignSelf: "center", padding: 14, marginTop: 24, backgroundColor: "#fff", borderRadius: 12, borderWidth: 1, borderColor: "#e1eafa" },
+  qrHint: { textAlign: "center", color: "#71809a", fontSize: 12, marginVertical: 16 },
+  qrSaveButton: { minHeight: 46, borderRadius: 9, backgroundColor: "#2864e8", flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8 },
+  qrSaveText: { color: "#fff", fontSize: 14, fontWeight: "700" },
+  qrCloseButton: { alignItems: "center", padding: 13 },
+  qrCloseText: { color: "#536783", fontWeight: "600" },
   assignAction: { backgroundColor: "#eaf1ff" },
   assignText: { color: "#2458c7" },
   nav: {

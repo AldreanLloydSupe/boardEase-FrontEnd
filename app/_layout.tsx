@@ -6,6 +6,7 @@ import { StatusBar } from "expo-status-bar";
 import "react-native-reanimated";
 
 import { AuthProvider } from "@/lib/auth-context";
+import { ThemeProvider } from "@/lib/theme-context";
 
 export const unstable_settings = {
   anchor: "index",
@@ -13,8 +14,9 @@ export const unstable_settings = {
 
 export default function RootLayout() {
   return (
-    <AuthProvider>
-      <AppAlertProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <AppAlertProvider>
         <Stack
           screenOptions={{
             animation: "fade",
@@ -34,8 +36,9 @@ export default function RootLayout() {
           />
         </Stack>
         <OfflineBanner />
-        <StatusBar style="dark" />
-      </AppAlertProvider>
-    </AuthProvider>
+          <StatusBar style="auto" />
+        </AppAlertProvider>
+      </AuthProvider>
+    </ThemeProvider>
   );
 }

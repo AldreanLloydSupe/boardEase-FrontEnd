@@ -5,7 +5,6 @@ import { TenantPageHeader } from "@/components/tenant-page-header";
 import { useAuth } from "@/lib/auth-context";
 import { cycleDetails, peso, timestampMillis } from "@/lib/billing";
 import { db } from "@/lib/firebase";
-import { uploadImageDataUrl } from "@/lib/firebase-storage";
 import { sharedImage } from "@/lib/image-data";
 import { usePropertySettings } from "@/lib/use-property-settings";
 import { useTenantData } from "@/lib/use-tenant-data";
@@ -246,12 +245,8 @@ export default function TenantPayments() {
 
     setIsSubmitting(true);
     try {
-      const receiptBase64 = sharedImage(selectedImage);
+      const receiptUrl = sharedImage(selectedImage);
       const ref = doc(db, "payments", user.uid + "__" + referenceNumber.trim());
-      const receiptUrl = await uploadImageDataUrl(
-        `payment-proofs/${user.uid}/${ref.id}.jpg`,
-        receiptBase64,
-      );
       await runTransaction(db, async (tx) => {
         const existing = await tx.get(ref);
         if (existing.exists() && existing.data().status !== "rejected")
