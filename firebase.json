@@ -2,5 +2,8 @@
   "firestore": {
     "rules": "firestore.rules",
     "indexes": "../backend/firestore.indexes.json"
+  },
+  "storage": {
+    "rules": "../backend/storage.rules"
   }
 }

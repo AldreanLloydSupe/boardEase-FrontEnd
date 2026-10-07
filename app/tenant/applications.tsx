@@ -7,6 +7,7 @@ import { TenantPageHeader } from "@/components/tenant-page-header";
 import { useAuth } from "@/lib/auth-context";
 import { timestampMillis } from "@/lib/billing";
 import { db } from "@/lib/firebase";
+import { uploadImageDataUrl } from "@/lib/firebase-storage";
 import { sharedImage } from "@/lib/image-data";
 import { usePropertySettings } from "@/lib/use-property-settings";
 import { useTenantData } from "@/lib/use-tenant-data";
@@ -14,13 +15,13 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import {
-  addDoc,
   collection,
   deleteDoc,
   doc,
   onSnapshot,
   query,
   serverTimestamp,
+  setDoc,
   updateDoc,
   where,
 } from "firebase/firestore";
@@ -518,8 +519,16 @@ function CareRequests({
       status: "in_progress" as const,
     };
     try {
-      await addDoc(collection(db, "maintenanceRequests"), {
+      const requestRef = doc(collection(db, "maintenanceRequests"));
+      const storedPhoto = photoUri
+        ? await uploadImageDataUrl(
+            `maintenance-photos/${tenantId}/${requestRef.id}.jpg`,
+            photoUri,
+          )
+        : null;
+      await setDoc(requestRef, {
         ...requestData,
+        photoUri: storedPhoto,
         createdAt: serverTimestamp(),
       });
       // Reset form

@@ -52,7 +52,9 @@ export default function TenantHome() {
   const roomId = String(profile.roomId || "");
   const [assignedRoom, setAssignedRoom] = React.useState<Record<string, unknown> | null>(null);
   React.useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect -- clear the previous room while switching assignments */
     setAssignedRoom(null);
+    /* eslint-enable react-hooks/set-state-in-effect */
     if (!db || !roomId) return;
     return onSnapshot(
       doc(db, "rooms", roomId),

@@ -37,7 +37,9 @@ export default function RoomDetails() {
   const [roomRecord, setRoomRecord] = React.useState<Record<string, unknown> | null>(null);
   React.useEffect(() => {
     let active = true;
+    /* eslint-disable react-hooks/set-state-in-effect -- clear stale room data before loading the selected room */
     setRoomRecord(null);
+    /* eslint-enable react-hooks/set-state-in-effect */
     if (!db || !params.id) return;
     getDoc(doc(db, "rooms", params.id))
       .then((snapshot) => {

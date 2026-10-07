@@ -3,6 +3,7 @@ import { getApps, initializeApp, type FirebaseApp } from "firebase/app";
 import * as firebaseAuth from "firebase/auth";
 import { getAuth, initializeAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
+import { getStorage } from "firebase/storage";
 import { Platform } from "react-native";
 
 const firebaseConfig = {
@@ -11,6 +12,7 @@ const firebaseConfig = {
   projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID,
   messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
   appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
+  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET,
 };
 
 export const isFirebaseConfigured =
@@ -42,3 +44,4 @@ function createFirebaseAuth(firebaseApp: FirebaseApp) {
 
 export const auth = app ? createFirebaseAuth(app) : null;
 export const db = app ? getFirestore(app) : null;
+export const storage = app ? getStorage(app) : null;

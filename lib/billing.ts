@@ -73,7 +73,7 @@ export function notificationAllowed(
       ? "applicationUpdates"
       : type?.startsWith("tour")
         ? "tourUpdates"
-        : type === "rent_reminder"
+        : type?.startsWith("rent_")
           ? "paymentReminders"
           : "";
   return !key || profile[key] !== false;

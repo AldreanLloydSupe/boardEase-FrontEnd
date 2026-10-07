@@ -18,6 +18,7 @@ import React, {
   useState,
 } from "react";
 import { auth, db, isFirebaseConfigured } from "./firebase";
+import { uploadImageDataUrl } from "./firebase-storage";
 
 type Role = "admin" | "user";
 type AuthContextValue = {
@@ -283,12 +284,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           cleanUri.length > 510000
         )
           throw new Error("Choose a small JPG, PNG, or WebP image.");
+        const photoURL = await uploadImageDataUrl(
+          `profile-photos/${auth.currentUser.uid}/avatar`,
+          cleanUri,
+        );
         await setDoc(
           doc(db, "users", auth.currentUser.uid),
-          { photoURL: cleanUri },
+          { photoURL },
           { merge: true },
         );
-        setProfilePhoto(cleanUri);
+        setProfilePhoto(photoURL);
         setUser(auth.currentUser);
       },
       async updateUserProfile(profile) {

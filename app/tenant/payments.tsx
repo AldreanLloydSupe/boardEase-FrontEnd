@@ -5,6 +5,7 @@ import { TenantPageHeader } from "@/components/tenant-page-header";
 import { useAuth } from "@/lib/auth-context";
 import { cycleDetails, peso, timestampMillis } from "@/lib/billing";
 import { db } from "@/lib/firebase";
+import { uploadImageDataUrl } from "@/lib/firebase-storage";
 import { sharedImage } from "@/lib/image-data";
 import { usePropertySettings } from "@/lib/use-property-settings";
 import { useTenantData } from "@/lib/use-tenant-data";
@@ -14,7 +15,7 @@ import * as Clipboard from "expo-clipboard";
 import * as FileSystem from "expo-file-system/legacy";
 import * as ImagePicker from "expo-image-picker";
 import * as Sharing from "expo-sharing";
-import { doc, onSnapshot, runTransaction, serverTimestamp } from "firebase/firestore";
+import { doc, runTransaction, serverTimestamp } from "firebase/firestore";
 import React from "react";
 import {
   ActivityIndicator,
@@ -43,17 +44,6 @@ type Receipt = {
 export default function TenantPayments() {
   const { user } = useAuth();
   const { profile, payments, loading, error } = useTenantData();
-  const [assignedRoom, setAssignedRoom] = React.useState<Record<string, unknown> | null>(null);
-  const roomId = String(profile.roomId || "");
-  React.useEffect(() => {
-    setAssignedRoom(null);
-    if (!db || !roomId) return;
-    return onSnapshot(
-      doc(db, "rooms", roomId),
-      (snapshot) => setAssignedRoom(snapshot.exists() ? snapshot.data() : null),
-      () => setAssignedRoom(null),
-    );
-  }, [roomId]);
   const { settings, error: settingsError } = usePropertySettings();
   const receiverNumber = String(settings.gcashNumber || "");
   const receiverName = String(settings.gcashName || "");
@@ -258,6 +248,10 @@ export default function TenantPayments() {
     try {
       const receiptBase64 = sharedImage(selectedImage);
       const ref = doc(db, "payments", user.uid + "__" + referenceNumber.trim());
+      const receiptUrl = await uploadImageDataUrl(
+        `payment-proofs/${user.uid}/${ref.id}.jpg`,
+        receiptBase64,
+      );
       await runTransaction(db, async (tx) => {
         const existing = await tx.get(ref);
         if (existing.exists() && existing.data().status !== "rejected")
@@ -275,7 +269,7 @@ export default function TenantPayments() {
           referenceNumber: referenceNumber.trim(),
           dateSent: formatDate(sentAt),
           timeSent: formatTime(sentAt),
-          receiptUrl: receiptBase64,
+          receiptUrl,
           status: "pending",
           createdAt: serverTimestamp(),
         });

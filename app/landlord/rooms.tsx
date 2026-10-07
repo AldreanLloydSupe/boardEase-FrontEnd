@@ -3,6 +3,7 @@ import { LandlordNavigation } from "@/components/landlord-navigation";
 import { LandlordPageHeader } from "@/components/landlord-page-header";
 import { useAuth } from "@/lib/auth-context";
 import { db } from "@/lib/firebase";
+import { uploadImageDataUrl } from "@/lib/firebase-storage";
 import { sharedImage } from "@/lib/image-data";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
@@ -245,13 +246,14 @@ export default function Rooms() {
       return;
     }
 
+    let storedImage = imageUri;
     const roomData = {
       number: normalizedNumber,
       type: normalizedType,
       rent: normalizedRent,
       amenities: normalizedAmenities,
       guidelines: normalizedGuidelines,
-      image: imageUri,
+      image: storedImage,
     };
 
     setIsAddingRoom(true);
@@ -259,6 +261,10 @@ export default function Rooms() {
     try {
       if (db) {
         if (editingRoomId) {
+          storedImage = imageUri.startsWith("data:image/")
+            ? await uploadImageDataUrl(`room-images/${editingRoomId}/cover`, imageUri)
+            : imageUri;
+          roomData.image = storedImage;
           const matches = await getDocs(
             query(
               collection(db, "rooms"),
@@ -294,6 +300,10 @@ export default function Rooms() {
               "This room number already exists. Refresh before adding another room.",
             );
           const saved = doc(firestore, "rooms", "room_" + normalizedNumber);
+          storedImage = imageUri.startsWith("data:image/")
+            ? await uploadImageDataUrl(`room-images/${saved.id}/cover`, imageUri)
+            : imageUri;
+          roomData.image = storedImage;
           await runTransaction(firestore, async (tx) => {
             if ((await tx.get(saved)).exists())
               throw new Error("This room was already created.");
