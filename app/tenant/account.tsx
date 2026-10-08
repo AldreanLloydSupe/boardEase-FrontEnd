@@ -1183,3 +1183,22 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 });
+
+const darkStyles = StyleSheet.create({
+  page: {
+    backgroundColor: "#151718",
+  },
+  content: {
+    backgroundColor: "#151718",
+  },
+  card: {
+    backgroundColor: "#20272b",
+    borderColor: "#394247",
+  },
+  primaryText: {
+    color: "#ECEDEE",
+  },
+  secondaryText: {
+    color: "#9BA1A6",
+  },
+});

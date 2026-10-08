@@ -43,6 +43,15 @@ service cloud.firestore {
         request.resource.data.role == 'user' && request.resource.data.hasRoom == false;
       allow update: if isLandlord() || (signedIn() && request.auth.uid == uid && profileEdits());
       allow delete: if false;
+      match /pushTokens/{tokenId} {
+        allow read, delete: if signedIn() && request.auth.uid == uid;
+        allow create, update: if signedIn() && request.auth.uid == uid &&
+          request.resource.data.keys().hasOnly(['token','platform','updatedAt']) &&
+          request.resource.data.token == tokenId &&
+          request.resource.data.token.matches('^ExpoPushToken\\[.+\\]$') &&
+          request.resource.data.platform in ['ios','android'] &&
+          request.resource.data.updatedAt is string;
+      }
       match /notificationReads/{id} {
         allow read, delete: if signedIn() && request.auth.uid == uid;
         allow create, update: if signedIn() && request.auth.uid == uid &&

@@ -7,6 +7,7 @@ import "react-native-reanimated";
 
 import { AuthProvider } from "@/lib/auth-context";
 import { ThemeProvider } from "@/lib/theme-context";
+import { PushNotifications } from "@/lib/push-notifications";
 
 export const unstable_settings = {
   anchor: "index",
@@ -16,6 +17,7 @@ export default function RootLayout() {
   return (
     <ThemeProvider>
       <AuthProvider>
+        <PushNotifications />
         <AppAlertProvider>
         <Stack
           screenOptions={{

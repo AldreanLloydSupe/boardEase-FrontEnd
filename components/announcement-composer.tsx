@@ -287,7 +287,8 @@ export function AnnouncementComposer({
             )}
             <Text style={styles.info}>
               Appears in Recent Announcements on selected tenant dashboards and
-              in their notification bell. No SMS is sent.
+              in their notification bell. Tenants with push notifications enabled
+              also receive an alert when they are offline. No SMS is sent.
             </Text>
             {!!error && (
               <Text accessibilityRole="alert" style={styles.error}>
