@@ -683,13 +683,13 @@ export default function Rooms() {
         </View>
       </Modal>
       <Modal visible={!!qrRoom} transparent animationType="fade" onRequestClose={() => setQrRoom(null)}>
-        <View style={styles.modalBackdrop}>
+        <View style={styles.qrModalBackdrop}>
           <View style={styles.qrModal}>
             <View style={styles.modalTitleRow}>
               <View><Text style={styles.modalTitle}>Room QR Code</Text><Text style={styles.qrSubtitle}>Room {qrRoom?.number} · {qrRoom?.type}</Text></View>
               <Pressable onPress={() => setQrRoom(null)} accessibilityLabel="Close QR code"><Ionicons name="close" size={23} color="#536783" /></Pressable>
             </View>
-            {qrRoom ? <View style={styles.qrCodeFrame}><QRCode getRef={(ref) => { qrCodeRef.current = ref; }} value={JSON.stringify({ type: "BOARDING_ROOM", roomId: qrRoom.id, roomNumber: qrRoom.number })} size={220} backgroundColor="#ffffff" color="#172033" /></View> : null}
+            {qrRoom ? <View style={styles.qrCodeFrame}><QRCode getRef={(ref) => { qrCodeRef.current = ref; }} value={JSON.stringify({ type: "BOARDING_ROOM", roomId: qrRoom.id, roomNumber: qrRoom.number })} size={220} /></View> : null}
             <Text style={styles.qrHint}>Scan this code to view the latest room details.</Text>
             <Pressable style={[styles.qrSaveButton, isSavingQr && { opacity: 0.65 }]} onPress={saveRoomQr} disabled={isSavingQr}><Ionicons name="download-outline" size={18} color="#fff" /><Text style={styles.qrSaveText}>{isSavingQr ? "Preparing…" : "Save / Share QR Code"}</Text></Pressable>
             <Pressable style={styles.qrCloseButton} onPress={() => setQrRoom(null)}><Text style={styles.qrCloseText}>Close</Text></Pressable>
@@ -1137,6 +1137,13 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "rgba(15,23,42,.4)",
     justifyContent: "flex-end",
+  },
+  qrModalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(15,23,42,.4)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
   },
   modal: {
     backgroundColor: "#fff",
