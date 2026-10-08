@@ -2,6 +2,7 @@ export type FinancePayment = {
   amount?: number | string;
   status?: string;
   dateSent?: string;
+  approvedAt?: { toMillis: () => number } | Date | string | null;
   createdAt?: { toMillis: () => number } | Date | string | null;
 };
 export type ChartView = "daily" | "weekly" | "monthly" | "yearly";
@@ -22,6 +23,13 @@ export function paymentAmount(amount: FinancePayment["amount"]) {
 }
 
 export function paymentTime(payment: FinancePayment) {
+  const approvedAt = payment.approvedAt;
+  if (approvedAt && typeof approvedAt === "object" && "toMillis" in approvedAt) {
+    return approvedAt.toMillis();
+  }
+  if (approvedAt instanceof Date) return approvedAt.getTime();
+  if (typeof approvedAt === "string") return Date.parse(approvedAt) || 0;
+
   if (payment.dateSent) {
     const match = payment.dateSent.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
     const sentAt = match

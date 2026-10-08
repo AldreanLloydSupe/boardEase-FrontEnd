@@ -1,5 +1,5 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
+import { test } from "node:test";
 import {
   amountNumber,
   billingPeriod,
@@ -69,6 +69,18 @@ test("local date billing periods and due days are stable at month boundaries", (
     cycleDetails({ rentDueDay: "bad" }, [], new Date(2026, 0, 7)).daysUntilDue,
     -2,
   );
+});
+test("billing due date is one month after the accepted room appointment", () => {
+  const acceptedAt = new Date(2026, 8, 15, 12, 0, 0);
+  const cycle = cycleDetails(
+    { roomRent: 100, leaseStartedAt: acceptedAt },
+    [],
+    new Date(2026, 8, 16),
+  );
+  assert.equal(cycle.due.getFullYear(), 2026);
+  assert.equal(cycle.due.getMonth(), 9);
+  assert.equal(cycle.due.getDate(), 15);
+  assert.equal(cycle.daysUntilDue, 29);
 });
 test("notification switches control every relevant event category", () => {
   for (const type of [

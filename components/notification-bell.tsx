@@ -1,15 +1,9 @@
+import { NotificationsModal } from "@/components/notifications-modal";
 import { useNotifications, type Notice } from "@/lib/use-notifications";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import React from "react";
-import {
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 
 export function NotificationBell({ color = "#fff" }: { color?: string }) {
   const { notices: allNotices, error, loading, markRead } = useNotifications();
@@ -30,61 +24,18 @@ export function NotificationBell({ color = "#fff" }: { color?: string }) {
         <Ionicons name="notifications-outline" size={20} color={color} />
         {notices.length > 0 && <View style={styles.dot} />}
       </Pressable>
-      <Modal
+      <NotificationsModal
         visible={open}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setOpen(false)}
-      >
-        <Pressable style={styles.backdrop} onPress={() => setOpen(false)}>
-          <Pressable
-            style={styles.panel}
-            onPress={(event) => event.stopPropagation()}
-          >
-            <View style={styles.header}>
-              <Text style={styles.title}>Notifications</Text>
-              <Pressable onPress={() => setOpen(false)} hitSlop={8}>
-                <Ionicons name="close" size={22} color="#526174" />
-              </Pressable>
-            </View>
-            <ScrollView contentContainerStyle={styles.list}>
-              {!!error && (
-                <Text accessibilityRole="alert" style={styles.body}>
-                  {error}
-                </Text>
-              )}
-              {loading && (
-                <Text style={styles.body}>Loading notifications…</Text>
-              )}
-              {notices.length === 0 ? (
-                <Text style={styles.empty}>You’re all caught up.</Text>
-              ) : (
-                notices.map((notice) => (
-                  <Pressable
-                    key={notice.id}
-                    style={styles.notice}
-                    onPress={() => void openNotice(notice)}
-                  >
-                    <Ionicons
-                      name="information-circle-outline"
-                      size={20}
-                      color="#2864e8"
-                    />
-                    <View style={styles.copy}>
-                      <Text style={styles.noticeTitle}>
-                        {notice.title || "BoardEase update"}
-                      </Text>
-                      <Text style={styles.body}>
-                        {notice.body || "You have a new update."}
-                      </Text>
-                    </View>
-                  </Pressable>
-                ))
-              )}
-            </ScrollView>
-          </Pressable>
-        </Pressable>
-      </Modal>
+        loading={loading}
+        error={error}
+        notices={notices.map((notice) => ({
+          id: notice.id,
+          title: notice.title || "BoardEase update",
+          body: notice.body || "You have a new update.",
+          onPress: () => void openNotice(notice),
+        }))}
+        onClose={() => setOpen(false)}
+      />
     </>
   );
 }
