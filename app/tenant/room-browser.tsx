@@ -1,5 +1,6 @@
 import { ApplicantTenantNav } from "@/components/tenant-navigation";
 import { TenantPageHeader } from "@/components/tenant-page-header";
+import { AppAlert as Alert } from "@/components/app-alert";
 import { useAuth } from "@/lib/auth-context";
 import { getFavoriteRooms, setFavoriteRooms } from "@/lib/favorite-rooms";
 import { db } from "@/lib/firebase";
@@ -79,6 +80,10 @@ export default function RoomBrowser() {
 
   const handleViewRoom = (room: TenantRoom) => {
     if (loadingRoom) return;
+    if (normalizeRoomStatus(room.status) === "occupied") {
+      Alert.alert("Room occupied", `Room ${room.number} is currently occupied.`);
+      return;
+    }
     setLoadingRoom(room.number);
     setTimeout(() => {
       router.push({
@@ -220,7 +225,12 @@ export default function RoomBrowser() {
                 <View style={styles.imageWrap}>
                   {room.image ? (
                     <Image source={{ uri: room.image }} style={styles.roomImage} />
-                  ) : null}
+                  ) : (
+                    <View style={[styles.roomImage, styles.roomImagePlaceholder]}>
+                      <Ionicons name="image-outline" size={25} color="#7394d6" />
+                      <Text style={styles.placeholderText}>No room photo</Text>
+                    </View>
+                  )}
                   <Pressable
                     accessibilityLabel={`Save Room ${room.number}`}
                     style={styles.heartButton}
@@ -341,6 +351,13 @@ const styles = StyleSheet.create({
   },
   imageWrap: { position: "relative" },
   roomImage: { width: "100%", height: 120 },
+  roomImagePlaceholder: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    backgroundColor: "#eff4ff",
+  },
+  placeholderText: { color: "#71809a", fontSize: 12, fontWeight: "600" },
   heartButton: {
     position: "absolute",
     top: 12,

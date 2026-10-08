@@ -6,6 +6,7 @@ import {
 } from "@/components/tenant-navigation";
 import { TenantPageHeader } from "@/components/tenant-page-header";
 import { useAuth } from "@/lib/auth-context";
+import { cycleDetails } from "@/lib/billing";
 import { useAppTheme } from "@/lib/theme-context";
 import { auth, db } from "@/lib/firebase";
 import { usePropertySettings } from "@/lib/use-property-settings";
@@ -39,6 +40,7 @@ type Profile = {
   roomType: string;
   roomRent: string;
   rentDueDay: number;
+  leaseStartedAt?: unknown;
 };
 
 export default function Account() {
@@ -75,6 +77,7 @@ export default function Account() {
     roomType: "Room",
     roomRent: "",
     rentDueDay: 5,
+    leaseStartedAt: undefined,
   });
 
   const [draft, setDraft] = React.useState({
@@ -100,6 +103,7 @@ export default function Account() {
         roomType: String(data.roomType || "Room"),
         roomRent: String(data.roomRent || ""),
         rentDueDay: Number(data.rentDueDay || 5),
+        leaseStartedAt: data.leaseStartedAt,
       }));
       setNotifications(data.notificationsEnabled !== false);
       setPaymentReminders(data.paymentReminders !== false);
@@ -315,6 +319,10 @@ export default function Account() {
       ? `Room ${profile.roomNumber} - ${profile.roomType}`
       : "Room assignment pending"
     : "No room assigned";
+  const rentDueDay = cycleDetails(
+    { rentDueDay: profile.rentDueDay, leaseStartedAt: profile.leaseStartedAt },
+    [],
+  ).due.getDate();
 
   return (
     <SafeAreaView style={[styles.page, darkMode && darkStyles.page]}>
@@ -376,10 +384,12 @@ export default function Account() {
             value={profile.roomRent ? `₱${profile.roomRent} / month` : "—"}
           />
 
-          <Info
-            label="Rent Due Date"
-            value={`Day ${profile.rentDueDay} of every month`}
-          />
+          {profile.roomNumber ? (
+            <Info
+              label="Rent Due Date"
+              value={`Day ${rentDueDay} of every month`}
+            />
+          ) : null}
 
           <Setting
             icon="exit-outline"

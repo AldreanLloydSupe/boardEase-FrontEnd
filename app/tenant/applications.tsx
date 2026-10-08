@@ -243,7 +243,6 @@ export default function Applications() {
                   "_",
                   " ",
                 )}
-                code={`APP-${application.id.slice(-8).toUpperCase()}`}
                 onDelete={() => deleteApplication(application)}
                 onPress={() =>
                   router.push({
@@ -594,7 +593,6 @@ function CareRequests({
                   application.unit ? `Unit ${application.unit}` : "",
                 ].filter(Boolean).join(" · ") || "Location unavailable"}
                 status={String(application.status || "")}
-                code={`APP-${application.id.slice(-8).toUpperCase()}`}
                 onDelete={() => onDeleteApplication(application)}
                 onPress={() =>
                   router.push({
@@ -1278,7 +1276,6 @@ function ApplicationCard({
   price,
   location,
   status,
-  code,
   onDelete,
   onPress,
 }: {
@@ -1287,16 +1284,25 @@ function ApplicationCard({
   price: string;
   location: string;
   status: string;
-  code: string;
   onDelete: () => void;
   onPress: () => void;
 }) {
   const normalizedStatus = status.toLowerCase();
   const approved = normalizedStatus === "approved";
+  const statusLabel = status
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
   const canDelete = approved || normalizedStatus === "cancelled";
   return (
     <View style={styles.card}>
-      {image ? <Image source={{ uri: image }} style={styles.image} /> : null}
+      {image ? (
+        <Image source={{ uri: image }} style={styles.image} />
+      ) : (
+        <View style={[styles.image, styles.imagePlaceholder]}>
+          <Ionicons name="image-outline" size={25} color="#7394d6" />
+          <Text style={styles.imagePlaceholderText}>No room photo</Text>
+        </View>
+      )}
       <View style={styles.cardMain}>
         <View style={styles.cardTop}>
           <Text
@@ -1304,12 +1310,16 @@ function ApplicationCard({
               styles.status,
               approved
                 ? styles.approved
-                : status === "Waitlisted"
-                  ? styles.waitlisted
-                  : styles.review,
+                : normalizedStatus === "cancelled"
+                  ? styles.cancelled
+                  : normalizedStatus === "pending"
+                    ? styles.pending
+                    : normalizedStatus === "waitlisted"
+                      ? styles.waitlisted
+                      : styles.review,
             ]}
           >
-            {status}
+            {statusLabel}
           </Text>
           <View style={styles.applicationCardActions}>
             {canDelete && (
@@ -1323,7 +1333,6 @@ function ApplicationCard({
                 <Ionicons name="trash-outline" size={16} color="#b42318" />
               </Pressable>
             )}
-            <Text style={styles.code}>#{code}</Text>
           </View>
         </View>
         <Pressable onPress={onPress}>
@@ -1456,6 +1465,13 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   image: { width: "100%", height: 165, backgroundColor: "#eaf1ff" },
+  imagePlaceholder: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    backgroundColor: "#eff4ff",
+  },
+  imagePlaceholderText: { color: "#71809a", fontSize: 12, fontWeight: "600" },
   cardMain: { padding: 15 },
   cardTop: {
     flexDirection: "row",
@@ -1483,9 +1499,10 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   review: { backgroundColor: "#eaf1ff", color: "#2864e8" },
-  approved: { backgroundColor: "#dce9ff", color: "#2458c7" },
+  pending: { backgroundColor: "#fff0c9", color: "#9b6700" },
+  cancelled: { backgroundColor: "#fff0ee", color: "#b54135" },
+  approved: { backgroundColor: "#dcfce7", color: "#15803d" },
   waitlisted: { backgroundColor: "#edf0f4", color: "#68768a" },
-  code: { color: "#9aa8ba", fontSize: 11 },
   room: { fontSize: 17, fontWeight: "800", color: "#172033", marginTop: 12 },
   house: { color: "#78879b", fontSize: 12, marginTop: 4 },
   meta: {
