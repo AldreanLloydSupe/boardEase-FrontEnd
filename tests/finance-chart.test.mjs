@@ -1,6 +1,6 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
-import { revenueBuckets, paymentTime } from "../lib/finance-chart.ts";
+import { test } from "node:test";
+import { paymentTime, revenueBuckets } from "../lib/finance-chart.ts";
 const anchor = new Date(2026, 9, 3);
 const payment = (dateSent, amount = 100, status = "approved") => ({
   dateSent,
@@ -87,6 +87,28 @@ test("daily chart handles February leap years and period boundaries", () => {
   );
   assert.equal(buckets.length, 29);
   assert.equal(buckets[28].amount, 50);
+});
+test("approved timestamps determine the revenue month when submission dates differ", () => {
+  const buckets = revenueBuckets(
+    [
+      {
+        status: "approved",
+        amount: 100,
+        dateSent: "09/15/2026",
+        approvedAt: new Date(2026, 9, 3),
+      },
+      {
+        status: "approved",
+        amount: 50,
+        dateSent: "10/20/2026",
+        approvedAt: new Date(2026, 9, 20),
+      },
+    ],
+    "daily",
+    anchor,
+  );
+  assert.equal(buckets[2].amount, 100);
+  assert.equal(buckets[19].amount, 50);
 });
 test("undated payments are excluded while Firestore and legacy dates are supported", () => {
   assert.equal(

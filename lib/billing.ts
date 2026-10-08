@@ -32,16 +32,27 @@ export function cycleDetails(
 ) {
   const period = billingPeriod(now);
   const configuredDay = Number(profile.rentDueDay);
-  const dueDay = Math.min(
-    28,
-    Math.max(
-      1,
-      Number.isFinite(configuredDay) && configuredDay
-        ? Math.floor(configuredDay)
-        : 5,
-    ),
-  );
-  const due = new Date(now.getFullYear(), now.getMonth(), dueDay);
+  const leaseStarted = profile.leaseStartedAt
+    ? new Date(timestampMillis(profile.leaseStartedAt))
+    : null;
+  const dueDay = leaseStarted && !Number.isNaN(leaseStarted.getTime())
+    ? leaseStarted.getDate()
+    : Math.min(
+        28,
+        Math.max(
+          1,
+          Number.isFinite(configuredDay) && configuredDay
+            ? Math.floor(configuredDay)
+            : 5,
+        ),
+      );
+  const due = leaseStarted && !Number.isNaN(leaseStarted.getTime())
+    ? new Date(
+        leaseStarted.getFullYear(),
+        leaseStarted.getMonth() + 1,
+        dueDay,
+      )
+    : new Date(now.getFullYear(), now.getMonth(), dueDay);
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   // Only explicitly allocated payments settle a billing period; don't guess from submission date.
   const paid = payments

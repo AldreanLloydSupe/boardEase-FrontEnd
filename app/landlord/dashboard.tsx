@@ -3,6 +3,7 @@ import { AppAlert as Alert } from "@/components/app-alert";
 import { LandlordDashboardSkeleton } from "@/components/landlord-dashboard-skeleton";
 import { LandlordNavigation } from "@/components/landlord-navigation";
 import { LandlordPageHeader } from "@/components/landlord-page-header";
+import { NotificationsModal } from "@/components/notifications-modal";
 import { ProfilePictureButton } from "@/components/profile-picture-button";
 import { useAuth } from "@/lib/auth-context";
 import { cycleDetails, peso, timestampMillis } from "@/lib/billing";
@@ -12,25 +13,25 @@ import { useMaintenanceInbox } from "@/lib/use-maintenance-inbox";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import {
-  collection,
-  doc,
-  getDocs,
-  onSnapshot,
-  query,
-  serverTimestamp,
-  setDoc,
-  where,
+    collection,
+    doc,
+    getDocs,
+    onSnapshot,
+    query,
+    serverTimestamp,
+    setDoc,
+    where,
 } from "firebase/firestore";
 import React from "react";
 import {
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    Modal,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -68,6 +69,7 @@ type PaymentStatRecord = {
   amount?: number | string;
   status?: string;
   dateSent?: unknown;
+  approvedAt?: unknown;
   createdAt?: unknown;
   dueDate?: unknown;
   dueAt?: unknown;
@@ -119,7 +121,11 @@ function firestoreDate(value: unknown, endOfDay = false): Date | null {
 }
 
 function revenueDate(payment: PaymentStatRecord) {
-  return firestoreDate(payment.dateSent) ?? firestoreDate(payment.createdAt);
+  return (
+    firestoreDate(payment.approvedAt) ??
+    firestoreDate(payment.dateSent) ??
+    firestoreDate(payment.createdAt)
+  );
 }
 
 function formatPeso(amount: number) {
@@ -837,193 +843,97 @@ export default function Dashboard() {
         </View>
       </ScrollView>
       <LandlordNavigation active="Dashboard" />
-      <Modal
+      <NotificationsModal
         visible={notificationsOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setNotificationsOpen(false)}
-      >
-        <Pressable
-          style={styles.modalBackdrop}
-          onPress={() => setNotificationsOpen(false)}
-        >
-          <Pressable
-            style={styles.notificationMenu}
-            onPress={(event) => event.stopPropagation()}
-          >
-            <View style={styles.notificationHeader}>
-              <Text style={styles.profileName}>Notifications</Text>
-              <Pressable onPress={() => setNotificationsOpen(false)}>
-                <Ionicons name="close" size={21} color="#536783" />
-              </Pressable>
-            </View>
-            {notificationCount === 0 &&
-            maintenanceNotifications.length === 0 ? (
-              <Text style={styles.emptyNoticeText}>
-                No applications, tour requests, or maintenance requests yet.
-              </Text>
-            ) : (
-              <ScrollView style={styles.notificationList}>
-                {applicationNotifications.map((item) => (
-                  <Pressable
-                    key={`application-${item.id}`}
-                    style={styles.notificationItem}
-                    onPress={() => {
-                      setNotificationsOpen(false);
-                      router.push({
-                        pathname: "/landlord/application/[name]" as any,
-                        params: {
-                          name: item.tenantName || "Tenant",
-                          applicationId: item.id,
-                        },
-                      });
-                    }}
-                  >
-                    <Ionicons
-                      name="document-text-outline"
-                      size={21}
-                      color="#e09a00"
-                    />
-                    <View style={styles.notificationCopy}>
-                      <Text style={styles.notificationTitle}>
-                        New room application
-                      </Text>
-                      <Text style={styles.notificationText}>
-                        {item.tenantName || "A tenant"} applied for Room{" "}
-                        {item.roomNumber || "requested room"}.
-                      </Text>
-                    </View>
-                    <Ionicons
-                      name="chevron-forward"
-                      size={16}
-                      color="#8a99a9"
-                    />
-                  </Pressable>
-                ))}
-                {tourNotifications.map((item) => (
-                  <Pressable
-                    key={`tour-${item.id}`}
-                    style={styles.notificationItem}
-                    onPress={() => {
-                      setNotificationsOpen(false);
-                      router.push("/landlord/pending-applications" as any);
-                    }}
-                  >
-                    <Ionicons
-                      name="calendar-outline"
-                      size={21}
-                      color="#2864e8"
-                    />
-                    <View style={styles.notificationCopy}>
-                      <Text style={styles.notificationTitle}>
-                        New tour request
-                      </Text>
-                      <Text style={styles.notificationText}>
-                        {item.tenantName || "A tenant"} requested a tour for
-                        Room {item.roomNumber || "requested room"}.
-                      </Text>
-                      <Text style={styles.notificationDate}>
-                        {item.requestedDate || "Date selected"}
-                      </Text>
-                    </View>
-                    <Ionicons
-                      name="chevron-forward"
-                      size={16}
-                      color="#8a99a9"
-                    />
-                  </Pressable>
-                ))}
-                {!!pendingPayments.length && (
-                  <Pressable
-                    style={styles.emptyNotice}
-                    onPress={() => {
-                      setNotificationsOpen(false);
-                      router.push("/landlord/finance");
-                    }}
-                  >
-                    <Text>
-                      {pendingPayments.length} payment proofs awaiting review
-                    </Text>
-                  </Pressable>
-                )}
-                {!!accountRequestCount && (
-                  <Pressable
-                    style={styles.emptyNotice}
-                    onPress={() => {
-                      setNotificationsOpen(false);
-                      router.push("/landlord/tenants");
-                    }}
-                  >
-                    <Text>
-                      {accountRequestCount} account requests awaiting review
-                    </Text>
-                  </Pressable>
-                )}
-                {inboxRequests
-                  .filter((item) => item.unreadAvailable && item.unread > 0)
-                  .map((item) => (
-                    <Pressable
-                      key={"reply-" + item.id}
-                      style={styles.notificationItem}
-                      onPress={() => {
-                        setNotificationsOpen(false);
-                        router.push({
-                          pathname: "/landlord/messages",
-                          params: { requestId: item.id },
-                        });
-                      }}
-                      accessibilityRole="button"
-                    >
-                      <Ionicons
-                        name="chatbubbles-outline"
-                        size={21}
-                        color="#2864e8"
-                      />
-                      <View style={styles.notificationCopy}>
-                        <Text style={styles.notificationTitle}>
-                          New tenant message
-                        </Text>
-                        <Text style={styles.notificationText}>
-                          {item.tenantName || "Tenant"} · {item.title} ·{" "}
-                          {item.unread} unread
-                        </Text>
-                      </View>
-                    </Pressable>
-                  ))}
-                {sortedMaintenance.map((item) => (
-                  <Pressable
-                    key={`maintenance-${item.id}`}
-                    style={styles.notificationItem}
-                    onPress={() => openMaintenance(item.id)}
-                  >
-                    <Ionicons
-                      name="construct-outline"
-                      size={21}
-                      color="#b55339"
-                    />
-                    <View style={styles.notificationCopy}>
-                      <Text style={styles.notificationTitle}>
-                        {maintenanceReads.has("maintenance__" + item.id)
-                          ? "Maintenance request"
-                          : "New maintenance request"}
-                      </Text>
-                      <Text style={styles.notificationText}>
-                        {item.tenantName || "A tenant"} reported:{" "}
-                        {item.title || "Maintenance issue"}.
-                      </Text>
-                    </View>
-                    <Ionicons
-                      name="chevron-forward"
-                      size={16}
-                      color="#8a99a9"
-                    />
-                  </Pressable>
-                ))}
-              </ScrollView>
-            )}
-          </Pressable>
-        </Pressable>
-      </Modal>
+        emptyMessage="No applications, tour requests, or maintenance requests yet."
+        notices={[
+          ...applicationNotifications.map((item) => ({
+            id: `application-${item.id}`,
+            title: "New room application",
+            body: `${item.tenantName || "A tenant"} applied for Room ${item.roomNumber || "requested room"}.`,
+            icon: "document-text-outline" as const,
+            iconColor: "#e09a00",
+            onPress: () => {
+              setNotificationsOpen(false);
+              router.push({
+                pathname: "/landlord/application/[name]" as any,
+                params: {
+                  name: item.tenantName || "Tenant",
+                  applicationId: item.id,
+                },
+              });
+            },
+          })),
+          ...tourNotifications.map((item) => ({
+            id: `tour-${item.id}`,
+            title: "New tour request",
+            body: `${item.tenantName || "A tenant"} requested a tour for Room ${item.roomNumber || "requested room"}.`,
+            icon: "calendar-outline" as const,
+            iconColor: "#2864e8",
+            onPress: () => {
+              setNotificationsOpen(false);
+              router.push("/landlord/pending-applications" as any);
+            },
+          })),
+          ...(pendingPayments.length
+            ? [
+                {
+                  id: "pending-payments",
+                  title: `${pendingPayments.length} payment proof${pendingPayments.length === 1 ? "" : "s"} awaiting review`,
+                  body: "Review and approve tenant payment submissions.",
+                  icon: "cash-outline" as const,
+                  iconColor: "#099268",
+                  onPress: () => {
+                    setNotificationsOpen(false);
+                    router.push("/landlord/finance");
+                  },
+                },
+              ]
+            : []),
+          ...(accountRequestCount
+            ? [
+                {
+                  id: "account-requests",
+                  title: `${accountRequestCount} account request${accountRequestCount === 1 ? "" : "s"} awaiting review`,
+                  body: "Review tenant account requests.",
+                  icon: "person-add-outline" as const,
+                  iconColor: "#e09a00",
+                  onPress: () => {
+                    setNotificationsOpen(false);
+                    router.push("/landlord/tenants");
+                  },
+                },
+              ]
+            : []),
+          ...inboxRequests
+            .filter((item) => item.unreadAvailable && item.unread > 0)
+            .map((item) => ({
+              id: `reply-${item.id}`,
+              title: "New tenant message",
+              body: `${item.tenantName || "Tenant"} · ${item.title} · ${item.unread} unread`,
+              icon: "chatbubbles-outline" as const,
+              iconColor: "#2864e8",
+              onPress: () => {
+                setNotificationsOpen(false);
+                router.push({
+                  pathname: "/landlord/messages",
+                  params: { requestId: item.id },
+                });
+              },
+            })),
+          ...sortedMaintenance.map((item) => ({
+            id: `maintenance-${item.id}`,
+            title: maintenanceReads.has("maintenance__" + item.id)
+              ? "Maintenance request"
+              : "New maintenance request",
+            body: `${item.tenantName || "A tenant"} reported: ${item.title || "Maintenance issue"}.`,
+            icon: "construct-outline" as const,
+            iconColor: "#b55339",
+            onPress: () => openMaintenance(item.id),
+          })),
+        ]}
+        onClose={() => setNotificationsOpen(false)}
+      />
       <AnnouncementComposer
         visible={announcementOpen}
         onClose={() => setAnnouncementOpen(false)}

@@ -3,19 +3,19 @@ import { useAuth } from "@/lib/auth-context";
 import { db } from "@/lib/firebase";
 import { Ionicons } from "@expo/vector-icons";
 import {
-  addDoc,
-  collection,
-  serverTimestamp,
+    addDoc,
+    collection,
+    serverTimestamp,
 } from "firebase/firestore";
 import React from "react";
 import {
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
+    Modal,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
 } from "react-native";
 
 export function AnnouncementComposer({
