@@ -41,9 +41,11 @@ export async function approveTenancy(applicationId: string) {
     String(initialData.roomNumber),
     initialData.roomId,
   );
+  const listingRef = doc(firestore, "roomListings", roomRef.id);
   await runTransaction(firestore, async (transaction) => {
     const application = await transaction.get(appRef);
     const room = await transaction.get(roomRef);
+    const listing = await transaction.get(listingRef);
     const data = application.data();
     if (!data || data.status !== "pending")
       throw new Error("This application has already been reviewed.");
@@ -61,10 +63,16 @@ export async function approveTenancy(applicationId: string) {
     const roomData = room.data()!;
     if (String(roomData.number) !== String(data.roomNumber))
       throw new Error("Room details changed. Refresh before assigning.");
-    if (
-      roomData.tenantId ||
-      String(roomData.status).toLowerCase() !== "available"
-    )
+    const capacity =
+      Number.isInteger(Number(roomData.capacity)) && Number(roomData.capacity) > 0
+        ? Number(roomData.capacity)
+        : 1;
+    const tenantIds: string[] = Array.isArray(roomData.tenantIds)
+      ? roomData.tenantIds.map(String)
+      : roomData.tenantId
+        ? [String(roomData.tenantId)]
+        : [];
+    if (tenantIds.length >= capacity)
       throw new Error("This room is no longer available.");
     const rent = roomData.rent ?? roomData.price;
     if (
@@ -73,23 +81,64 @@ export async function approveTenancy(applicationId: string) {
       Number(String(rent).replace(/[^0-9.]/g, "")) <= 0
     )
       throw new Error("Set a valid room rent before approval.");
+    const currentTenantRefs = tenantIds.map((id) => doc(firestore, "users", id));
+    const currentTenantProfiles = await Promise.all(
+      currentTenantRefs.map((ref) => transaction.get(ref)),
+    );
+    const newTenantName = String(
+      tenant.data()?.name || data.tenantName || "Tenant",
+    );
+    const currentTenants = tenantIds.map((id, index) => ({
+      id,
+      ref: currentTenantRefs[index],
+      name: String(currentTenantProfiles[index].data()?.name || "Tenant"),
+    }));
     transaction.update(appRef, {
       status: "approved",
       roomId: roomRef.id,
       approvedAt: serverTimestamp(),
     });
     transaction.update(roomRef, {
-      status: "occupied",
-      tenantId: data.tenantId,
-      tenant: tenant.data()?.name || data.tenantName,
+      status: tenantIds.length + 1 >= capacity ? "occupied" : "available",
+      tenantCount: tenantIds.length + 1,
+      tenantIds: [...tenantIds, data.tenantId],
+      tenantId: tenantIds[0] || data.tenantId,
+      tenant:
+        tenantIds.length === 0
+          ? tenant.data()?.name || data.tenantName
+          : "",
       applicationId,
       updatedAt: serverTimestamp(),
     });
+    const publicListingUpdate = {
+      number: String(roomData.number),
+      type: String(roomData.type || "Room"),
+      price: String(rent),
+      rent: String(rent),
+      image: String(roomData.image || ""),
+      amenities: Array.isArray(roomData.amenities) ? roomData.amenities : [],
+      guidelines: String(roomData.guidelines || ""),
+      propertyName: String(roomData.propertyName || ""),
+      location: String(roomData.location || ""),
+      floor: roomData.floor || "",
+      unit: roomData.unit || "",
+      capacity,
+      tenantCount: tenantIds.length + 1,
+      availableSpaces: Math.max(0, capacity - tenantIds.length - 1),
+      status: tenantIds.length + 1 >= capacity ? "occupied" : "available",
+      updatedAt: serverTimestamp(),
+    };
+    if (listing.exists())
+      transaction.update(listingRef, publicListingUpdate);
+    else
+      transaction.set(listingRef, {
+        ...publicListingUpdate,
+      });
     transaction.update(userRef, {
       noticeIssuedAt: null,
       noticeEndsAt: null,
       assignedSpace: "",
-      roommateName: "",
+      roommateName: currentTenants.map((currentTenant) => currentTenant.name).join(", "),
       hasRoom: true,
       roomId: roomRef.id,
       roomNumber: String(roomData.number),
@@ -99,5 +148,17 @@ export async function approveTenancy(applicationId: string) {
       rentDueDay: Number(roomData.rentDueDay || 5),
       leaseStartedAt: serverTimestamp(),
     });
+    for (let index = 0; index < currentTenants.length; index += 1) {
+      const currentTenant = currentTenants[index];
+      if (!currentTenantProfiles[index].exists()) continue;
+      transaction.update(currentTenant.ref, {
+        roommateName: [
+          ...currentTenants
+            .filter((otherTenant) => otherTenant.id !== currentTenant.id)
+            .map((otherTenant) => otherTenant.name),
+          newTenantName,
+        ].join(", "),
+      });
+    }
   });
 }

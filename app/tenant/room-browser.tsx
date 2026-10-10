@@ -4,26 +4,24 @@ import { useAuth } from "@/lib/auth-context";
 import { getFavoriteRooms, setFavoriteRooms } from "@/lib/favorite-rooms";
 import { db } from "@/lib/firebase";
 import {
-    isRoomBrowserVisible,
-    normalizeRoomStatus,
-    roomFromFirestore,
-    roomKey,
-    roomStatusLabel,
-    type TenantRoom,
+  isRoomBrowserVisible,
+  roomFromFirestore,
+  roomKey,
+  type TenantRoom,
 } from "@/lib/room-data";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import React from "react";
 import {
-    Animated,
-    Image,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+  Animated,
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -74,6 +72,7 @@ export default function RoomBrowser() {
   const [selectedFilter, setSelectedFilter] = React.useState(filters[0]);
   const [favorites, setFavorites] = React.useState<string[]>([]);
   const [rooms, setRooms] = React.useState<TenantRoom[]>([]);
+  const [legacyRooms, setLegacyRooms] = React.useState<TenantRoom[]>([]);
   const [loadingRoom, setLoadingRoom] = React.useState<string | null>(null);
   const [isLoadingRooms, setIsLoadingRooms] = React.useState(true);
 
@@ -100,22 +99,38 @@ export default function RoomBrowser() {
       return;
     }
     const firestore = db;
-    const records = new Map<string, TenantRoom>();
-    const publish = () =>
-      setRooms([...records.values()].filter((room) => isRoomBrowserVisible(room.status)));
-    const subscribe = (status: string) =>
-      onSnapshot(
-        query(collection(firestore, "rooms"), where("status", "==", status)),
-        (snapshot) => {
-          for (const item of snapshot.docs)
-            records.set(item.id, roomFromFirestore(item.id, item.data()));
-          publish();
-          setIsLoadingRooms(false);
-        },
-        () => setIsLoadingRooms(false),
-      );
-    const stops = [subscribe("available"), subscribe("Available"), subscribe("occupied"), subscribe("Occupied")];
-    return () => stops.forEach((stop) => stop());
+    const stopListings = onSnapshot(
+      collection(firestore, "roomListings"),
+      (snapshot) => {
+        setRooms(
+          snapshot.docs
+            .map((item) => roomFromFirestore(item.id, item.data()))
+            .filter((room) => isRoomBrowserVisible(room.status)),
+        );
+        setIsLoadingRooms(false);
+      },
+      () => setIsLoadingRooms(false),
+    );
+    // Older room records predate roomListings. Firestore rules permit this
+    // constrained query only for vacant rooms, so it is safe as a fallback.
+    const stopLegacyRooms = onSnapshot(
+      query(
+        collection(firestore, "rooms"),
+        where("status", "in", ["available", "Available"]),
+        where("tenantCount", "==", 0),
+      ),
+      (snapshot) => {
+        setLegacyRooms(
+          snapshot.docs.map((item) => roomFromFirestore(item.id, item.data())),
+        );
+        setIsLoadingRooms(false);
+      },
+      () => setIsLoadingRooms(false),
+    );
+    return () => {
+      stopListings();
+      stopLegacyRooms();
+    };
   }, []);
 
   React.useEffect(() => {
@@ -135,9 +150,27 @@ export default function RoomBrowser() {
     await setFavoriteRooms(user.uid, next);
   }
 
-  const visibleRooms = rooms.filter((room) => {
+  const combinedRooms = [
+    ...rooms,
+    ...legacyRooms.filter(
+      (legacyRoom) => !rooms.some((room) => room.id === legacyRoom.id),
+    ),
+  ];
+
+  const roomsWithAvailability = combinedRooms.map((room) => {
+    const tenantCount = room.tenantCount ?? 0;
+    return {
+      ...room,
+      tenantCount,
+      availableSpaces:
+        room.availableSpaces ?? Math.max(0, room.capacity - tenantCount),
+    };
+  });
+
+  const visibleRooms = roomsWithAvailability.filter((room) => {
     const matchesFilter =
-      selectedFilter === "All Rooms" || room.type === selectedFilter;
+      selectedFilter === "All Rooms" ||
+      room.type.trim().toLowerCase() === selectedFilter.trim().toLowerCase();
     const text =
       `${room.number} ${room.type} ${room.amenities.join(" ")}`.toLowerCase();
     return matchesFilter && text.includes(search.trim().toLowerCase());
@@ -156,7 +189,18 @@ export default function RoomBrowser() {
             placeholderTextColor="#8ea4c7"
             style={styles.searchInput}
           />
-          <Ionicons name="options-outline" size={20} color="#8ea4c7" />
+            {search.length > 0 ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Clear room search"
+                onPress={() => setSearch("")}
+                hitSlop={10}
+              >
+                <Ionicons name="close-circle" size={20} color="#8ea4c7" />
+              </Pressable>
+            ) : (
+              <Ionicons name="options-outline" size={20} color="#8ea4c7" />
+            )}
         </View>
       </View>
       
@@ -183,7 +227,7 @@ export default function RoomBrowser() {
                   }
                 >
                   {filter}
-                  {filter === "All Rooms" ? ` (${rooms.length})` : ""}
+                  {filter === "All Rooms" ? ` (${roomsWithAvailability.length})` : ""}
                 </Text>
               </Pressable>
             ))}
@@ -201,13 +245,34 @@ export default function RoomBrowser() {
                 <Ionicons name="search-outline" size={48} color="#2864e8" />
               </View>
               <Text style={styles.emptyTitle}>No rooms found</Text>
-              <Text style={styles.emptyText}>We couldn't find any rooms matching your search criteria. Try adjusting your filters.</Text>
+              <Text style={styles.emptyText}>
+                {roomsWithAvailability.length === 0
+                  ? "No room listings are available right now. Please check back later."
+                  : "We couldn't find any rooms matching your search criteria. Try adjusting your filters."}
+              </Text>
+              {roomsWithAvailability.length > 0 && (search || selectedFilter !== "All Rooms") ? (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => {
+                    setSearch("");
+                    setSelectedFilter("All Rooms");
+                  }}
+                  style={styles.clearFiltersButton}
+                >
+                  <Text style={styles.clearFiltersText}>Clear search and filters</Text>
+                </Pressable>
+              ) : null}
             </View>
           ) : (
             <View style={styles.roomsGrid}>
             {visibleRooms.map((room) => {
-              const isOccupied = normalizeRoomStatus(room.status) === "occupied";
-              const statusLabel = roomStatusLabel(room.status);
+              const noVacancy = room.availableSpaces === 0;
+              const statusLabel =
+                room.tenantCount === 0
+                  ? "No Occupants"
+                  : noVacancy
+                    ? "No Vacancy"
+                    : `${room.availableSpaces} available`;
               return (
               <Pressable
                 style={styles.card}
@@ -220,7 +285,12 @@ export default function RoomBrowser() {
                 <View style={styles.imageWrap}>
                   {room.image ? (
                     <Image source={{ uri: room.image }} style={styles.roomImage} />
-                  ) : null}
+                  ) : (
+                    <View style={[styles.roomImage, styles.roomImagePlaceholder]}>
+                      <Ionicons name="image-outline" size={25} color="#7394d6" />
+                      <Text style={styles.placeholderText}>No room photo</Text>
+                    </View>
+                  )}
                   <Pressable
                     accessibilityLabel={`Save Room ${room.number}`}
                     style={styles.heartButton}
@@ -245,8 +315,8 @@ export default function RoomBrowser() {
                     <Text style={styles.roomTitle}>
                       Room {room.number} - {room.type}
                     </Text>
-                    <View style={isOccupied ? styles.occupiedBadge : styles.availableBadge}>
-                      <Text style={isOccupied ? styles.occupied : styles.available}>
+                    <View style={noVacancy ? styles.occupiedBadge : styles.availableBadge}>
+                      <Text style={noVacancy ? styles.occupied : styles.available}>
                         {statusLabel}
                       </Text>
                     </View>
@@ -256,14 +326,6 @@ export default function RoomBrowser() {
                     ₱{room.price}
                     <Text style={styles.month}> /month</Text>
                   </Text>
-                  
-                  <View style={styles.tags}>
-                    {room.amenities.map((amenity) => (
-                      <Text style={styles.tag} key={amenity}>
-                        {amenity}
-                      </Text>
-                    ))}
-                  </View>
                   
                 </View>
               </Pressable>
@@ -341,6 +403,13 @@ const styles = StyleSheet.create({
   },
   imageWrap: { position: "relative" },
   roomImage: { width: "100%", height: 120 },
+  roomImagePlaceholder: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    backgroundColor: "#eff4ff",
+  },
+  placeholderText: { color: "#71809a", fontSize: 12, fontWeight: "600" },
   heartButton: {
     position: "absolute",
     top: 12,
@@ -371,7 +440,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   occupiedBadge: {
-    backgroundColor: "#f3f5f8",
+    backgroundColor: "#fef2f2",
     borderRadius: 12,
     paddingHorizontal: 6,
     paddingVertical: 4,
@@ -382,7 +451,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   occupied: {
-    color: "#536783",
+    color: "#dc2626",
     fontSize: 10,
     fontWeight: "600",
   },
@@ -422,4 +491,12 @@ const styles = StyleSheet.create({
   },
   emptyTitle: { fontSize: 20, fontWeight: "700", color: "#172033", marginBottom: 8 },
   emptyText: { color: "#71809a", fontSize: 14, textAlign: "center", lineHeight: 22 },
+  clearFiltersButton: {
+    marginTop: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: "#2864e8",
+  },
+  clearFiltersText: { color: "#fff", fontSize: 13, fontWeight: "700" },
 });

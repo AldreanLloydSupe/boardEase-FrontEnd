@@ -1,7 +1,9 @@
 import { AppAlert as Alert } from "@/components/app-alert";
+import { LoadingButton } from "@/components/loading-button";
 import DateTimePicker from "@/components/date-time-picker";
 import { TenantPageHeader } from "@/components/tenant-page-header";
 import { useAuth } from "@/lib/auth-context";
+import { useTenantData } from "@/lib/use-tenant-data";
 import { getFavoriteRooms, setFavoriteRooms } from "@/lib/favorite-rooms";
 import { db } from "@/lib/firebase";
 import { createApplication, createTourRequest } from "@/lib/request-data";
@@ -41,7 +43,7 @@ export default function RoomDetails() {
     setRoomRecord(null);
     /* eslint-enable react-hooks/set-state-in-effect */
     if (!db || !params.id) return;
-    const unsubscribe = onSnapshot(doc(db, "rooms", params.id), (snapshot) => {
+    const unsubscribe = onSnapshot(doc(db, "roomListings", params.id), (snapshot) => {
       if (active) setRoomRecord(snapshot.exists() ? snapshot.data() : null);
     }, () => { if (active) setRoomRecord(null); });
     return () => {
@@ -52,6 +54,7 @@ export default function RoomDetails() {
   const number = String(roomRecord?.number ?? params.number ?? "");
   const type = String(roomRecord?.type ?? params.type ?? "Room");
   const price = String(roomRecord?.price ?? roomRecord?.rent ?? params.price ?? "0");
+  const imageUri = String(roomRecord?.image ?? params.image ?? "").trim();
   const property = String(
     roomRecord?.propertyName ?? roomRecord?.property ?? "",
   ).trim();
@@ -64,14 +67,24 @@ export default function RoomDetails() {
     ? roomFromFirestore(String(params.id ?? ""), roomRecord).amenities
     : [];
   const { user } = useAuth();
-  const isOccupied = String(roomRecord?.status ?? "available").toLowerCase() === "occupied";
-  const isAssignedTenant = Boolean(user?.uid && roomRecord?.tenantId === user.uid);
+  const { profile } = useTenantData();
+  const capacity = roomRecord
+    ? roomFromFirestore(String(params.id ?? ""), roomRecord).capacity
+    : 1;
+  const tenantCount = Number(roomRecord?.tenantCount || 0);
+  const availableSpaces = Math.max(
+    0,
+    Number(roomRecord?.availableSpaces ?? capacity - tenantCount),
+  );
+  const isNoVacancy = availableSpaces === 0;
+  const isAssignedTenant = Boolean(
+    user?.uid && String(profile.roomId || "") === String(params.id || ""),
+  );
   const [tourModalVisible, setTourModalVisible] = React.useState(false);
   const [selectedDate, setSelectedDate] = React.useState<Date | null>(null);
   const [showDatePicker, setShowDatePicker] = React.useState(false);
   const [tourNote, setTourNote] = React.useState("");
   const [isFavorite, setIsFavorite] = React.useState(false);
-  const [isApplying, setIsApplying] = React.useState(false);
   const [hasApplied, setHasApplied] = React.useState(false);
   const [isRequestingTour, setIsRequestingTour] = React.useState(false);
   const [hasRequestedTour, setHasRequestedTour] = React.useState(false);
@@ -204,12 +217,14 @@ export default function RoomDetails() {
         }
       />
       <ScrollView contentContainerStyle={styles.content}>
-        {params.image ? (
-          <Image
-            source={params.image ? { uri: params.image } : undefined}
-            style={styles.hero}
-          />
-        ) : null}
+        {imageUri ? (
+          <Image source={{ uri: imageUri }} style={styles.hero} />
+        ) : (
+          <View style={styles.heroPlaceholder}>
+            <Ionicons name="image-outline" size={34} color="#7394d6" />
+            <Text style={styles.heroPlaceholderText}>No room photo</Text>
+          </View>
+        )}
         <View style={styles.headingRow}>
           <View style={styles.headingText}>
             <Text style={styles.kicker}>BOARDEASE · AVAILABLE ROOM</Text>
@@ -220,13 +235,22 @@ export default function RoomDetails() {
               <Text style={styles.location}>{locationLabel}</Text>
             )}
           </View>
-          <Text style={[styles.available, isOccupied && styles.occupiedBadge]}>{isOccupied ? "OCCUPIED" : "AVAILABLE"}</Text>
+          <Text
+            style={[styles.available, isNoVacancy && styles.occupiedBadge]}
+          >
+            {tenantCount === 0
+              ? "NO OCCUPANTS"
+              : isNoVacancy
+                ? "NO VACANCY"
+                : `${availableSpaces} AVAILABLE`}
+          </Text>
         </View>
 
-        {isOccupied ? (
+        {tenantCount > 0 ? (
           <View style={styles.priceCard}>
-            <Text style={styles.note}>Current tenant</Text>
-            <Text style={styles.price}>{String(roomRecord?.tenantName ?? roomRecord?.tenant ?? "Assigned tenant")}</Text>
+            <Text style={styles.note}>Occupancy</Text>
+            <Text style={styles.price}>{tenantCount} of {capacity} tenants</Text>
+            <Text style={styles.note}>Monthly rent: {price}</Text>
             {isAssignedTenant ? <Text style={styles.note}>This room is assigned to your account.</Text> : null}
           </View>
         ) : <View style={styles.priceCard}>
@@ -241,7 +265,8 @@ export default function RoomDetails() {
 
         <Section title="Occupancy & Bed Allocation">
           <InfoRow icon="people-outline" label="Room type" value={type} />
-          <InfoRow icon="people-outline" label="Capacity" value={String(roomRecord?.capacity ?? type)} />
+          <InfoRow icon="people-outline" label="Capacity" value={`${tenantCount} of ${capacity} tenants`} />
+          <InfoRow icon="bed-outline" label="Vacancies" value={String(availableSpaces)} />
           <InfoRow
             icon="bed-outline"
             label="Bed allocation"
@@ -277,11 +302,11 @@ export default function RoomDetails() {
       </ScrollView>
 
       <View style={styles.actions}>
-        {isOccupied ? (
+        {isNoVacancy ? (
           isAssignedTenant ? <Pressable style={styles.applyButton} onPress={() => router.push("/tenant/applications" as any)}>
             <Ionicons name="build-outline" size={18} color="#fff" />
             <Text style={styles.applyText}>Submit Maintenance Request</Text>
-          </Pressable> : <Text style={styles.note}>This room is currently occupied.</Text>
+          </Pressable> : <Text style={styles.noVacancyText}>This room has no vacancy.</Text>
         ) : <>
         <Pressable
           style={[
@@ -305,18 +330,16 @@ export default function RoomDetails() {
             {hasRequestedTour ? "Tour Requested ✓" : "Request a Tour"}
           </Text>
         </Pressable>
-        <Pressable
-          style={[
-            styles.applyButton,
-            (isApplying || hasApplied) && styles.applyButtonDisabled,
-          ]}
-          disabled={isApplying || hasApplied}
+        <LoadingButton
+          title={hasApplied ? "Submitted ✓" : "Apply for this Room"}
+          loadingText="Submitting..."
+          disabled={hasApplied}
+          style={[styles.applyButton, hasApplied && styles.applyButtonDisabled]}
+          textStyle={[styles.applyText, hasApplied && styles.applyTextDisabled]}
           onPress={async () => {
             try {
               if (!user)
                 throw new Error("Please log in again before applying.");
-
-              setIsApplying(true);
               await new Promise((resolve) => setTimeout(resolve, 800));
 
               const application = await createApplication(user, {
@@ -326,13 +349,10 @@ export default function RoomDetails() {
                 price,
                 image: params.image,
               });
-
-              setIsApplying(false);
               setHasApplied(true);
-
-              setTimeout(() => {
-                router.push({
-                  pathname: "/tenant/applications",
+              await new Promise((resolve) => setTimeout(resolve, 1200));
+              router.push({
+                pathname: "/tenant/applications",
                   params: {
                     applicationId: application.id,
                     number,
@@ -341,29 +361,14 @@ export default function RoomDetails() {
                     image: params.image ?? "",
                   },
                 } as any);
-              }, 1200);
             } catch (error) {
-              setIsApplying(false);
               Alert.alert(
                 "Unable to apply",
                 error instanceof Error ? error.message : "Please try again.",
               );
             }
           }}
-        >
-          <Text
-            style={[
-              styles.applyText,
-              (isApplying || hasApplied) && styles.applyTextDisabled,
-            ]}
-          >
-            {isApplying
-              ? "Submitting..."
-              : hasApplied
-                ? "Submitted ✓"
-                : "Apply for this Room"}
-          </Text>
-        </Pressable>
+        />
         </>}
       </View>
 
@@ -437,23 +442,13 @@ export default function RoomDetails() {
               multiline
               textAlignVertical="top"
             />
-            <Pressable
-              style={[
-                styles.modalSubmit,
-                isRequestingTour && styles.applyButtonDisabled,
-              ]}
+            <LoadingButton
+              title="Send Tour Request"
+              loadingText="Sending Request..."
               onPress={submitTourRequest}
-              disabled={isRequestingTour}
-            >
-              <Text
-                style={[
-                  styles.modalSubmitText,
-                  isRequestingTour && styles.applyTextDisabled,
-                ]}
-              >
-                {isRequestingTour ? "Sending Request..." : "Send Tour Request"}
-              </Text>
-            </Pressable>
+              style={styles.modalSubmit}
+              textStyle={styles.modalSubmitText}
+            />
             <Pressable
               style={styles.modalCancel}
               onPress={() => setTourModalVisible(false)}
@@ -527,6 +522,16 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: "#e8edf3",
   },
+  heroPlaceholder: {
+    width: "100%",
+    height: 220,
+    borderRadius: 12,
+    backgroundColor: "#eff4ff",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  heroPlaceholderText: { color: "#71809a", fontSize: 13, fontWeight: "600" },
   headingRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -552,6 +557,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   occupiedBadge: { backgroundColor: "#fff0ee", color: "#b54135" },
+  noVacancyText: { color: "#dc2626", fontSize: 13, fontWeight: "700", textAlign: "center", paddingVertical: 12 },
   priceCard: {
     backgroundColor: "#fff",
     borderRadius: 12,

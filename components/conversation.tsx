@@ -40,9 +40,13 @@ type ChatMessage = {
 export function Conversation({
   request,
   onBack,
+  onDelete,
+  deleting = false,
 }: {
   request: RequestSummary;
   onBack?: () => void;
+  onDelete?: () => void;
+  deleting?: boolean;
 }) {
   const { user, displayName, role } = useAuth();
   const isFocused = useIsFocused();
@@ -240,6 +244,21 @@ export function Conversation({
             }
           >
             <Ionicons name="construct-outline" size={22} color="#2864e8" />
+          </Pressable>
+        )}
+        {role === "admin" && onDelete && (
+          <Pressable
+            style={styles.back}
+            accessibilityRole="button"
+            accessibilityLabel="Delete conversation"
+            onPress={onDelete}
+            disabled={deleting}
+          >
+            {deleting ? (
+              <ActivityIndicator size="small" color="#c43c3c" />
+            ) : (
+              <Ionicons name="trash-outline" size={21} color="#c43c3c" />
+            )}
           </Pressable>
         )}
       </View>

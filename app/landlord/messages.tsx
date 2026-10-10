@@ -1,5 +1,7 @@
 import { LandlordNavigation } from "@/components/landlord-navigation";
 import { LandlordPageHeader } from "@/components/landlord-page-header";
+import { AppAlert as Alert } from "@/components/app-alert";
+import { useAuth } from "@/lib/auth-context";
 import { useMaintenanceInbox } from "@/lib/use-maintenance-inbox";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams } from "expo-router";
@@ -18,9 +20,16 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { Conversation } from "@/components/conversation";
 import { db } from "@/lib/firebase";
-import { doc, onSnapshot } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  getDocs,
+  onSnapshot,
+  writeBatch,
+} from "firebase/firestore";
 
 export default function LandlordMessages() {
+  const { user } = useAuth();
   const inbox = useMaintenanceInbox();
   const { requestId, tenantId } = useLocalSearchParams<{
     requestId?: string;
@@ -28,6 +37,7 @@ export default function LandlordMessages() {
   }>();
   const [directTenant, setDirectTenant] = React.useState<any>(null);
   const [tenantError, setTenantError] = React.useState("");
+  const [deletingConversationId, setDeletingConversationId] = React.useState<string | null>(null);
   React.useEffect(() => {
     if (!tenantId || !db) return;
     return onSnapshot(
@@ -51,6 +61,65 @@ export default function LandlordMessages() {
   const setSelectedId = (id: string | null) =>
     setSelection({ id, route: routeSelection });
   const [search, setSearch] = React.useState("");
+
+  async function deleteSelectedConversation() {
+    if (!db || !selected || deletingConversationId) return;
+    const source = selected.source || "maintenanceRequests";
+    const threadId = selected.threadId || selected.id;
+    setDeletingConversationId(selected.id);
+    try {
+      const messages = await getDocs(
+        collection(db, source, threadId, "messages"),
+      );
+      for (let offset = 0; offset < messages.docs.length; offset += 450) {
+        const batch = writeBatch(db);
+        messages.docs.slice(offset, offset + 450).forEach((message) =>
+          batch.delete(message.ref),
+        );
+        await batch.commit();
+      }
+
+      const cleanup = writeBatch(db);
+      if (user?.uid)
+        cleanup.delete(doc(db, source, threadId, "readReceipts", user.uid));
+      if (selected.tenantId)
+        cleanup.delete(
+          doc(db, source, threadId, "readReceipts", selected.tenantId),
+        );
+      cleanup.delete(doc(db, source, threadId));
+      await cleanup.commit();
+      setSelectedId(null);
+    } catch (error) {
+      Alert.alert(
+        "Unable to delete conversation",
+        error instanceof Error
+          ? error.message
+          : "Please check your connection and try again.",
+      );
+    } finally {
+      setDeletingConversationId(null);
+    }
+  }
+
+  function confirmDeleteConversation() {
+    if (!selected) return;
+    const isMaintenance = selected.source !== "conversations";
+    Alert.alert(
+      isMaintenance ? "Delete maintenance conversation?" : "Delete conversation?",
+      isMaintenance
+        ? "This permanently deletes the maintenance request and all of its messages. This action cannot be undone."
+        : "This permanently deletes this conversation and all of its messages. This action cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => void deleteSelectedConversation(),
+        },
+      ],
+    );
+  }
+
   const wide = useWindowDimensions().width >= 800;
   const selected =
     inbox.requests.find((r) => r.id === selectedId) ||
@@ -204,6 +273,8 @@ export default function LandlordMessages() {
               key={selected.id}
               request={selected}
               onBack={() => setSelectedId(null)}
+              onDelete={confirmDeleteConversation}
+              deleting={deletingConversationId === selected.id}
             />
           ) : (
             <View style={styles.placeholder}>

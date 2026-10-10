@@ -19,10 +19,13 @@ import {
     query,
     runTransaction,
     serverTimestamp,
+    setDoc,
+    updateDoc,
     where,
 } from "firebase/firestore";
 import React, { useState } from "react";
 import {
+    ActivityIndicator,
     Animated,
     Image,
     Modal,
@@ -41,6 +44,7 @@ type Room = {
   type: string;
   status: "Available" | "Occupied";
   rent: string;
+  capacity: number;
   tenant?: string;
   attention?: boolean;
   amenities?: string[];
@@ -48,13 +52,47 @@ type Room = {
   image?: string;
 };
 
+type RoomWithAvailability = Room & {
+  tenantCount: number;
+  availableSpaces: number;
+};
+
+function publicRoomListing(room: Record<string, any>, tenantCount: number) {
+  const capacity = Number.isInteger(Number(room.capacity)) && Number(room.capacity) > 0
+    ? Number(room.capacity)
+    : 1;
+  const availableSpaces = Math.max(0, capacity - tenantCount);
+  return {
+    number: String(room.number ?? ""),
+    type: String(room.type ?? "Room"),
+    price: String(room.price ?? room.rent ?? "0"),
+    rent: String(room.rent ?? room.price ?? "0"),
+    image: String(room.image ?? ""),
+    amenities: Array.isArray(room.amenities) ? room.amenities : [],
+    guidelines: String(room.guidelines ?? ""),
+    propertyName: String(room.propertyName ?? ""),
+    location: String(room.location ?? ""),
+    floor: room.floor ?? "",
+    unit: room.unit ?? "",
+    capacity,
+    tenantCount,
+    availableSpaces,
+    status: availableSpaces > 0 ? "available" : "occupied",
+    updatedAt: serverTimestamp(),
+  };
+}
+
 export default function Rooms() {
   const { user } = useAuth();
   const [isLoadingRooms, setIsLoadingRooms] = useState(true);
   const [isAddingRoom, setIsAddingRoom] = useState(false);
   const [rooms, setRooms] = useState<Room[]>([]);
+  const [assignedTenants, setAssignedTenants] = useState<Record<string, any>[]>(
+    [],
+  );
   const [modalOpen, setModalOpen] = useState(false);
   const [editingRoomId, setEditingRoomId] = useState<string | null>(null);
+  const [detailsRoom, setDetailsRoom] = useState<RoomWithAvailability | null>(null);
   const [qrRoom, setQrRoom] = useState<Room | null>(null);
   const [isSavingQr, setIsSavingQr] = useState(false);
   const qrCodeRef = React.useRef<{ toDataURL: (callback: (value: string) => void) => void } | null>(null);
@@ -62,6 +100,7 @@ export default function Rooms() {
   const [number, setNumber] = useState("");
   const [type, setType] = useState("");
   const [rent, setRent] = useState("");
+  const [capacity, setCapacity] = useState("1");
   const [guidelines, setGuidelines] = useState("");
   const [amenityInput, setAmenityInput] = useState("");
   const [amenities, setAmenities] = useState<string[]>([]);
@@ -75,6 +114,24 @@ export default function Rooms() {
     return onSnapshot(
       collection(db, "rooms"),
       (snapshot) => {
+        for (const item of snapshot.docs) {
+          const roomData = item.data();
+          const tenantIds = Array.isArray(roomData.tenantIds)
+            ? roomData.tenantIds
+            : roomData.tenantId
+              ? [roomData.tenantId]
+              : [];
+          const listingRef = doc(db, "roomListings", item.id);
+          void getDoc(listingRef)
+            .then((listing) => {
+              if (!listing.exists())
+                return setDoc(
+                  listingRef,
+                  publicRoomListing(roomData, tenantIds.length),
+                );
+            })
+            .catch(() => undefined);
+        }
         setRooms(
           snapshot.docs.map((item) => ({
             id: item.id,
@@ -86,6 +143,11 @@ export default function Rooms() {
                 ? "Occupied"
                 : "Available",
             rent: String(item.data().rent ?? item.data().price ?? "0"),
+            capacity:
+              Number.isInteger(Number(item.data().capacity)) &&
+              Number(item.data().capacity) > 0
+                ? Number(item.data().capacity)
+                : 1,
             tenant: item.data().tenant,
             attention: item.data().attention === true,
             amenities: item.data().amenities || [],
@@ -101,18 +163,72 @@ export default function Rooms() {
       },
     );
   }, []);
-  const filteredRooms = rooms.filter(
-    (room) =>
-      filter === "all" ||
-      (filter === "attention"
-        ? room.attention
-        : room.status.toLowerCase() === filter),
-  );
+  React.useEffect(() => {
+    if (!db) return;
+    return onSnapshot(
+      collection(db, "users"),
+      (snapshot) =>
+        setAssignedTenants(
+          snapshot.docs.map((item) => ({ ...item.data(), id: item.id })),
+        ),
+      () => setAssignedTenants([]),
+    );
+  }, []);
+  React.useEffect(() => {
+    if (!db || rooms.length === 0 || assignedTenants.length === 0) return;
+    const occupantsByRoom = new Map<string, Record<string, any>[]>();
+    for (const tenant of assignedTenants) {
+      if (tenant.role === "admin" || tenant.hasRoom !== true) continue;
+      const room = rooms.find(
+        (item) =>
+          (tenant.roomId && String(tenant.roomId) === item.id) ||
+          String(tenant.roomNumber || "") === item.number,
+      );
+      if (!room) continue;
+      occupantsByRoom.set(room.id, [
+        ...(occupantsByRoom.get(room.id) || []),
+        tenant,
+      ]);
+    }
+    for (const occupants of occupantsByRoom.values()) {
+      for (const tenant of occupants) {
+        const expectedRoommateName = occupants
+          .filter((other) => other.id !== tenant.id)
+          .map((other) => String(other.name || "Tenant"))
+          .join(", ");
+        if (String(tenant.roommateName || "") === expectedRoommateName) continue;
+        void updateDoc(doc(db, "users", String(tenant.id)), {
+          roommateName: expectedRoommateName,
+        }).catch(() => undefined);
+      }
+    }
+  }, [assignedTenants, rooms]);
+  const roomsWithAvailability = rooms.map((room) => {
+    const tenantCount = assignedTenants.filter(
+      (tenant) =>
+        tenant.role !== "admin" &&
+        tenant.hasRoom === true &&
+        (String(tenant.roomId || "") === room.id ||
+          String(tenant.roomNumber || "") === room.number),
+    ).length;
+    return {
+      ...room,
+      tenantCount,
+      availableSpaces: Math.max(0, room.capacity - tenantCount),
+    };
+  });
+  const filteredRooms = roomsWithAvailability.filter((room) => {
+    if (filter === "all") return true;
+    if (filter === "attention") return room.attention;
+    if (filter === "available") return room.availableSpaces > 0;
+    return room.tenantCount > 0;
+  });
   const openEditModal = (room: Room) => {
     setEditingRoomId(room.id);
     setNumber(room.number);
     setType(room.type);
     setRent(room.rent);
+    setCapacity(String(room.capacity || 1));
     setGuidelines(room.guidelines || "");
     setAmenities(room.amenities || []);
     setAmenityInput("");
@@ -125,6 +241,7 @@ export default function Rooms() {
     setNumber("");
     setType("");
     setRent("");
+    setCapacity("1");
     setGuidelines("");
     setAmenityInput("");
     setAmenities([]);
@@ -151,12 +268,15 @@ export default function Rooms() {
                 if (!room.exists()) return;
                 if (
                   room.data().tenantId ||
+                  (Array.isArray(room.data().tenantIds) &&
+                    room.data().tenantIds.length > 0) ||
                   String(room.data().status).toLowerCase() === "occupied"
                 )
                   throw new Error(
                     "Move the tenant out before deleting an occupied room.",
                   );
                 tx.delete(ref);
+                tx.delete(doc(firestore, "roomListings", id));
               });
               Alert.alert("Success", `Room ${roomNumber} has been deleted.`);
             } catch (error) {
@@ -215,10 +335,13 @@ export default function Rooms() {
     const normalizedNumber = number.trim();
     const normalizedType = type.trim();
     const parsedRent = Number(rent.replace(/[^0-9.]/g, ""));
+    const parsedCapacity = Number(capacity);
     if (
       !/^[A-Za-z0-9 -]{1,30}$/.test(normalizedNumber) ||
       !Number.isFinite(parsedRent) ||
-      parsedRent <= 0
+      parsedRent <= 0 ||
+      !Number.isInteger(parsedCapacity) ||
+      parsedCapacity < 1
     ) {
       Alert.alert(
         "Invalid room details",
@@ -255,6 +378,7 @@ export default function Rooms() {
       number: normalizedNumber,
       type: normalizedType,
       rent: normalizedRent,
+      capacity: parsedCapacity,
       amenities: normalizedAmenities,
       guidelines: normalizedGuidelines,
       image: imageUri,
@@ -281,6 +405,16 @@ export default function Rooms() {
             );
           const { updateDoc } = await import("firebase/firestore");
           await updateDoc(doc(db, "rooms", editingRoomId), roomData);
+          const existingTenantIds = Array.isArray(original.data().tenantIds)
+            ? original.data().tenantIds
+            : original.data().tenantId
+              ? [original.data().tenantId]
+              : [];
+          await setDoc(
+            doc(db, "roomListings", editingRoomId),
+            publicRoomListing(roomData, existingTenantIds.length),
+            { merge: true },
+          );
           setRooms((current) =>
             current.map((r) =>
               r.id === editingRoomId ? { ...r, ...roomData } : r,
@@ -306,9 +440,14 @@ export default function Rooms() {
             tx.set(saved, {
               ...roomData,
               status: "available",
+              tenantCount: 0,
               createdBy: user?.uid || "",
               createdAt: serverTimestamp(),
             });
+            tx.set(
+              doc(firestore, "roomListings", saved.id),
+              publicRoomListing(roomData, 0),
+            );
           });
           setRooms((current) => [
             ...current,
@@ -386,7 +525,8 @@ export default function Rooms() {
             icon="checkmark-circle-outline"
             label="Available"
             value={String(
-              rooms.filter((room) => room.status === "Available").length,
+              roomsWithAvailability.filter((room) => room.availableSpaces > 0)
+                .length,
             )}
             green
             active={filter === "available"}
@@ -396,7 +536,8 @@ export default function Rooms() {
             icon="radio-button-on-outline"
             label="Occupied"
             value={String(
-              rooms.filter((room) => room.status === "Occupied").length,
+              roomsWithAvailability.filter((room) => room.tenantCount > 0)
+                .length,
             )}
             green
             active={filter === "occupied"}
@@ -425,7 +566,13 @@ export default function Rooms() {
             </>
           ) : (
             filteredRooms.map((room) => (
-              <View key={room.id} style={styles.roomCard}>
+              <Pressable
+                key={room.id}
+                style={styles.roomCard}
+                onPress={() => setDetailsRoom(room)}
+                accessibilityRole="button"
+                accessibilityLabel={`View details and tenants for room ${room.number}`}
+              >
                 <View style={styles.roomImageWrap}>
                   {room.image ? (
                     <Image
@@ -446,14 +593,20 @@ export default function Rooms() {
                   <View style={styles.roomImageActions}>
                     <Pressable
                       accessibilityLabel={`Edit room ${room.number}`}
-                      onPress={() => openEditModal(room)}
+                      onPress={(event) => {
+                        event.stopPropagation();
+                        openEditModal(room);
+                      }}
                       style={styles.imageAction}
                     >
                       <Ionicons name="pencil" size={15} color="#2458c7" />
                     </Pressable>
                     <Pressable
                       accessibilityLabel={`Delete room ${room.number}`}
-                      onPress={() => deleteRoom(room.id, room.number)}
+                      onPress={(event) => {
+                        event.stopPropagation();
+                        deleteRoom(room.id, room.number);
+                      }}
                       style={styles.imageAction}
                     >
                       <Ionicons name="trash" size={15} color="#dc3545" />
@@ -473,19 +626,26 @@ export default function Rooms() {
                     <Text
                       style={[
                         styles.status,
-                        room.status === "Available"
+                        room.availableSpaces > 0
                           ? styles.available
                           : styles.occupied,
                       ]}
                     >
-                      {room.status === "Available" ? "Available" : "Occupied"}
+                      {room.tenantCount === 0
+                        ? "No Occupants"
+                        : room.availableSpaces > 0
+                          ? `${room.availableSpaces} available`
+                          : "No Vacancy"}
                     </Text>
                   </View>
                   <View style={styles.roomInfo}>
                     <View style={styles.tenantInfo}>
                       <Text style={styles.label}>TENANT</Text>
                       <Text style={styles.tenant} numberOfLines={1}>
-                        {room.tenant || "Ready for Tenant"}
+                        {room.tenant ||
+                          (room.tenantCount > 0
+                            ? `${room.tenantCount} of ${room.capacity} tenants`
+                            : "Ready for Tenant")}
                       </Text>
                     </View>
                     <View style={styles.rentBox}>
@@ -496,51 +656,42 @@ export default function Rooms() {
                       </Text>
                     </View>
                   </View>
-                  <View style={styles.amenitiesList}>
-                    {room.amenities && room.amenities.length > 0 ? (
-                      <Text style={styles.amenitiesText} numberOfLines={1}>
-                        {room.amenities.join(" • ")}
-                      </Text>
-                    ) : (
-                      <Text style={styles.amenitiesTextEmpty}>
-                        No amenities listed
-                      </Text>
-                    )}
-                  </View>
                   <View
                     style={[
                       styles.roomAction,
-                      room.status === "Available" && styles.assignAction,
+                      room.availableSpaces > 0 && styles.assignAction,
                     ]}
                   >
                     <Ionicons
                       name={
-                        room.status === "Available"
+                        room.availableSpaces > 0
                           ? "checkmark-circle-outline"
                           : "lock-closed-outline"
                       }
                       size={13}
                       color={
-                        room.status === "Available" ? "#2458c7" : "#536783"
+                        room.availableSpaces > 0 ? "#2458c7" : "#536783"
                       }
                     />
                     <Text
                       style={[
                         styles.roomActionText,
-                        room.status === "Available" && styles.assignText,
+                        room.availableSpaces > 0 && styles.assignText,
                       ]}
                     >
-                      {room.status === "Available"
+                      {room.tenantCount === 0
                         ? "Available · Auto-assign"
-                        : "Occupied · Assigned"}
+                        : room.availableSpaces > 0
+                          ? `${room.availableSpaces} spaces available · Auto-assign`
+                          : "No vacancy · At capacity"}
                     </Text>
                   </View>
-                  <Pressable accessibilityRole="button" accessibilityLabel={`View or print QR code for room ${room.number}`} style={styles.qrButton} onPress={() => setQrRoom(room)}>
+                  <Pressable accessibilityRole="button" accessibilityLabel={`View or print QR code for room ${room.number}`} style={styles.qrButton} onPress={(event) => { event.stopPropagation(); setQrRoom(room); }}>
                     <Ionicons name="qr-code-outline" size={16} color="#2458c7" />
                     <Text style={styles.qrButtonText}>View / Print QR Code</Text>
                   </Pressable>
                 </View>
-              </View>
+              </Pressable>
             ))
           )}
         </View>
@@ -610,6 +761,14 @@ export default function Rooms() {
                 placeholder="e.g. 5000"
                 keyboardType="number-pad"
               />
+              <Text style={styles.inputLabel}>Tenant Capacity</Text>
+              <TextInput
+                style={styles.input}
+                value={capacity}
+                onChangeText={setCapacity}
+                placeholder="e.g. 2"
+                keyboardType="number-pad"
+              />
               <Text style={styles.inputLabel}>Room Guidelines (Optional)</Text>
               <TextInput
                 style={[styles.input, styles.textArea]}
@@ -665,12 +824,10 @@ export default function Rooms() {
                 onPress={saveRoom}
                 disabled={isAddingRoom}
               >
-                <Text
-                  style={[
-                    styles.saveText,
-                    isAddingRoom && { color: "#9e9e9e" },
-                  ]}
-                >
+                {isAddingRoom && (
+                  <ActivityIndicator size="small" color="#fff" />
+                )}
+                <Text style={styles.saveText}>
                   {isAddingRoom
                     ? "Saving..."
                     : editingRoomId
@@ -679,6 +836,127 @@ export default function Rooms() {
                 </Text>
               </Pressable>
             </ScrollView>
+          </View>
+        </View>
+      </Modal>
+      <Modal
+        visible={!!detailsRoom}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setDetailsRoom(null)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.detailsModal}>
+            <View style={styles.modalTitleRow}>
+              <View>
+                <Text style={styles.modalTitle}>Room Details</Text>
+                <Text style={styles.qrSubtitle}>
+                  Room {detailsRoom?.number} · {detailsRoom?.type}
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => setDetailsRoom(null)}
+                accessibilityLabel="Close room details"
+              >
+                <Ionicons name="close" size={23} color="#536783" />
+              </Pressable>
+            </View>
+            {detailsRoom ? (
+              <ScrollView showsVerticalScrollIndicator={false}>
+                {detailsRoom.image ? (
+                  <Image
+                    source={{ uri: detailsRoom.image }}
+                    style={styles.detailsImage}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View style={styles.detailsImagePlaceholder}>
+                    <Ionicons name="image-outline" size={30} color="#7394d6" />
+                    <Text style={styles.placeholderText}>No room photo</Text>
+                  </View>
+                )}
+                <View style={styles.detailsGrid}>
+                  <DetailItem label="MONTHLY RENT" value={`₱${detailsRoom.rent}`} />
+                  <DetailItem
+                    label="OCCUPANCY"
+                    value={`${detailsRoom.tenantCount} of ${detailsRoom.capacity}`}
+                  />
+                  <DetailItem
+                    label="AVAILABLE SPACES"
+                    value={String(detailsRoom.availableSpaces)}
+                  />
+                  <DetailItem
+                    label="STATUS"
+                    value={
+                      detailsRoom.tenantCount === 0
+                        ? "No Occupants"
+                        : detailsRoom.availableSpaces > 0
+                          ? `${detailsRoom.availableSpaces} available`
+                          : "No Vacancy"
+                    }
+                  />
+                </View>
+                {detailsRoom.amenities?.length ? (
+                  <View style={styles.detailsSection}>
+                    <Text style={styles.detailsSectionTitle}>Amenities</Text>
+                    <Text style={styles.detailsBody}>
+                      {detailsRoom.amenities.join(" · ")}
+                    </Text>
+                  </View>
+                ) : null}
+                {detailsRoom.guidelines ? (
+                  <View style={styles.detailsSection}>
+                    <Text style={styles.detailsSectionTitle}>Guidelines</Text>
+                    <Text style={styles.detailsBody}>{detailsRoom.guidelines}</Text>
+                  </View>
+                ) : null}
+                <View style={styles.detailsSection}>
+                  <Text style={styles.detailsSectionTitle}>
+                    Tenants ({detailsRoom.tenantCount})
+                  </Text>
+                  {assignedTenants
+                    .filter(
+                      (tenant) =>
+                        tenant.role !== "admin" &&
+                        tenant.hasRoom === true &&
+                        (String(tenant.roomId || "") === detailsRoom.id ||
+                          String(tenant.roomNumber || "") === detailsRoom.number),
+                    )
+                    .map((tenant) => (
+                      <View style={styles.tenantRow} key={String(tenant.id)}>
+                        <View style={styles.tenantAvatar}>
+                          <Ionicons name="person-outline" size={17} color="#2458c7" />
+                        </View>
+                        <View style={styles.tenantDetails}>
+                          <Text style={styles.tenantName}>
+                            {String(tenant.name || tenant.displayName || "Tenant")}
+                          </Text>
+                          {tenant.phone ? (
+                            <Text style={styles.detailsBody}>{String(tenant.phone)}</Text>
+                          ) : null}
+                        </View>
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={`Message ${String(tenant.name || tenant.displayName || "tenant")}`}
+                          style={styles.messageTenantButton}
+                          onPress={() => {
+                            setDetailsRoom(null);
+                            router.push({
+                              pathname: "/landlord/messages",
+                              params: { tenantId: String(tenant.id) },
+                            } as any);
+                          }}
+                        >
+                          <Ionicons name="chatbubble-ellipses-outline" size={18} color="#2458c7" />
+                        </Pressable>
+                      </View>
+                    ))}
+                  {detailsRoom.tenantCount === 0 ? (
+                    <Text style={styles.detailsBody}>No tenants assigned to this room.</Text>
+                  ) : null}
+                </View>
+              </ScrollView>
+            ) : null}
           </View>
         </View>
       </Modal>
@@ -858,6 +1136,16 @@ function Summary({
     </Pressable>
   );
 }
+
+function DetailItem({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.detailItem}>
+      <Text style={styles.detailLabel}>{label}</Text>
+      <Text style={styles.detailValue}>{value}</Text>
+    </View>
+  );
+}
+
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function BottomNav() {
   return (
@@ -1112,6 +1400,21 @@ const styles = StyleSheet.create({
   qrButton: { marginTop: 9, minHeight: 36, borderRadius: 7, borderWidth: 1, borderColor: "#cbd9f3", backgroundColor: "#f5f8ff", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 },
   qrButtonText: { color: "#2458c7", fontSize: 11, fontWeight: "700" },
   qrModal: { width: "100%", maxWidth: 390, backgroundColor: "#fff", borderRadius: 16, padding: 20, alignItems: "stretch" },
+  detailsModal: { width: "100%", maxHeight: "88%", backgroundColor: "#fff", borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20 },
+  detailsImage: { width: "100%", aspectRatio: 1.7, borderRadius: 12, marginTop: 16, backgroundColor: "#eaf1ff" },
+  detailsImagePlaceholder: { width: "100%", aspectRatio: 1.7, borderRadius: 12, marginTop: 16, backgroundColor: "#eaf1ff", alignItems: "center", justifyContent: "center", gap: 7 },
+  detailsGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", gap: 10, marginTop: 16 },
+  detailItem: { width: "48%", backgroundColor: "#f5f8fd", borderRadius: 10, padding: 11 },
+  detailLabel: { fontSize: 9, color: "#8390a2", fontWeight: "700", marginBottom: 5 },
+  detailValue: { fontSize: 13, color: "#253149", fontWeight: "700" },
+  detailsSection: { marginTop: 18 },
+  detailsSectionTitle: { fontSize: 14, color: "#253149", fontWeight: "700", marginBottom: 8 },
+  detailsBody: { color: "#64748b", fontSize: 13, lineHeight: 19 },
+  tenantRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: "#eef2f7" },
+  tenantAvatar: { width: 34, height: 34, borderRadius: 17, backgroundColor: "#eaf1ff", alignItems: "center", justifyContent: "center" },
+  tenantDetails: { flex: 1 },
+  tenantName: { color: "#253149", fontSize: 13, fontWeight: "600" },
+  messageTenantButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: "#eaf1ff", alignItems: "center", justifyContent: "center" },
   qrSubtitle: { color: "#71809a", fontSize: 13, marginTop: 4 },
   qrCodeFrame: { alignSelf: "center", padding: 14, marginTop: 24, backgroundColor: "#fff", borderRadius: 12, borderWidth: 1, borderColor: "#e1eafa" },
   qrHint: { textAlign: "center", color: "#71809a", fontSize: 12, marginVertical: 16 },
@@ -1217,8 +1520,10 @@ const styles = StyleSheet.create({
     height: 46,
     backgroundColor: "#2864e8",
     borderRadius: 8,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    gap: 8,
     marginTop: 20,
   },
   saveText: { color: "#fff", fontSize: 14, fontWeight: "600" },

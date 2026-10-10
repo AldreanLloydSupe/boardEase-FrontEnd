@@ -1,5 +1,6 @@
 import { AppAlert as Alert } from "@/components/app-alert";
 import { LandlordDashboardSkeleton } from "@/components/landlord-dashboard-skeleton";
+import { LoadingButton } from "@/components/loading-button";
 import { RoomBrowserSkeleton } from "@/components/room-browser-skeleton";
 import { TenantHomeSkeleton } from "@/components/tenant-home-skeleton";
 import { useAuth } from "@/lib/auth-context";
@@ -7,15 +8,15 @@ import { Ionicons } from "@expo/vector-icons";
 import { Link, router } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
-    Animated,
-    KeyboardAvoidingView,
-    Platform,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+  Animated,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
 
 export default function Login() {
@@ -23,7 +24,6 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [busy, setBusy] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, boolean>>({});
   const [loadingSkeleton, setLoadingSkeleton] = useState(true);
@@ -56,7 +56,6 @@ export default function Login() {
 
   async function submit() {
     try {
-      setBusy(true);
       setErrorMsg("");
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(email)) {
@@ -68,7 +67,6 @@ export default function Login() {
           "Invalid Email",
           "Please enter a valid email address (mobile numbers are not accepted).",
         );
-        setBusy(false);
         return;
       }
       const session = await signIn(email, password);
@@ -89,7 +87,6 @@ export default function Login() {
         error instanceof Error ? error.message : "Please check your details.";
       setErrorMsg(msg);
       Alert.alert("Unable to log in", msg);
-      setBusy(false);
     }
   }
 
@@ -219,11 +216,13 @@ export default function Login() {
           <Pressable style={styles.forgot} onPress={forgotPassword}>
             <Text style={styles.link}>Forgot password?</Text>
           </Pressable>
-          <Pressable style={styles.button} onPress={submit} disabled={busy}>
-            <Text style={styles.buttonText}>
-              {busy ? "Logging in..." : "Log In"}
-            </Text>
-          </Pressable>
+          <LoadingButton
+            title="Log In"
+            loadingText="Logging in..."
+            onPress={submit}
+            style={styles.button}
+            textStyle={styles.buttonText}
+          />
           <Text style={styles.bottomText}>
             Don&apos;t have an account?{" "}
             <Link href="/signup" style={styles.link}>

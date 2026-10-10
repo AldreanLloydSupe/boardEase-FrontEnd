@@ -6,22 +6,22 @@ import { db } from "@/lib/firebase";
 import { usePropertySettings } from "@/lib/use-property-settings";
 import { useTenantData } from "@/lib/use-tenant-data";
 import { Ionicons } from "@expo/vector-icons";
-import { useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import {
-    doc,
-    onSnapshot,
-    serverTimestamp,
-    updateDoc,
+  doc,
+  onSnapshot,
+  serverTimestamp,
+  updateDoc,
 } from "firebase/firestore";
 import React from "react";
 import {
-    Image,
-    Linking,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View,
+  Image,
+  Linking,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -90,6 +90,7 @@ export default function ApplicationDetails() {
                 doc(firestore, "applications", params.applicationId!),
                 { status: "cancelled", updatedAt: serverTimestamp() },
               );
+              router.replace("/tenant/applications");
             } catch {
               Alert.alert("Could not cancel", "Please try again.");
             }
@@ -120,7 +121,6 @@ export default function ApplicationDetails() {
                 timestampMillis(application?.createdAt),
               ).toLocaleDateString("en-PH")
             : "Date unavailable"}{" "}
-          · Application {params.applicationId || "Not selected"}
         </Text>
         <View style={styles.notice}>
           <Ionicons name="hourglass-outline" size={17} color="#9b6700" />
@@ -295,7 +295,7 @@ const styles = StyleSheet.create({
   message: {
     height: 45,
     borderRadius: 9,
-    backgroundColor: "#0d382c",
+    backgroundColor: "#2864e8",
     alignItems: "center",
     justifyContent: "center",
     flexDirection: "row",

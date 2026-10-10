@@ -85,7 +85,7 @@ export default function QRScanner() {
         const roomPayload = payload as { type?: unknown; roomId?: unknown; roomNumber?: unknown };
         if (roomPayload.type !== "BOARDING_ROOM" || typeof roomPayload.roomId !== "string" || !roomPayload.roomId.trim()) throw new Error("Invalid QR");
         if (!db) throw new Error("Room services are unavailable right now.");
-        const roomSnapshot = await getDoc(doc(db, "rooms", roomPayload.roomId));
+        const roomSnapshot = await getDoc(doc(db, "roomListings", roomPayload.roomId));
         if (!roomSnapshot.exists()) throw new Error("This room is no longer listed.");
         router.push({ pathname: "/tenant/room-details", params: { id: roomPayload.roomId, number: String(roomSnapshot.data().number ?? roomPayload.roomNumber ?? "") } } as any);
         return;
