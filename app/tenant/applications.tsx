@@ -80,6 +80,12 @@ export default function Applications() {
   const [tourRequests, setTourRequests] = React.useState<TourRequestRecord[]>(
     [],
   );
+  const [cancellingTourId, setCancellingTourId] = React.useState<string | null>(
+    null,
+  );
+  const [deletingApplicationId, setDeletingApplicationId] = React.useState<
+    string | null
+  >(null);
   React.useEffect(() => {
     if (!db || !user) return;
     const applicationQuery = query(
@@ -130,7 +136,8 @@ export default function Applications() {
   }, [user]);
 
   async function cancelTour(tour: TourRequestRecord) {
-    if (!db) return;
+    if (!db || cancellingTourId) return;
+    setCancellingTourId(tour.id);
     try {
       await updateDoc(doc(db, "tourRequests", tour.id), {
         status: "cancelled",
@@ -138,6 +145,8 @@ export default function Applications() {
       });
     } catch {
       Alert.alert("Unable to cancel tour", "Please try again.");
+    } finally {
+      setCancellingTourId(null);
     }
   }
   function deleteApplication(application: ApplicationRecord) {
@@ -158,6 +167,8 @@ export default function Applications() {
           text: "Delete",
           style: "destructive",
           onPress: async () => {
+            if (deletingApplicationId) return;
+            setDeletingApplicationId(application.id);
             try {
               await deleteDoc(doc(firestore, "applications", application.id));
             } catch (error) {
@@ -170,6 +181,8 @@ export default function Applications() {
                 "Unable to delete application",
                 `Request failed (${code}). Please try again.`,
               );
+            } finally {
+              setDeletingApplicationId(null);
             }
           },
         },
@@ -198,6 +211,7 @@ export default function Applications() {
             ),
         )}
         onDeleteApplication={deleteApplication}
+        deletingApplicationId={deletingApplicationId}
       />
     );
   }
@@ -243,8 +257,8 @@ export default function Applications() {
                   "_",
                   " ",
                 )}
-                code={`APP-${application.id.slice(-8).toUpperCase()}`}
                 onDelete={() => deleteApplication(application)}
+                deleting={deletingApplicationId === application.id}
                 onPress={() =>
                   router.push({
                     pathname: "/tenant/application-details",
@@ -280,7 +294,12 @@ export default function Applications() {
           <View style={styles.toursSection}>
             <Text style={styles.sectionTitle}>Tour Requests</Text>
             {tourRequests.map((tour) => (
-              <TourCard key={tour.id} tour={tour} onCancel={cancelTour} />
+              <TourCard
+                key={tour.id}
+                tour={tour}
+                onCancel={cancelTour}
+                cancelling={cancellingTourId === tour.id}
+              />
             ))}
           </View>
         )}
@@ -355,6 +374,7 @@ function CareRequests({
   roomType,
   applications,
   onDeleteApplication,
+  deletingApplicationId,
 }: {
   tenantName: string;
   tenantId: string;
@@ -362,6 +382,7 @@ function CareRequests({
   roomType: string;
   applications: ApplicationRecord[];
   onDeleteApplication: (application: ApplicationRecord) => void;
+  deletingApplicationId: string | null;
 }) {
   const { settings } = usePropertySettings();
   const [loadError, setLoadError] = React.useState("");
@@ -594,8 +615,8 @@ function CareRequests({
                   application.unit ? `Unit ${application.unit}` : "",
                 ].filter(Boolean).join(" · ") || "Location unavailable"}
                 status={String(application.status || "")}
-                code={`APP-${application.id.slice(-8).toUpperCase()}`}
                 onDelete={() => onDeleteApplication(application)}
+                deleting={deletingApplicationId === application.id}
                 onPress={() =>
                   router.push({
                     pathname: "/tenant/application-details",
@@ -1174,9 +1195,11 @@ function CareRequests({
 function TourCard({
   tour,
   onCancel,
+  cancelling,
 }: {
   tour: TourRequestRecord;
   onCancel: (tour: TourRequestRecord) => void;
+  cancelling: boolean;
 }) {
   const status = tour.status || "pending";
   const statusLabel =
@@ -1247,6 +1270,8 @@ function TourCard({
           )}
           <Pressable
             style={styles.cancelTourButton}
+            disabled={cancelling}
+            accessibilityState={{ busy: cancelling, disabled: cancelling }}
             onPress={() =>
               Alert.alert(
                 status === "accepted"
@@ -1264,7 +1289,11 @@ function TourCard({
               )
             }
           >
-            <Text style={styles.cancelTourText}>Cancel</Text>
+            {cancelling ? (
+              <ActivityIndicator size="small" color="#b42318" />
+            ) : (
+              <Text style={styles.cancelTourText}>Cancel</Text>
+            )}
           </Pressable>
         </View>
       )}
@@ -1278,25 +1307,35 @@ function ApplicationCard({
   price,
   location,
   status,
-  code,
   onDelete,
   onPress,
+  deleting,
 }: {
   image: string;
   room: string;
   price: string;
   location: string;
   status: string;
-  code: string;
   onDelete: () => void;
   onPress: () => void;
+  deleting: boolean;
 }) {
   const normalizedStatus = status.toLowerCase();
   const approved = normalizedStatus === "approved";
+  const statusLabel = status
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
   const canDelete = approved || normalizedStatus === "cancelled";
   return (
     <View style={styles.card}>
-      {image ? <Image source={{ uri: image }} style={styles.image} /> : null}
+      {image ? (
+        <Image source={{ uri: image }} style={styles.image} />
+      ) : (
+        <View style={[styles.image, styles.imagePlaceholder]}>
+          <Ionicons name="image-outline" size={25} color="#7394d6" />
+          <Text style={styles.imagePlaceholderText}>No room photo</Text>
+        </View>
+      )}
       <View style={styles.cardMain}>
         <View style={styles.cardTop}>
           <Text
@@ -1304,12 +1343,16 @@ function ApplicationCard({
               styles.status,
               approved
                 ? styles.approved
-                : status === "Waitlisted"
-                  ? styles.waitlisted
-                  : styles.review,
+                : normalizedStatus === "cancelled"
+                  ? styles.cancelled
+                  : normalizedStatus === "pending"
+                    ? styles.pending
+                    : normalizedStatus === "waitlisted"
+                      ? styles.waitlisted
+                      : styles.review,
             ]}
           >
-            {status}
+            {statusLabel}
           </Text>
           <View style={styles.applicationCardActions}>
             {canDelete && (
@@ -1319,11 +1362,16 @@ function ApplicationCard({
                 hitSlop={8}
                 style={styles.deleteApplicationButton}
                 onPress={onDelete}
+                disabled={deleting}
+                accessibilityState={{ busy: deleting, disabled: deleting }}
               >
-                <Ionicons name="trash-outline" size={16} color="#b42318" />
+                {deleting ? (
+                  <ActivityIndicator size="small" color="#b42318" />
+                ) : (
+                  <Ionicons name="trash-outline" size={16} color="#b42318" />
+                )}
               </Pressable>
             )}
-            <Text style={styles.code}>#{code}</Text>
           </View>
         </View>
         <Pressable onPress={onPress}>
@@ -1456,6 +1504,13 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   image: { width: "100%", height: 165, backgroundColor: "#eaf1ff" },
+  imagePlaceholder: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    backgroundColor: "#eff4ff",
+  },
+  imagePlaceholderText: { color: "#71809a", fontSize: 12, fontWeight: "600" },
   cardMain: { padding: 15 },
   cardTop: {
     flexDirection: "row",
@@ -1483,9 +1538,10 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   review: { backgroundColor: "#eaf1ff", color: "#2864e8" },
-  approved: { backgroundColor: "#dce9ff", color: "#2458c7" },
+  pending: { backgroundColor: "#fff0c9", color: "#9b6700" },
+  cancelled: { backgroundColor: "#fff0ee", color: "#b54135" },
+  approved: { backgroundColor: "#dcfce7", color: "#15803d" },
   waitlisted: { backgroundColor: "#edf0f4", color: "#68768a" },
-  code: { color: "#9aa8ba", fontSize: 11 },
   room: { fontSize: 17, fontWeight: "800", color: "#172033", marginTop: 12 },
   house: { color: "#78879b", fontSize: 12, marginTop: 4 },
   meta: {

@@ -9,7 +9,6 @@ import {
   where,
 } from "firebase/firestore";
 import { db } from "./firebase";
-import { resolveRoom } from "./tenancy-data";
 export type RoomRequest = {
   roomId?: string;
   roomNumber: string;
@@ -25,7 +24,18 @@ async function createRequest(
 ) {
   const firestore = db;
   if (!firestore) throw new Error("Firebase is not configured.");
-  const roomRef = await resolveRoom(room.roomNumber, room.roomId);
+  let roomId = room.roomId;
+  if (!roomId) {
+    const matchingRooms = await getDocs(
+      query(
+        collection(firestore, "roomListings"),
+        where("number", "==", room.roomNumber),
+      ),
+    );
+    if (matchingRooms.size !== 1)
+      throw new Error("This room no longer exists. Refresh the room list.");
+    roomId = matchingRooms.docs[0].id;
+  }
   const existing = await getDocs(
     query(
       collection(firestore, kind),
@@ -41,10 +51,11 @@ async function createRequest(
     )
   )
     throw new Error("You already have an active request for this room.");
-  const ref = doc(firestore, kind, user.uid + "__" + roomRef.id);
+  const ref = doc(firestore, kind, user.uid + "__" + roomId);
+  const listingRef = doc(firestore, "roomListings", roomId);
   await runTransaction(firestore, async (tx) => {
     const previous = await tx.get(ref);
-    const currentRoom = await tx.get(roomRef);
+    const currentRoom = await tx.get(listingRef);
     const profile = await tx.get(doc(firestore, "users", user.uid));
     if (previous.exists() && active.includes(previous.data().status))
       throw new Error("This request has already been submitted.");
@@ -53,15 +64,14 @@ async function createRequest(
     const data = currentRoom.data();
     if (
       !data ||
-      String(data.status).toLowerCase() !== "available" ||
-      data.tenantId
+      Number(data.availableSpaces) <= 0
     )
       throw new Error("This room is no longer available.");
     tx.set(ref, {
       tenantId: user.uid,
       tenantName: profile.data()?.name || user.displayName || "Tenant",
       tenantEmail: user.email || "",
-      roomId: roomRef.id,
+      roomId,
       roomNumber: String(data.number),
       roomType: data.type || "Room",
       price: String(data.rent ?? data.price ?? ""),

@@ -57,7 +57,7 @@ export default function TenantHome() {
     /* eslint-enable react-hooks/set-state-in-effect */
     if (!db || !roomId) return;
     return onSnapshot(
-      doc(db, "rooms", roomId),
+      doc(db, "roomListings", roomId),
       (snapshot) => setAssignedRoom(snapshot.exists() ? snapshot.data() : null),
       () => setAssignedRoom(null),
     );
@@ -128,16 +128,10 @@ export default function TenantHome() {
             <Text style={styles.lease}>● Active Lease</Text>
           </View>
           <View style={styles.roomDetails}>
-            <View>
-              <Text style={styles.cardLabel}>ASSIGNED SPACE</Text>
+            <View style={styles.roommateInfo}>
+              <Text style={styles.cardLabel}>ROOMMATE/S</Text>
               <Text style={styles.detail}>
-                {String(profile.assignedSpace || "Not specified")}
-              </Text>
-            </View>
-            <View>
-              <Text style={styles.cardLabel}>ROOMMATE</Text>
-              <Text style={styles.detail}>
-                {String(profile.roommateName || "Not specified")}
+                {String(profile.roommateName || "No Roommate")}
               </Text>
             </View>
           </View>
@@ -426,6 +420,7 @@ const styles = StyleSheet.create({
   },
   detail: { fontSize: 12, color: "#253149", fontWeight: "600", marginTop: 4 },
   roomDetails: { flexDirection: "row", gap: 9, marginTop: 14 },
+  roommateInfo: { flex: 1 },
   actions: { flexDirection: "row", gap: 8, marginVertical: 12 },
   action: {
     flex: 1,

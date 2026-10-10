@@ -10,10 +10,10 @@ service cloud.firestore {
     function ownsRequest(id) { return signedIn() && get(/databases/$(database)/documents/maintenanceRequests/$(id)).data.tenantId == request.auth.uid; }
     function availableRequest(id) {
       let data = request.resource.data;
-      let room = get(/databases/$(database)/documents/rooms/$(data.roomId)).data;
+      let room = get(/databases/$(database)/documents/roomListings/$(data.roomId)).data;
       return owns(data) && id == request.auth.uid + '__' + data.roomId &&
         data.status == 'pending' && data.createdAt == request.time &&
-        room.status is string && room.status.lower() == 'available' &&
+        room.availableSpaces is int && room.availableSpaces > 0 &&
         (room.number is string || room.number is number) && data.roomNumber == string(room.number) &&
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.hasRoom == false;
     }
@@ -51,8 +51,13 @@ service cloud.firestore {
     }
     match /rooms/{id} {
       allow read: if isLandlord() ||
-        (signedIn() && resource.data.status in ['available', 'Available']) ||
-        (signedIn() && resource.data.tenantId == request.auth.uid);
+        (signedIn() && resource.data.status in ['available', 'Available'] &&
+          resource.data.get('tenantCount', 0) == 0);
+      allow write: if isLandlord();
+    }
+
+    match /roomListings/{id} {
+      allow read: if signedIn();
       allow write: if isLandlord();
     }
 
@@ -148,13 +153,14 @@ service cloud.firestore {
           request.resource.data.senderId == request.auth.uid && request.resource.data.senderName is string &&
           request.resource.data.body is string && request.resource.data.body.size() > 0 &&
           request.resource.data.body.size() <= 2000 && request.resource.data.createdAt == request.time;
-        allow update, delete: if false;
+        allow update: if false;
+        allow delete: if isLandlord();
       }
       match /readReceipts/{uid} {
         allow read: if (isLandlord() || ownsRequest(id)) && request.auth.uid == uid;
         allow create, update: if (isLandlord() || ownsRequest(id)) && request.auth.uid == uid &&
           request.resource.data.keys().hasOnly(['readAt']) && request.resource.data.readAt == request.time;
-        allow delete: if false;
+        allow delete: if isLandlord();
       }
     }
     match /notifications/{id} {
@@ -181,7 +187,8 @@ service cloud.firestore {
         request.resource.data.tenantName == get(/databases/$(database)/documents/users/$(tenantId)).data.name &&
         request.resource.data.roomNumber is string &&
         request.resource.data.roomNumber == get(/databases/$(database)/documents/users/$(tenantId)).data.get('roomNumber', '');
-      allow update, delete: if false;
+      allow update: if false;
+      allow delete: if isLandlord();
       match /messages/{messageId} {
         allow read: if isLandlord() || (signedIn() && request.auth.uid == tenantId);
         allow create: if (isLandlord() || (signedIn() && request.auth.uid == tenantId)) &&
@@ -190,13 +197,14 @@ service cloud.firestore {
           request.resource.data.senderId == request.auth.uid && request.resource.data.senderName is string &&
           request.resource.data.body is string && request.resource.data.body.size() > 0 &&
           request.resource.data.body.size() <= 2000 && request.resource.data.createdAt == request.time;
-        allow update, delete: if false;
+        allow update: if false;
+        allow delete: if isLandlord();
       }
       match /readReceipts/{uid} {
         allow read: if (isLandlord() || (signedIn() && request.auth.uid == tenantId)) && request.auth.uid == uid;
         allow create, update: if (isLandlord() || (signedIn() && request.auth.uid == tenantId)) && request.auth.uid == uid &&
           request.resource.data.keys().hasOnly(['readAt']) && request.resource.data.readAt == request.time;
-        allow delete: if false;
+        allow delete: if isLandlord();
       }
     }
     match /accountRequests/{uid} {

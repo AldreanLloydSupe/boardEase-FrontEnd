@@ -15,6 +15,7 @@ import { router } from "expo-router";
 import {
     collection,
     doc,
+  getDoc,
     getDocs,
     onSnapshot,
     query,
@@ -129,10 +130,7 @@ function revenueDate(payment: PaymentStatRecord) {
 }
 
 function formatPeso(amount: number) {
-  return `₱${amount.toLocaleString("en-PH", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
+  return `₱${Math.round(amount).toLocaleString("en-PH")}`;
 }
 
 type DashboardNotification = {
@@ -382,6 +380,43 @@ export default function Dashboard() {
       collection(db, "rooms"),
       (snapshot) => {
         const records = snapshot.docs.map((room) => room.data());
+        for (const roomDoc of snapshot.docs) {
+          const room = roomDoc.data();
+          const capacity =
+            Number.isInteger(Number(room.capacity)) && Number(room.capacity) > 0
+              ? Number(room.capacity)
+              : 1;
+          const tenantCount = Array.isArray(room.tenantIds)
+            ? room.tenantIds.length
+            : room.tenantId
+              ? 1
+              : 0;
+          const availableSpaces = Math.max(0, capacity - tenantCount);
+          const listingRef = doc(db, "roomListings", roomDoc.id);
+          void getDoc(listingRef)
+            .then((listing) => {
+              if (!listing.exists())
+                return setDoc(listingRef, {
+                  number: String(room.number ?? ""),
+                  type: String(room.type ?? "Room"),
+                  price: String(room.price ?? room.rent ?? "0"),
+                  rent: String(room.rent ?? room.price ?? "0"),
+                  image: String(room.image ?? ""),
+                  amenities: Array.isArray(room.amenities) ? room.amenities : [],
+                  guidelines: String(room.guidelines ?? ""),
+                  propertyName: String(room.propertyName ?? ""),
+                  location: String(room.location ?? ""),
+                  floor: room.floor ?? "",
+                  unit: room.unit ?? "",
+                  capacity,
+                  tenantCount,
+                  availableSpaces,
+                  status: availableSpaces > 0 ? "available" : "occupied",
+                  updatedAt: serverTimestamp(),
+                });
+            })
+            .catch(() => undefined);
+        }
         const occupiedCount = records.filter(
           (room) =>
             room.isOccupied === true ||
@@ -577,7 +612,12 @@ export default function Dashboard() {
           {stats.map((stat) => (
             <View key={stat.label} style={styles.stat}>
               <View style={styles.statTop}>
-                <Text style={[styles.statValue, { color: stat.color }]}>
+                <Text
+                  style={[styles.statValue, { color: stat.color }]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.65}
+                >
                   {stat.label === "Occupied Rooms"
                     ? `${occupiedRooms}/${totalRooms}`
                     : stat.label === "Pending Apps"
@@ -1073,6 +1113,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 14,
+    marginTop: 16,
     marginBottom: 16,
   },
   notificationBadge: {
@@ -1191,7 +1232,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  statValue: { fontSize: 22, fontWeight: "800" },
+  statValue: {
+    flex: 1,
+    minWidth: 0,
+    marginRight: 8,
+    fontSize: 22,
+    fontWeight: "800",
+  },
   statLabel: { fontSize: 12, color: "#536783", fontWeight: "700" },
   statFoot: { fontSize: 10, marginTop: 7, fontWeight: "600" },
   sectionTitle: {

@@ -1,32 +1,34 @@
 import { AppAlert as Alert } from "@/components/app-alert";
 import { ProfilePictureButton } from "@/components/profile-picture-button";
 import {
-    ApplicantTenantNav,
-    AssignedTenantNav,
+  ApplicantTenantNav,
+  AssignedTenantNav,
 } from "@/components/tenant-navigation";
 import { TenantPageHeader } from "@/components/tenant-page-header";
 import { useAuth } from "@/lib/auth-context";
-import { useAppTheme } from "@/lib/theme-context";
+import { cycleDetails } from "@/lib/billing";
 import { auth, db } from "@/lib/firebase";
+import { useAppTheme } from "@/lib/theme-context";
 import { usePropertySettings } from "@/lib/use-property-settings";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import {
-    EmailAuthProvider,
-    reauthenticateWithCredential,
-    updatePassword,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
+  updatePassword,
 } from "firebase/auth";
 import { doc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
 import React from "react";
 import {
-    Modal,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Switch,
-    Text,
-    TextInput,
-    View,
+  ActivityIndicator,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -39,6 +41,7 @@ type Profile = {
   roomType: string;
   roomRent: string;
   rentDueDay: number;
+  leaseStartedAt?: unknown;
 };
 
 export default function Account() {
@@ -57,6 +60,8 @@ export default function Account() {
   const [editOpen, setEditOpen] = React.useState(false);
   const [timingOpen, setTimingOpen] = React.useState(false);
   const [passwordOpen, setPasswordOpen] = React.useState(false);
+  const [savingProfile, setSavingProfile] = React.useState(false);
+  const [loggingOut, setLoggingOut] = React.useState(false);
   const [currentPassword, setCurrentPassword] = React.useState("");
   const [newPassword, setNewPassword] = React.useState("");
   const [confirmPassword, setConfirmPassword] = React.useState("");
@@ -75,6 +80,7 @@ export default function Account() {
     roomType: "Room",
     roomRent: "",
     rentDueDay: 5,
+    leaseStartedAt: undefined,
   });
 
   const [draft, setDraft] = React.useState({
@@ -100,6 +106,7 @@ export default function Account() {
         roomType: String(data.roomType || "Room"),
         roomRent: String(data.roomRent || ""),
         rentDueDay: Number(data.rentDueDay || 5),
+        leaseStartedAt: data.leaseStartedAt,
       }));
       setNotifications(data.notificationsEnabled !== false);
       setPaymentReminders(data.paymentReminders !== false);
@@ -245,6 +252,7 @@ export default function Account() {
   }
 
   async function saveProfile() {
+    if (savingProfile) return;
     if (!draft.name.trim()) {
       Alert.alert("Missing name", "Enter your full name.");
       return;
@@ -257,6 +265,7 @@ export default function Account() {
       return;
     }
 
+    setSavingProfile(true);
     try {
       await updateUserProfile({
         name: draft.name.trim(),
@@ -270,12 +279,21 @@ export default function Account() {
       Alert.alert("Profile updated", "Your profile details were saved.");
     } catch {
       Alert.alert("Unable to update profile", "Please try again.");
+    } finally {
+      setSavingProfile(false);
     }
   }
 
   async function logout() {
-    await signOut();
-    router.replace("/login");
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await signOut();
+      router.replace("/login");
+    } catch {
+      setLoggingOut(false);
+      Alert.alert("Unable to log out", "Please try again.");
+    }
   }
 
   async function leaveRoom() {
@@ -315,6 +333,10 @@ export default function Account() {
       ? `Room ${profile.roomNumber} - ${profile.roomType}`
       : "Room assignment pending"
     : "No room assigned";
+    const rentDueDay = cycleDetails(
+      { rentDueDay: profile.rentDueDay, leaseStartedAt: profile.leaseStartedAt },
+      [],
+    ).due.getDate();
 
   return (
     <SafeAreaView style={[styles.page, darkMode && darkStyles.page]}>
@@ -376,10 +398,12 @@ export default function Account() {
             value={profile.roomRent ? `₱${profile.roomRent} / month` : "—"}
           />
 
-          <Info
-            label="Rent Due Date"
-            value={`Day ${profile.rentDueDay} of every month`}
-          />
+          {profile.roomNumber ? (
+            <Info
+              label="Rent Due Date"
+              value={`Day ${rentDueDay} of every month`}
+            />
+          ) : null}
 
           <Setting
             icon="exit-outline"
@@ -588,10 +612,20 @@ export default function Account() {
         </DropdownSection>
 
         {/* LOG OUT */}
-        <Pressable style={styles.logout} onPress={logout}>
-          <Ionicons name="log-out-outline" size={17} color="#d33f3f" />
-
-          <Text style={styles.logoutText}>Log Out</Text>
+        <Pressable
+          style={styles.logout}
+          onPress={logout}
+          disabled={loggingOut}
+          accessibilityState={{ busy: loggingOut, disabled: loggingOut }}
+        >
+          {loggingOut ? (
+            <ActivityIndicator size="small" color="#d33f3f" />
+          ) : (
+            <>
+              <Ionicons name="log-out-outline" size={17} color="#d33f3f" />
+              <Text style={styles.logoutText}>Log Out</Text>
+            </>
+          )}
         </Pressable>
       </ScrollView>
 
@@ -760,8 +794,17 @@ export default function Account() {
               keyboardType="phone-pad"
             />
 
-            <Pressable style={styles.saveButton} onPress={saveProfile}>
-              <Text style={styles.saveText}>Save Changes</Text>
+            <Pressable
+              style={styles.saveButton}
+              onPress={saveProfile}
+              disabled={savingProfile}
+              accessibilityState={{ busy: savingProfile, disabled: savingProfile }}
+            >
+              {savingProfile ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.saveText}>Save Changes</Text>
+              )}
             </Pressable>
           </View>
         </View>

@@ -6,11 +6,12 @@ export type TenantRoom = {
   image: string;
   amenities: string[];
   status?: string;
+  capacity: number;
+  tenantCount?: number;
+  availableSpaces?: number;
+  tenantId?: string;
   floor?: string;
 };
-
-export const defaultRoomImage =
-  "https://images.unsplash.com/photo-1616486338812-3dadae4b4ace?w=900";
 
 export function roomFromFirestore(
   id: string,
@@ -21,11 +22,23 @@ export function roomFromFirestore(
     number: String(data.number ?? ""),
     type: String(data.type ?? "Room"),
     price: String(data.price ?? data.rent ?? "0"),
-    image: String(data.image ?? defaultRoomImage),
+    image: String(data.image ?? ""),
     amenities: Array.isArray(data.amenities)
       ? data.amenities.map(String)
       : ["WiFi"],
     status: String(data.status ?? "available").toLowerCase(),
+    capacity:
+      Number.isInteger(Number(data.capacity)) && Number(data.capacity) > 0
+        ? Number(data.capacity)
+        : 1,
+    tenantCount: Number.isInteger(Number(data.tenantCount))
+      ? Number(data.tenantCount)
+      : 0,
+    availableSpaces:
+      Number.isInteger(Number(data.availableSpaces))
+        ? Math.max(0, Number(data.availableSpaces))
+        : undefined,
+    tenantId: data.tenantId ? String(data.tenantId) : undefined,
     floor: data.floor ? String(data.floor) : undefined,
   };
 }
