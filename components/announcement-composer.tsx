@@ -32,6 +32,7 @@ export function AnnouncementComposer({
   const { user, displayName } = useAuth();
   const [title, setTitle] = React.useState("");
   const [body, setBody] = React.useState("");
+  const [postToBulletin, setPostToBulletin] = React.useState(false);
   const [audience, setAudience] = React.useState<"all" | "selected">("all");
   const [recipientSearch, setRecipientSearch] = React.useState("");
   const [selectedRecipientIds, setSelectedRecipientIds] = React.useState<
@@ -66,6 +67,7 @@ export function AnnouncementComposer({
     }
     setPublishing(true);
     setError("");
+    const bulletinIncluded = postToBulletin && audience === "all";
     try {
       if (!recipientIds.length)
         throw new Error("Select at least one assigned tenant.");
@@ -76,6 +78,7 @@ export function AnnouncementComposer({
         title: title.trim(),
         body: body.trim(),
         audience,
+        postToBulletin: bulletinIncluded,
         recipientIds,
         senderId: user.uid,
         senderName: displayName || "BoardEase Management",
@@ -83,13 +86,14 @@ export function AnnouncementComposer({
       });
       setTitle("");
       setBody("");
+      setPostToBulletin(false);
       setAudience("all");
       setSelectedRecipientIds([]);
       setRecipientSearch("");
       onClose();
       Alert.alert(
         "Announcement published",
-        `Posted to ${recipientIds.length} tenant dashboards. In-app alerts follow each tenant's notification settings.`,
+        `Posted to ${recipientIds.length} tenant dashboards${bulletinIncluded ? " and the BoardEase Bulletin" : ""}. In-app alerts follow each tenant's notification settings.`,
       );
     } catch (cause) {
       setError(
@@ -150,6 +154,35 @@ export function AnnouncementComposer({
               style={[styles.input, styles.message]}
             />
             <Text style={styles.counter}>{body.length} / 2,000 characters</Text>
+            <Pressable
+              onPress={() => setPostToBulletin((value) => !value)}
+              disabled={publishing || audience === "selected"}
+              style={styles.bulletinOption}
+              accessibilityRole="checkbox"
+              accessibilityState={{
+                checked: postToBulletin,
+                disabled: publishing || audience === "selected",
+              }}
+            >
+              <View
+                style={[
+                  styles.recipientCheckbox,
+                  postToBulletin && styles.recipientCheckboxSelected,
+                ]}
+              >
+                {postToBulletin && (
+                  <Ionicons name="checkmark" size={14} color="#fff" />
+                )}
+              </View>
+              <View style={styles.recipientInfo}>
+                <Text style={styles.bulletinOptionTitle}>
+                  Post in BoardEase Bulletin
+                </Text>
+                <Text style={styles.recipientDetail}>
+                  Visible to all tenants when sent to everyone.
+                </Text>
+              </View>
+            </Pressable>
             <View style={styles.audience}>
               <Pressable
                 onPress={() => setAudience("all")}
@@ -174,10 +207,16 @@ export function AnnouncementComposer({
               </Pressable>
               <Pressable
                 onPress={() => setAudience("selected")}
+                disabled={postToBulletin}
                 style={[
                   styles.audienceOption,
                   audience === "selected" && styles.audienceOptionActive,
+                  postToBulletin && styles.disabledOption,
                 ]}
+                accessibilityState={{
+                  disabled: postToBulletin,
+                  selected: audience === "selected",
+                }}
               >
                 <Ionicons
                   name="person-outline"
@@ -383,6 +422,7 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   audienceOptionActive: { backgroundColor: "#2864e8" },
+  disabledOption: { opacity: 0.45 },
   audienceText: { fontSize: 12, color: "#536783", fontWeight: "600" },
   audienceTextActive: { color: "#fff" },
   recipientSummary: {
@@ -395,6 +435,17 @@ const styles = StyleSheet.create({
     marginTop: 11,
   },
   recipientSummaryText: { flex: 1, color: "#42536c", fontSize: 12 },
+  bulletinOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "#dbe5f4",
+    borderRadius: 10,
+  },
+  bulletinOptionTitle: { color: "#253149", fontSize: 13, fontWeight: "700" },
   recipientPicker: { marginTop: 12 },
   recipientHeading: {
     color: "#253149",

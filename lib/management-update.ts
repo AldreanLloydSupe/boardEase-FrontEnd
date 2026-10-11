@@ -11,6 +11,7 @@ export function managementUpdateNotice(
       : "Message from management",
     body: String(data.body || ""),
     createdAt: data.createdAt,
+    postToBulletin: data.postToBulletin === true,
     type: announcement ? "announcement" : "message",
     route: announcement
       ? "/tenant/tenant-home?announcementId=" + encodeURIComponent(noticeId)

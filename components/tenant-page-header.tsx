@@ -1,6 +1,7 @@
 import { NotificationBell } from "@/components/notification-bell";
 import { TenantHeaderMark } from "@/components/tenant-header-mark";
 import { useAuth } from "@/lib/auth-context";
+import { useTenantInbox } from "@/lib/use-maintenance-inbox";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import type { ReactNode } from "react";
@@ -22,6 +23,7 @@ export function TenantPageHeader({
   subtitle?: string;
 }) {
   const { hasRoom } = useAuth();
+  const { unreadCount: unreadMessageCount } = useTenantInbox();
   const destination =
     backHref || (hasRoom ? "/tenant/tenant-home" : "/tenant/room-browser");
 
@@ -52,9 +54,10 @@ export function TenantPageHeader({
           style={styles.back}
           onPress={() => router.push("/tenant/messages" as any)}
           accessibilityRole="button"
-          accessibilityLabel="Open messages"
+          accessibilityLabel={`Open messages${unreadMessageCount ? `, ${unreadMessageCount} unread` : ""}`}
         >
           <Ionicons name="chatbubbles-outline" size={22} color="#fff" />
+          {unreadMessageCount > 0 && <View style={styles.messageDot} />}
         </Pressable>
       )}
       <NotificationBell />
@@ -79,6 +82,18 @@ const styles = StyleSheet.create({
     height: 38,
     alignItems: "center",
     justifyContent: "center",
+    position: "relative",
+  },
+  messageDot: {
+    position: "absolute",
+    top: 7,
+    right: 5,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#ffcf4a",
+    borderWidth: 1,
+    borderColor: "#fff",
   },
   copy: { flex: 1, minWidth: 0 },
   brand: {

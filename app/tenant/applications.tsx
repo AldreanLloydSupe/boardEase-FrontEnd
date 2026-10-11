@@ -155,7 +155,7 @@ export default function Applications() {
       !db ||
       !user ||
       application.tenantId !== user.uid ||
-      !["approved", "cancelled"].includes(status)
+      !["approved", "cancelled", "vacated"].includes(status)
     ) return;
     const firestore = db;
     Alert.alert(
@@ -206,7 +206,7 @@ export default function Applications() {
         applications={storedApplications.filter(
           (application) =>
             application.tenantId === user?.uid &&
-            ["approved", "cancelled"].includes(
+            ["approved", "cancelled", "vacated"].includes(
               String(application.status || "").toLowerCase(),
             ),
         )}
@@ -1320,12 +1320,14 @@ function ApplicationCard({
   onPress: () => void;
   deleting: boolean;
 }) {
+  const [opening, setOpening] = React.useState(false);
   const normalizedStatus = status.toLowerCase();
   const approved = normalizedStatus === "approved";
   const statusLabel = status
     .replaceAll("_", " ")
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
-  const canDelete = approved || normalizedStatus === "cancelled";
+  const canDelete =
+    approved || normalizedStatus === "cancelled" || normalizedStatus === "vacated";
   return (
     <View style={styles.card}>
       {image ? (
@@ -1374,7 +1376,15 @@ function ApplicationCard({
             )}
           </View>
         </View>
-        <Pressable onPress={onPress}>
+        <Pressable
+          onPress={() => {
+            if (opening) return;
+            setOpening(true);
+            onPress();
+          }}
+          disabled={opening}
+          accessibilityState={{ busy: opening, disabled: opening }}
+        >
           <Text style={styles.room}>{room}</Text>
           <Text style={styles.house}>{location}</Text>
           <View style={styles.meta}>
@@ -1391,6 +1401,7 @@ function ApplicationCard({
             </Text>
           )}
           <View style={styles.cardAction}>
+            {opening && <ActivityIndicator size="small" color="#fff" />}
             <Text style={styles.cardActionText}>
               {approved ? "View Assignment" : "View Details"} →
             </Text>

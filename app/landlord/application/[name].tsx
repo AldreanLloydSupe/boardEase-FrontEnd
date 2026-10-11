@@ -9,7 +9,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { doc, getDoc, serverTimestamp, updateDoc } from "firebase/firestore";
 import React from "react";
 import {
-    Linking,
+    ActivityIndicator,
     Pressable,
     ScrollView,
     StyleSheet,
@@ -30,6 +30,9 @@ export default function ApplicationReview() {
   const [tenantProfile, setTenantProfile] = React.useState<
     Record<string, unknown>
   >({});
+  const [processing, setProcessing] = React.useState<
+    "approving" | "rejecting" | null
+  >(null);
   React.useEffect(() => {
     if (!db || !applicationId) return;
     const firestore = db;
@@ -72,8 +75,24 @@ export default function ApplicationReview() {
   const displayPrice = application.price
     ? `₱${application.price} / month`
     : "Not specified";
+  function messageTenant() {
+    const tenantId =
+      application.tenantId || (tenantProfile.id as string | undefined);
+    if (!tenantId) {
+      Alert.alert(
+        "Tenant unavailable",
+        "No tenant record is linked to this application.",
+      );
+      return;
+    }
+    router.push({
+      pathname: "/landlord/messages",
+      params: { tenantId },
+    } as any);
+  }
   async function approveApplication() {
     if (
+      processing ||
       !db ||
       !applicationId ||
       !application.roomNumber ||
@@ -85,6 +104,7 @@ export default function ApplicationReview() {
       );
       return;
     }
+    setProcessing("approving");
     try {
       await approveTenancy(applicationId);
       await createNotification(application.tenantId, {
@@ -108,10 +128,12 @@ export default function ApplicationReview() {
         "Unable to approve",
         error instanceof Error ? error.message : "Please try again.",
       );
+    } finally {
+      setProcessing(null);
     }
   }
   async function rejectApplication() {
-    if (!db || !applicationId) return;
+    if (processing || !db || !applicationId) return;
     const firestore = db;
     Alert.alert(
       "Reject application?",
@@ -122,6 +144,8 @@ export default function ApplicationReview() {
           text: "Reject",
           style: "destructive",
           onPress: async () => {
+            if (processing) return;
+            setProcessing("rejecting");
             try {
               await updateDoc(doc(firestore, "applications", applicationId), {
                 status: "rejected",
@@ -145,6 +169,8 @@ export default function ApplicationReview() {
                 "Unable to reject",
                 error instanceof Error ? error.message : "Please try again.",
               );
+            } finally {
+              setProcessing(null);
             }
           },
         },
@@ -172,43 +198,26 @@ export default function ApplicationReview() {
             </View>
           </View>
           <View style={styles.profileInfo}>
-            <Text style={styles.name}>{tenantName}</Text>
+            <View style={styles.nameRow}>
+              <Text style={styles.name} numberOfLines={1}>
+                {tenantName}
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Message ${tenantName}`}
+                style={styles.messageApplicantButton}
+                onPress={messageTenant}
+              >
+                <Ionicons
+                  name="chatbubble-outline"
+                  size={17}
+                  color="#2864e8"
+                />
+              </Pressable>
+            </View>
             <Text style={styles.role}>Tenant applicant</Text>
             <Text style={styles.applied}>Applied for {cleanRoomLabel}</Text>
           </View>
-        </View>
-        <View style={styles.contactRow}>
-          <Action
-            icon="chatbubble-outline"
-            label="Message"
-            onPress={() => {
-              const tenantId = application.tenantId || (tenantProfile.id as string | undefined);
-              if (!tenantId) {
-                Alert.alert("Tenant unavailable", "No tenant record is linked to this application.");
-                return;
-              }
-              router.push({
-                pathname: "/landlord/messages",
-                params: { tenantId },
-              } as any);
-            }}
-          />
-          <Action
-            icon="mail-outline"
-            label="Email"
-            onPress={() => {
-              if (tenantEmail !== "Not provided")
-                void Linking.openURL(
-                  `mailto:${encodeURIComponent(tenantEmail)}`,
-                ).catch(() =>
-                  Alert.alert(
-                    "Cannot email",
-                    "This device cannot open an email app.",
-                  ),
-                );
-              else Alert.alert("Email unavailable", "No email is on file.");
-            }}
-          />
         </View>
         <Card
           title="Tenancy Summary"
@@ -232,11 +241,24 @@ export default function ApplicationReview() {
         </Card>
       </ScrollView>
       <View style={styles.footer}>
-        <Pressable style={styles.reject} onPress={rejectApplication}>
-          <Text style={styles.rejectText}>Reject</Text>
+        <Pressable
+          style={styles.reject}
+          onPress={rejectApplication}
+          disabled={processing !== null}
+          accessibilityState={{
+            busy: processing === "rejecting",
+            disabled: processing !== null,
+          }}
+        >
+          {processing === "rejecting" ? (
+            <ActivityIndicator size="small" color="#c04350" />
+          ) : (
+            <Text style={styles.rejectText}>Reject</Text>
+          )}
         </Pressable>
         <Pressable
           style={styles.request}
+          disabled={processing !== null}
           onPress={() => {
             if (application.tenantId)
               void createNotification(application.tenantId, {
@@ -258,28 +280,26 @@ export default function ApplicationReview() {
         >
           <Text style={styles.requestText}>Request Info</Text>
         </Pressable>
-        <Pressable style={styles.approve} onPress={approveApplication}>
-          <Ionicons name="checkmark" size={17} color="#fff" />
-          <Text style={styles.approveText}>Approve & Assign</Text>
+        <Pressable
+          style={styles.approve}
+          onPress={approveApplication}
+          disabled={processing !== null}
+          accessibilityState={{
+            busy: processing === "approving",
+            disabled: processing !== null,
+          }}
+        >
+          {processing === "approving" ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <>
+              <Ionicons name="checkmark" size={17} color="#fff" />
+              <Text style={styles.approveText}>Approve & Assign</Text>
+            </>
+          )}
         </Pressable>
       </View>
     </SafeAreaView>
-  );
-}
-function Action({
-  icon,
-  label,
-  onPress,
-}: {
-  onPress: () => void;
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-}) {
-  return (
-    <Pressable style={styles.action} onPress={onPress}>
-      <Ionicons name={icon} size={17} color="#2864e8" />
-      <Text style={styles.actionText}>{label}</Text>
-    </Pressable>
   );
 }
 function Card({
@@ -396,7 +416,16 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   profileInfo: { flex: 1 },
-  name: { fontSize: 16, fontWeight: "700", color: "#253149" },
+  nameRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  name: { flex: 1, fontSize: 16, fontWeight: "700", color: "#253149" },
+  messageApplicantButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#eaf2ff",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   role: {
     alignSelf: "flex-start",
     fontSize: 11,
@@ -409,20 +438,6 @@ const styles = StyleSheet.create({
   },
   applied: { fontSize: 12, color: "#617083", marginTop: 5 },
   muted: { color: "#8390a2", fontSize: 11 },
-  contactRow: { flexDirection: "row", gap: 8, marginVertical: 12 },
-  action: {
-    flex: 1,
-    height: 40,
-    borderRadius: 8,
-    backgroundColor: "#fff",
-    alignItems: "center",
-    justifyContent: "center",
-    flexDirection: "row",
-    gap: 6,
-    borderWidth: 1,
-    borderColor: "#dce7f5",
-  },
-  actionText: { fontSize: 11, color: "#253149" },
   card: {
     backgroundColor: "#fff",
     borderRadius: 8,

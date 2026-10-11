@@ -566,13 +566,7 @@ export default function Rooms() {
             </>
           ) : (
             filteredRooms.map((room) => (
-              <Pressable
-                key={room.id}
-                style={styles.roomCard}
-                onPress={() => setDetailsRoom(room)}
-                accessibilityRole="button"
-                accessibilityLabel={`View details and tenants for room ${room.number}`}
-              >
+              <View key={room.id} style={styles.roomCard}>
                 <View style={styles.roomImageWrap}>
                   {room.image ? (
                     <Image
@@ -613,7 +607,12 @@ export default function Rooms() {
                     </Pressable>
                   </View>
                 </View>
-                <View style={styles.roomCardBody}>
+                <Pressable
+                  style={styles.roomCardBody}
+                  onPress={() => setDetailsRoom(room)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`View details and tenants for room ${room.number}`}
+                >
                   <View style={styles.roomHeader}>
                     <View style={styles.roomHeading}>
                       <Text style={styles.roomName} numberOfLines={1}>
@@ -686,12 +685,21 @@ export default function Rooms() {
                           : "No vacancy · At capacity"}
                     </Text>
                   </View>
-                  <Pressable accessibilityRole="button" accessibilityLabel={`View or print QR code for room ${room.number}`} style={styles.qrButton} onPress={(event) => { event.stopPropagation(); setQrRoom(room); }}>
-                    <Ionicons name="qr-code-outline" size={16} color="#2458c7" />
-                    <Text style={styles.qrButtonText}>View / Print QR Code</Text>
-                  </Pressable>
-                </View>
-              </Pressable>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`View or print QR code for room ${room.number}`}
+                  style={styles.qrButton}
+                  onPress={() => setQrRoom(room)}
+                >
+                  <Ionicons
+                    name="qr-code-outline"
+                    size={16}
+                    color="#2458c7"
+                  />
+                  <Text style={styles.qrButtonText}>View / Print QR Code</Text>
+                </Pressable>
+              </View>
             ))
           )}
         </View>

@@ -7,7 +7,10 @@ import { Pressable, StyleSheet, View } from "react-native";
 
 export function NotificationBell({ color = "#fff" }: { color?: string }) {
   const { notices: allNotices, error, loading, markRead } = useNotifications();
-  const notices = allNotices.filter((n) => !n.read);
+  const notices = allNotices.filter(
+    (n) =>
+      !n.read && n.type !== "chat_message" && n.type !== "maintenance_message",
+  );
   const [open, setOpen] = React.useState(false);
   async function openNotice(notice: Notice) {
     await markRead(notice);

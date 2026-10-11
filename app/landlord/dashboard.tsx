@@ -22,6 +22,7 @@ import {
     serverTimestamp,
     setDoc,
     where,
+    writeBatch,
 } from "firebase/firestore";
 import React from "react";
 import {
@@ -169,6 +170,37 @@ export default function Dashboard() {
   >([]);
   const [sentError, setSentError] = React.useState("");
   const [sentLoading, setSentLoading] = React.useState(true);
+  async function deleteAnnouncement(messageId: string) {
+    if (!db) return;
+    try {
+      const announcementRef = doc(db, "messages", messageId);
+      const announcementSnapshot = await getDoc(announcementRef);
+      if (!announcementSnapshot.exists()) return;
+      const announcement = announcementSnapshot.data();
+      const batch = writeBatch(db);
+      batch.delete(announcementRef);
+      if (announcement.kind === "announcement") {
+        const settingsRef = doc(db, "propertySettings", "main");
+        const settingsSnapshot = await getDoc(settingsRef);
+        const legacyBulletin = `${String(announcement.title || "").trim()}\n\n${String(announcement.body || "").trim()}`;
+        if (
+          settingsSnapshot.exists() &&
+          settingsSnapshot.data().bulletin === legacyBulletin
+        ) {
+          batch.update(settingsRef, {
+            bulletin: "",
+            updatedAt: serverTimestamp(),
+          });
+        }
+      }
+      await batch.commit();
+    } catch {
+      Alert.alert(
+        "Unable to delete announcement",
+        "Please check your connection and try again.",
+      );
+    }
+  }
   React.useEffect(() => {
     if (!db || !user) return;
     return onSnapshot(
@@ -419,6 +451,9 @@ export default function Dashboard() {
         }
         const occupiedCount = records.filter(
           (room) =>
+            (Array.isArray(room.tenantIds) && room.tenantIds.length > 0) ||
+            Number(room.tenantCount) > 0 ||
+            Boolean(room.tenantId) ||
             room.isOccupied === true ||
             String(room.status ?? "").toLowerCase() === "occupied",
         ).length;
@@ -794,6 +829,30 @@ export default function Dashboard() {
                     : "Sending..."}
                 </Text>
               </View>
+              {message.kind === "announcement" && (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Delete announcement: ${message.title || message.body}`}
+                  hitSlop={8}
+                  onPress={() =>
+                    Alert.alert(
+                      "Delete announcement?",
+                      "This removes it from tenant dashboards and cannot be undone.",
+                      [
+                        { text: "Cancel", style: "cancel" },
+                        {
+                          text: "Delete",
+                          style: "destructive",
+                          onPress: () => void deleteAnnouncement(message.id),
+                        },
+                      ],
+                    )
+                  }
+                  style={{ padding: 10, justifyContent: "center" }}
+                >
+                  <Ionicons name="trash-outline" size={19} color="#dc3545" />
+                </Pressable>
+              )}
             </View>
           ))
         )}
@@ -915,21 +974,46 @@ export default function Dashboard() {
               router.push("/landlord/pending-applications" as any);
             },
           })),
-          ...(pendingPayments.length
-            ? [
-                {
-                  id: "pending-payments",
-                  title: `${pendingPayments.length} payment proof${pendingPayments.length === 1 ? "" : "s"} awaiting review`,
-                  body: "Review and approve tenant payment submissions.",
-                  icon: "cash-outline" as const,
-                  iconColor: "#099268",
-                  onPress: () => {
-                    setNotificationsOpen(false);
-                    router.push("/landlord/finance");
-                  },
-                },
-              ]
-            : []),
+          ...(() => {
+            const cashPayments = pendingPayments.filter(
+              (payment) => payment.paymentMethod === "cash",
+            );
+            const gcashPayments = pendingPayments.filter(
+              (payment) => payment.paymentMethod !== "cash",
+            );
+            return [
+              ...(cashPayments.length
+                ? [
+                    {
+                      id: "pending-cash-payments",
+                      title: `${cashPayments.length} cash payment${cashPayments.length === 1 ? "" : "s"} awaiting approval`,
+                      body: "Review tenant cash payment submissions.",
+                      icon: "cash-outline" as const,
+                      iconColor: "#099268",
+                      onPress: () => {
+                        setNotificationsOpen(false);
+                        router.push("/landlord/finance");
+                      },
+                    },
+                  ]
+                : []),
+              ...(gcashPayments.length
+                ? [
+                    {
+                      id: "pending-gcash-payments",
+                      title: `${gcashPayments.length} GCash payment proof${gcashPayments.length === 1 ? "" : "s"} awaiting review`,
+                      body: "Review and verify tenant GCash receipts.",
+                      icon: "cash-outline" as const,
+                      iconColor: "#099268",
+                      onPress: () => {
+                        setNotificationsOpen(false);
+                        router.push("/landlord/finance");
+                      },
+                    },
+                  ]
+                : []),
+            ];
+          })(),
           ...(accountRequestCount
             ? [
                 {

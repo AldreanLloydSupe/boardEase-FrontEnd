@@ -3,7 +3,6 @@ import { TenantPageHeader } from "@/components/tenant-page-header";
 import { useAuth } from "@/lib/auth-context";
 import { peso, timestampMillis } from "@/lib/billing";
 import { db } from "@/lib/firebase";
-import { usePropertySettings } from "@/lib/use-property-settings";
 import { useTenantData } from "@/lib/use-tenant-data";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
@@ -15,8 +14,8 @@ import {
 } from "firebase/firestore";
 import React from "react";
 import {
+  ActivityIndicator,
   Image,
-  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -28,12 +27,12 @@ import { SafeAreaView } from "react-native-safe-area-context";
 export default function ApplicationDetails() {
   const { user } = useAuth();
   const { profile } = useTenantData();
-  const { settings } = usePropertySettings();
   const [application, setApplication] = React.useState<Record<
     string,
     unknown
   > | null>(null);
   const [error, setError] = React.useState("");
+  const [cancelling, setCancelling] = React.useState(false);
   const params = useLocalSearchParams<{
     applicationId?: string;
     room?: string;
@@ -73,7 +72,12 @@ export default function ApplicationDetails() {
     .replaceAll("_", " ")
     .toUpperCase();
   async function cancelApplication() {
-    if (!db || !params.applicationId || application?.status !== "pending")
+    if (
+      cancelling ||
+      !db ||
+      !params.applicationId ||
+      application?.status !== "pending"
+    )
       return;
     const firestore = db;
     Alert.alert(
@@ -85,6 +89,8 @@ export default function ApplicationDetails() {
           text: "Cancel application",
           style: "destructive",
           onPress: async () => {
+            if (cancelling) return;
+            setCancelling(true);
             try {
               await updateDoc(
                 doc(firestore, "applications", params.applicationId!),
@@ -93,6 +99,8 @@ export default function ApplicationDetails() {
               router.replace("/tenant/applications");
             } catch {
               Alert.alert("Could not cancel", "Please try again.");
+            } finally {
+              setCancelling(false);
             }
           },
         },
@@ -163,21 +171,17 @@ export default function ApplicationDetails() {
         <Pressable
           style={styles.message}
           onPress={() => {
-            const phone = String(settings.caretakerPhone || "");
-            if (phone)
-              void Linking.openURL(
-                `tel:${phone.replace(/[^+0-9]/g, "")}`,
-              ).catch(() =>
-                Alert.alert(
-                  "Cannot call",
-                  "Use the management number in your phone app.",
-                ),
-              );
-            else
+            if (!user?.uid) {
               Alert.alert(
-                "Contact unavailable",
-                "Management has not configured a contact number yet.",
+                "Sign in required",
+                "Sign in again to message property management.",
               );
+              return;
+            }
+            router.push({
+              pathname: "/tenant/messages",
+              params: { requestId: `direct:${user.uid}` },
+            } as any);
           }}
         >
           <Ionicons name="chatbubble-outline" size={17} color="#fff" />
@@ -185,10 +189,18 @@ export default function ApplicationDetails() {
         </Pressable>
         <Pressable
           style={styles.cancelContainer}
-          disabled={application?.status !== "pending"}
+          disabled={application?.status !== "pending" || cancelling}
+          accessibilityState={{
+            busy: cancelling,
+            disabled: application?.status !== "pending" || cancelling,
+          }}
           onPress={() => void cancelApplication()}
         >
-          <Text style={styles.cancelText}>Cancel Application</Text>
+          {cancelling ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Text style={styles.cancelText}>Cancel Application</Text>
+          )}
         </Pressable>
       </ScrollView>
     </SafeAreaView>

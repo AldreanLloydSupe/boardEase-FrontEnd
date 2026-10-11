@@ -29,6 +29,7 @@ export default function TenantHome() {
   const {
     unreadCount,
     announcements,
+    bulletinPosts,
     markRead,
     error: announcementError,
   } = useNotifications();
@@ -105,6 +106,9 @@ export default function TenantHome() {
           </Text>
         )}
         <View style={styles.due}>
+          <Text style={styles.dueBadge}>
+            DUE {cycle.due.toLocaleDateString("en-PH")}
+          </Text>
           <View>
             <Text style={styles.dueLabel}>· Rent Due</Text>
             <Text style={styles.amount}>
@@ -114,9 +118,6 @@ export default function TenantHome() {
               Period: {cycle.period} · Approved payments: {peso(cycle.paid)}
             </Text>
           </View>
-          <Text style={styles.dueBadge}>
-            DUE {cycle.due.toLocaleDateString("en-PH")}
-          </Text>
         </View>
         <View style={styles.roomCard}>
           <View style={styles.roomTop}>
@@ -225,9 +226,43 @@ export default function TenantHome() {
         </View>
         <View style={styles.bulletin}>
           <Text style={styles.sectionTitle}>📣 BoardEase Bulletin</Text>
-          <Text style={styles.bulletinText}>
-            {String(settings.bulletin || "No bulletin published yet.")}
-          </Text>
+          {!!String(settings.bulletin || "").trim() && (
+            <View style={styles.bulletinPostCard}>
+              <Text style={styles.bulletinPostTitle}>Property bulletin</Text>
+              <Text style={styles.bulletinText}>
+                {String(settings.bulletin)}
+              </Text>
+            </View>
+          )}
+          {!bulletinPosts.length && !String(settings.bulletin || "").trim() && (
+            <Text style={styles.muted}>No bulletin published yet.</Text>
+          )}
+          {bulletinPosts.map((notice) => (
+            <Pressable
+              key={notice.id}
+              accessibilityRole="button"
+              accessibilityLabel={`Read bulletin: ${notice.title}`}
+              style={styles.bulletinPostCard}
+              onPress={() => {
+                setOpenedAnnouncement(notice.id);
+                void markRead(notice);
+              }}
+            >
+              <View style={styles.bulletinPostHeading}>
+                <Text style={styles.bulletinPostTitle}>{notice.title}</Text>
+                {!notice.read && <Text style={styles.newBadge}>NEW</Text>}
+              </View>
+              <Text style={styles.muted}>
+                {timestampMillis(notice.createdAt)
+                  ? new Date(
+                      timestampMillis(notice.createdAt),
+                    ).toLocaleString("en-PH")
+                  : "Just posted"}
+              </Text>
+              <Text style={styles.bulletinText}>{notice.body}</Text>
+              <Text style={styles.history}>Read announcement ›</Text>
+            </Pressable>
+          ))}
         </View>
       </ScrollView>
       <Modal
@@ -369,8 +404,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#eaf2ff",
     borderRadius: 8,
     padding: 16,
-    flexDirection: "row",
-    justifyContent: "space-between",
+    flexDirection: "column",
+    alignItems: "stretch",
     marginBottom: 11,
     borderWidth: 1,
     borderColor: "#d5e5ff",
@@ -386,7 +421,8 @@ const styles = StyleSheet.create({
     borderRadius: 9,
     paddingHorizontal: 8,
     paddingVertical: 4,
-    alignSelf: "flex-start",
+    alignSelf: "flex-end",
+    marginBottom: 8,
   },
   roomCard: {
     backgroundColor: "#fff",
@@ -483,9 +519,29 @@ const styles = StyleSheet.create({
   },
   bulletinText: {
     fontSize: 12,
-    fontWeight: "600",
-    color: "#1d4ed8",
-    marginTop: 8,
+    color: "#536783",
+    lineHeight: 19,
+    marginTop: 6,
+  },
+  bulletinPostCard: {
+    backgroundColor: "#f8faff",
+    borderWidth: 1,
+    borderColor: "#e1eafa",
+    borderRadius: 10,
+    padding: 12,
+    marginTop: 10,
+  },
+  bulletinPostHeading: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+  },
+  bulletinPostTitle: {
+    flex: 1,
+    color: "#253149",
+    fontSize: 16,
+    lineHeight: 21,
+    fontWeight: "800",
   },
   bottomBar: {
     position: "absolute",

@@ -68,7 +68,7 @@ export default function PendingApplications() {
           snapshot.docs
             .map((d) => ({ ...d.data(), id: d.id }))
             .filter(
-              (d: any) => !d.status || d.status === "pending",
+              (application: any) => application.status === "pending",
             ) as Application[],
         );
         appsReady = true;

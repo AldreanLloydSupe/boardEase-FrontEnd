@@ -35,6 +35,7 @@ type Receipt = {
   date: string;
   amount: string;
   reference: string;
+  method: string;
   period: string;
   tenantName: string;
   roomNumber: string;
@@ -47,6 +48,10 @@ export default function TenantPayments() {
   const receiverNumber = String(settings.gcashNumber || "");
   const receiverName = String(settings.gcashName || "");
   const cycle = cycleDetails(profile, payments);
+  const [paymentMethod, setPaymentMethod] = React.useState<"gcash" | "cash">(
+    "gcash",
+  );
+  const [cashAmount, setCashAmount] = React.useState("");
   const [feedback, setFeedback] = React.useState("");
   const [proofOpen, setProofOpen] = React.useState(false);
   const [referenceNumber, setReferenceNumber] = React.useState("");
@@ -70,6 +75,7 @@ export default function TenantPayments() {
       date: String(p.dateSent || "Not recorded"),
       amount: peso(p.amount),
       reference: String(p.referenceNumber || p.reference || "Not recorded"),
+      method: p.paymentMethod === "cash" ? "Cash" : "GCash",
       period: String(p.billingPeriod || "Not allocated"),
       tenantName: String(
         p.tenantName || profile.name || user?.displayName || "Tenant",
@@ -86,9 +92,10 @@ export default function TenantPayments() {
         `Tenant: ${receipt.tenantName}`,
         `Amount Paid: ${receipt.amount}`,
         `Payment Date: ${receipt.date}`,
+        `Payment Method: ${receipt.method}`,
         `Room: ${receipt.roomNumber}`,
         `Billing period: ${receipt.period}`,
-        `Transfer reference: ${receipt.reference}`,
+        `Payment reference: ${receipt.reference}`,
         "BoardEase payment acknowledgement; not a BIR tax invoice.",
         "Status: PAID",
       ].join("\n");
@@ -261,6 +268,7 @@ export default function TenantPayments() {
           roomNumber: String(profile.roomNumber || ""),
           billingPeriod: cycle.period,
           amount: parsedAmount,
+          paymentMethod: "gcash",
           referenceNumber: referenceNumber.trim(),
           dateSent: formatDate(sentAt),
           timeSent: formatTime(sentAt),
@@ -289,10 +297,123 @@ export default function TenantPayments() {
       setIsSubmitting(false);
     }
   }
+  async function submitCashPayment() {
+    if (isSubmitting) return;
+    if (!profile.hasRoom || !profile.roomId) {
+      Alert.alert("Active room required", "An active room assignment is required.");
+      return;
+    }
+    const parsedAmount = Number(cashAmount.replace(/[^\d.-]/g, ""));
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      Alert.alert("Invalid amount", "Enter an amount greater than zero.");
+      return;
+    }
+    if (parsedAmount > cycle.balance) {
+      Alert.alert(
+        "Amount exceeds rent due",
+        `Enter ${peso(cycle.balance)} or less.`,
+      );
+      return;
+    }
+    if (!db || !user) {
+      Alert.alert("Firebase unavailable", "Sign in again and try again.");
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const referenceNumber = `CASH-${Date.now()}`;
+      const submittedAt = new Date();
+      const ref = doc(db, "payments", user.uid + "__" + referenceNumber);
+      await runTransaction(db, async (tx) => {
+        const existing = await tx.get(ref);
+        if (existing.exists() && existing.data().status !== "rejected")
+          throw new Error("This cash payment was already submitted.");
+        tx.set(ref, {
+          tenantId: user.uid,
+          tenantName: String(profile.name || user.displayName || "Tenant"),
+          roomId: String(profile.roomId || ""),
+          roomNumber: String(profile.roomNumber || ""),
+          billingPeriod: cycle.period,
+          amount: parsedAmount,
+          paymentMethod: "cash",
+          referenceNumber,
+          dateSent: formatDate(submittedAt),
+          timeSent: formatTime(submittedAt),
+          receiptUrl: "",
+          status: "pending",
+          createdAt: serverTimestamp(),
+        });
+      });
+      setCashAmount("");
+      setFeedback("Cash payment submitted for landlord approval.");
+      Alert.alert(
+        "Cash payment submitted",
+        "Your payment is waiting for landlord approval.",
+      );
+    } catch (error: unknown) {
+      Alert.alert(
+        "Unable to submit cash payment",
+        error instanceof Error ? error.message : "Please try again.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
   return (
     <SafeAreaView style={styles.page}>
       <TenantPageHeader title="Payments" />
       <ScrollView contentContainerStyle={styles.content}>
+        <View style={styles.methodChoices}>
+          <Pressable
+            accessibilityRole="radio"
+            accessibilityState={{ selected: paymentMethod === "gcash" }}
+            style={[
+              styles.methodChoice,
+              paymentMethod === "gcash" && styles.methodChoiceActive,
+            ]}
+            onPress={() => setPaymentMethod("gcash")}
+          >
+            <Ionicons
+              name="phone-portrait-outline"
+              size={17}
+              color={paymentMethod === "gcash" ? "#fff" : "#2864e8"}
+            />
+            <Text
+              style={[
+                styles.methodChoiceText,
+                paymentMethod === "gcash" && styles.methodChoiceTextActive,
+              ]}
+            >
+              GCash
+            </Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="radio"
+            accessibilityState={{ selected: paymentMethod === "cash" }}
+            style={[
+              styles.methodChoice,
+              paymentMethod === "cash" && styles.methodChoiceActive,
+            ]}
+            onPress={() => {
+              setPaymentMethod("cash");
+              setCashAmount(cycle.balance > 0 ? cycle.balance.toFixed(2) : "");
+            }}
+          >
+            <Ionicons
+              name="cash-outline"
+              size={17}
+              color={paymentMethod === "cash" ? "#fff" : "#2864e8"}
+            />
+            <Text
+              style={[
+                styles.methodChoiceText,
+                paymentMethod === "cash" && styles.methodChoiceTextActive,
+              ]}
+            >
+              Cash
+            </Text>
+          </Pressable>
+        </View>
         {!!(error || feedback) && (
           <Text accessibilityRole="alert">{error || feedback}</Text>
         )}
@@ -302,19 +423,16 @@ export default function TenantPayments() {
         {loading && <ActivityIndicator />}
 
         <View style={styles.card}>
-          <View style={styles.rowBetween}>
-            <Text style={styles.badge}>
-              {cycle.balance === 0
-                ? "NO BALANCE"
-                : cycle.daysUntilDue < 0
-                  ? "OVERDUE"
-                  : `DUE IN ${cycle.daysUntilDue} DAYS`}
-            </Text>
-            <Text style={styles.deadline}>
-              Payment Deadline{"\n"}
-              {cycle.due.toLocaleDateString("en-PH")}
-            </Text>
-          </View>
+          <Text style={styles.badge}>
+            {cycle.balance === 0
+              ? "NO BALANCE"
+              : cycle.daysUntilDue < 0
+                ? "OVERDUE"
+                : `DUE IN ${cycle.daysUntilDue} DAYS`}
+          </Text>
+          <Text style={styles.deadline}>
+            Payment deadline: {cycle.due.toLocaleDateString("en-PH")}
+          </Text>
           <Text style={styles.sectionTitle}>Monthly Rent Due</Text>
           <Text style={styles.total}>
             {loading || error ? "—" : peso(cycle.balance)}
@@ -332,17 +450,61 @@ export default function TenantPayments() {
             label="Approved this billing period"
             value={peso(cycle.paid)}
           />
-          <Pressable
-            disabled={
-              loading || !!error || !profile.hasRoom || cycle.balance <= 0
-            }
-            style={styles.payButton}
-            onPress={openProof}
-          >
-            <Ionicons name="flash" size={15} color="#fff" />
-            <Text style={styles.payText}>Pay {peso(cycle.balance)} Now</Text>
-          </Pressable>
+          {paymentMethod === "gcash" && (
+            <Pressable
+              disabled={
+                loading || !!error || !profile.hasRoom || cycle.balance <= 0
+              }
+              style={styles.payButton}
+              onPress={openProof}
+            >
+              <Ionicons name="flash" size={15} color="#fff" />
+              <Text style={styles.payText}>Pay {peso(cycle.balance)} Now</Text>
+            </Pressable>
+          )}
         </View>
+
+        {paymentMethod === "cash" && (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Cash payment</Text>
+            <Text style={styles.muted}>
+              Enter the amount you will pay directly to property management.
+              The payment will remain pending until approved.
+            </Text>
+            <Text style={styles.inputLabel}>Amount you will pay</Text>
+            <TextInput
+              style={styles.input}
+              value={cashAmount}
+              onChangeText={setCashAmount}
+              keyboardType="decimal-pad"
+              placeholder="Enter amount"
+              editable={!isSubmitting}
+              accessibilityLabel="Cash payment amount"
+            />
+            <Pressable
+              style={[
+                styles.payButton,
+                isSubmitting && styles.submitButtonDisabled,
+              ]}
+              onPress={() => void submitCashPayment()}
+              disabled={
+                isSubmitting ||
+                loading ||
+                !!error ||
+                !profile.hasRoom ||
+                cycle.balance <= 0
+              }
+            >
+              {isSubmitting ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.payText}>
+                  Send Cash Payment for Approval
+                </Text>
+              )}
+            </Pressable>
+          </View>
+        )}
 
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Payment submissions</Text>
@@ -353,74 +515,79 @@ export default function TenantPayments() {
             .filter((p) => p.status !== "approved")
             .map((p) => (
               <Text key={p.id} style={styles.muted}>
+                {p.paymentMethod === "cash" ? "Cash · " : "GCash · "}
                 {peso(p.amount)} · {String(p.status || "pending")} · Ref{" "}
                 {String(p.referenceNumber || "—")}
               </Text>
             ))}
         </View>
-        <View style={styles.gcashCard}>
-          <View style={styles.gcashHeading}>
-            <Ionicons name="wallet-outline" size={18} color="#2864e8" />
-            <Text style={styles.gcashTitle}>Direct GCash Transfer</Text>
-          </View>
-          <Text style={styles.gcashLabel}>RECEIVER GCASH ACCOUNT</Text>
-          <View style={styles.gcashReceiver}>
-            <View>
-              <Text style={styles.gcashName}>
-                {receiverName || "Receiver not configured"}
-              </Text>
-              <Text style={styles.muted}>BoardEase Management & Admin</Text>
-              <Text style={styles.gcashNumber}>
-                {receiverNumber || "Contact management for payment details"}
-              </Text>
+        {paymentMethod === "gcash" && (
+          <View style={styles.gcashCard}>
+            <View style={styles.gcashHeading}>
+              <Ionicons name="wallet-outline" size={18} color="#2864e8" />
+              <Text style={styles.gcashTitle}>Direct GCash Transfer</Text>
             </View>
-            <Pressable
-              disabled={!receiverNumber}
-              onPress={() =>
-                void Clipboard.setStringAsync(receiverNumber)
-                  .then(() => setFeedback("GCash number copied."))
-                  .catch(() =>
-                    setFeedback(
-                      "Could not copy. Please copy the displayed number manually.",
-                    ),
-                  )
-              }
-            >
-              <Text style={styles.copyText}>Copy</Text>
-            </Pressable>
+            <Text style={styles.gcashLabel}>RECEIVER GCASH ACCOUNT</Text>
+            <View style={styles.gcashReceiver}>
+              <View>
+                <Text style={styles.gcashName}>
+                  {receiverName || "Receiver not configured"}
+                </Text>
+                <Text style={styles.muted}>BoardEase Management & Admin</Text>
+                <Text style={styles.gcashNumber}>
+                  {receiverNumber || "Contact management for payment details"}
+                </Text>
+              </View>
+              <Pressable
+                disabled={!receiverNumber}
+                onPress={() =>
+                  void Clipboard.setStringAsync(receiverNumber)
+                    .then(() => setFeedback("GCash number copied."))
+                    .catch(() =>
+                      setFeedback(
+                        "Could not copy. Please copy the displayed number manually.",
+                      ),
+                    )
+                }
+              >
+                <Text style={styles.copyText}>Copy</Text>
+              </Pressable>
+            </View>
+            <Text style={styles.gcashLabel}>TRANSFER INSTRUCTIONS</Text>
+            <Text style={styles.instruction}>
+              1. Open your GCash app and tap Send Money.
+            </Text>
+            <Text style={styles.instruction}>
+              2. Confirm the receiver account name in GCash before sending.
+            </Text>
+            <Text style={styles.instruction}>
+              3. Keep your reference number and submit proof using Pay Now.
+            </Text>
           </View>
-          <Text style={styles.gcashLabel}>TRANSFER INSTRUCTIONS</Text>
-          <Text style={styles.instruction}>
-            1. Open your GCash app and tap Send Money.
-          </Text>
-          <Text style={styles.instruction}>
-            2. Confirm the receiver account name in GCash before sending.
-          </Text>
-          <Text style={styles.instruction}>
-            3. Keep your reference number and submit proof using Pay Now.
-          </Text>
-        </View>
+        )}
 
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Payment Preferences</Text>
-          <Line
-            icon="phone-portrait-outline"
-            label="Manual GCash transfer"
-            value="MANUAL"
-            detail="Send your transfer and submit proof for review"
-          />
-          <Line
-            icon="alarm-outline"
-            label="In-App Payment Reminders"
-            value={
-              profile.notificationsEnabled === false ||
-              profile.paymentReminders === false
-                ? "OFF"
-                : "ON"
-            }
-            detail={`${String(profile.reminderTiming || "3 days before")} · while the app is open`}
-          />
-        </View>
+        {paymentMethod === "gcash" && (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Payment Preferences</Text>
+            <Line
+              icon="phone-portrait-outline"
+              label="Manual GCash transfer"
+              value="MANUAL"
+              detail="Send your transfer and submit proof for review"
+            />
+            <Line
+              icon="alarm-outline"
+              label="In-App Payment Reminders"
+              value={
+                profile.notificationsEnabled === false ||
+                profile.paymentReminders === false
+                  ? "OFF"
+                  : "ON"
+              }
+              detail={`${String(profile.reminderTiming || "3 days before")} · while the app is open`}
+            />
+          </View>
+        )}
 
         <View style={styles.card}>
           <View style={styles.rowBetween}>
@@ -517,12 +684,16 @@ export default function TenantPayments() {
               <Text style={styles.detailValue}>
                 {selectedReceipt?.date || "—"}
               </Text>
+              <Text style={styles.inputLabel}>Payment method</Text>
+              <Text style={styles.detailValue}>
+                {selectedReceipt?.method || "—"}
+              </Text>
               <Text style={styles.inputLabel}>Description</Text>
               <Text style={styles.detailValue}>
                 Period {selectedReceipt?.period} · Room{" "}
                 {selectedReceipt?.roomNumber}
               </Text>
-              <Text style={styles.inputLabel}>Transfer reference</Text>
+              <Text style={styles.inputLabel}>Payment reference</Text>
               <Text style={styles.detailValue}>
                 {selectedReceipt?.reference}
               </Text>
@@ -730,6 +901,22 @@ function Line({
 const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: "#f3f7fd" },
   content: { padding: 14, paddingBottom: 90 },
+  methodChoices: { flexDirection: "row", gap: 10, marginBottom: 12 },
+  methodChoice: {
+    flex: 1,
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#dce7f5",
+    borderRadius: 9,
+  },
+  methodChoiceActive: { backgroundColor: "#2864e8", borderColor: "#2864e8" },
+  methodChoiceText: { color: "#2864e8", fontSize: 13, fontWeight: "700" },
+  methodChoiceTextActive: { color: "#fff" },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -797,7 +984,12 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "700",
   },
-  deadline: { textAlign: "right", color: "#2458c7", fontSize: 10 },
+  deadline: {
+    color: "#526174",
+    fontSize: 11,
+    marginTop: 8,
+    flexShrink: 1,
+  },
   sectionTitle: {
     fontSize: 13,
     fontWeight: "700",

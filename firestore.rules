@@ -21,13 +21,17 @@ service cloud.firestore {
       let data = request.resource.data;
       let profile = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
       return owns(data) && id == request.auth.uid + '__' + data.referenceNumber &&
-        data.keys().hasOnly(['tenantId','tenantName','roomId','roomNumber','billingPeriod','referenceNumber','dateSent','timeSent','amount','receiptUrl','status','createdAt']) &&
+        data.keys().hasOnly(['tenantId','tenantName','roomId','roomNumber','billingPeriod','referenceNumber','dateSent','timeSent','amount','receiptUrl','paymentMethod','status','createdAt']) &&
         data.status == 'pending' && data.createdAt == request.time &&
         profile.hasRoom == true && data.roomId == profile.roomId && data.roomNumber == profile.roomNumber &&
         data.billingPeriod is string && data.billingPeriod.matches('^[0-9]{4}-(0[1-9]|1[0-2])$') &&
         data.amount is number && data.amount > 0 &&
-        data.referenceNumber is string && data.referenceNumber.matches('^[0-9]{13}$') &&
-        data.receiptUrl is string && data.receiptUrl.size() > 0 && data.receiptUrl.size() <= 510000;
+        data.referenceNumber is string &&
+        (data.get('paymentMethod', 'gcash') == 'cash'
+          ? data.referenceNumber.matches('^CASH-[0-9]{13}$') && data.receiptUrl == ''
+          : data.get('paymentMethod', 'gcash') == 'gcash' &&
+            data.referenceNumber.matches('^[0-9]{13}$') &&
+            data.receiptUrl is string && data.receiptUrl.size() > 0 && data.receiptUrl.size() <= 510000);
     }
     function profileEdits() {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
@@ -110,7 +114,7 @@ service cloud.firestore {
         request.resource.data.roomId == resource.data.roomId && availableRequest(id) &&
         request.resource.data.keys().hasOnly(['tenantId','tenantName','tenantEmail','roomId','roomNumber','roomType','price','image','propertyName','location','floor','unit','status','createdAt']));
       allow delete: if isLandlord() ||
-        (owns(resource.data) && resource.data.status in ['approved','cancelled']);
+        (owns(resource.data) && resource.data.status in ['approved','cancelled','vacated']);
     }
     match /tourRequests/{id} {
       allow get: if ownMissingDocument('tourRequests', id);

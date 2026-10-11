@@ -29,6 +29,7 @@ export type Notice = {
   type?: string;
   createdAt?: unknown;
   local?: boolean;
+  postToBulletin?: boolean;
 };
 export function useNotifications() {
   const { user } = useAuth();
@@ -145,6 +146,12 @@ export function useNotifications() {
     .sort(
       (a, b) => timestampMillis(b.createdAt) - timestampMillis(a.createdAt),
     );
+  const announcements = broadcasts
+    .filter((n) => n.type === "announcement")
+    .map((n) => ({ ...n, read: reads.has(n.id) }))
+    .sort(
+      (a, b) => timestampMillis(b.createdAt) - timestampMillis(a.createdAt),
+    );
   async function markRead(notice: Notice) {
     if (!db || !uid || notice.read) return;
     try {
@@ -158,12 +165,8 @@ export function useNotifications() {
     }
   }
   return {
-    announcements: broadcasts
-      .filter((n) => n.type === "announcement")
-      .map((n) => ({ ...n, read: reads.has(n.id) }))
-      .sort(
-        (a, b) => timestampMillis(b.createdAt) - timestampMillis(a.createdAt),
-      ),
+    announcements,
+    bulletinPosts: announcements.filter((notice) => notice.postToBulletin),
     notices: visible,
     unreadCount: visible.filter((n) => !n.read).length,
     error,

@@ -37,6 +37,7 @@ type Payment = {
   tenantId?: string;
   tenantName?: string;
   amount?: number | string;
+  paymentMethod?: string;
   referenceNumber?: string;
   reference?: string;
   dateSent?: string;
@@ -155,8 +156,12 @@ export default function Finance() {
             status === "approved" ? "Payment approved" : "Payment rejected",
           body:
             status === "approved"
-              ? "Your payment proof was verified by the landlord."
-              : "Your payment proof was rejected. Please review and submit it again.",
+              ? payment.paymentMethod === "cash"
+                ? "Your cash payment was approved by the landlord and recorded."
+                : "Your GCash payment proof was verified by the landlord."
+              : payment.paymentMethod === "cash"
+                ? "Your cash payment was not approved. Contact the landlord for details."
+                : "Your GCash payment proof was rejected. Please review and submit it again.",
           route: "/tenant/payments",
         }).catch(() =>
           Alert.alert(
@@ -478,7 +483,15 @@ export default function Finance() {
                 <Ionicons name="close" size={22} color="#526174" />
               </Pressable>
             </View>
-            <Text style={styles.detailLabel}>GCash Reference Number</Text>
+            <Text style={styles.detailLabel}>Payment method</Text>
+            <Text style={styles.detailValue}>
+              {selectedPayment?.paymentMethod === "cash" ? "Cash" : "GCash"}
+            </Text>
+            <Text style={styles.detailLabel}>
+              {selectedPayment?.paymentMethod === "cash"
+                ? "Payment reference"
+                : "GCash Reference Number"}
+            </Text>
             <Text style={styles.detailValue}>
               {selectedPayment?.referenceNumber ||
                 selectedPayment?.reference ||
